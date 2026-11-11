@@ -35,3 +35,13 @@ jobs:
       - run: bun run typecheck
       - run: bun test
       - run: bun run build
+
+  demo-infra:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: cp .env.example .env
+      - run: docker compose up -d --build --wait --wait-timeout 240
+      - run: ./scripts/smoke_demo.sh
+      - if: failure()
+        run: docker compose logs --tail 100
