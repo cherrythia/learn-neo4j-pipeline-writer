@@ -12,6 +12,19 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   - Relation endpoints rewritten to existing keys with notes for reviewers; confidence feeds
     `entity_match`. Batch-local entities are resolvable.
   - In-memory and Neo4j match indexes (Neo4j integration test). Docs: `docs/matching.md`.
+- **#13 Authentication and roles** (`writer_service.auth`)
+  - `X-API-Key` dependency for ingestion (constant-time; refused with 503 when unset).
+  - Admin login: scrypt password hashes, JWT session in an httpOnly SameSite=Lax cookie,
+    `/api/auth/login|logout|me`; roles `admin` ⊇ `reviewer` via `require_role()`.
+  - CSRF header requirement on state-changing cookie requests; uniform login errors;
+    login/failed-login audit; deactivated users lose access immediately.
+  - Login throttling: per username+client and per client budgets, reserved before the
+    password check (race-free), bounded memory → 429.
+  - Revocable sessions: `users.session_version` (migration `0003`) in every token; logout
+    ends all of a user's sessions; role and active flag always read from the database.
+  - `writer-users create` CLI; prod refuses weak JWT secrets, insecure cookies and weak or
+    example ingest keys.
+  - Docs: `docs/auth.md`; ADR-0011 updated.
 - **#6 Candidate facts and hard gates** (`writer_service.pipeline`)
   - Pydantic candidate models (entity / relation, discriminated) with `Evidence`;
     `fact_hash` (whitespace/case/order-insensitive, evidence-free) and `identity_hash`.

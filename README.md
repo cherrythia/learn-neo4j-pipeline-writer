@@ -25,6 +25,7 @@ Currently in place:
 - LLM layer ([docs](docs/llm.md))
 - core ontology and publish workflow ([docs](docs/ontology.md))
 - scoring engine ([docs](docs/scoring.md))
+- authentication and roles ([docs](docs/auth.md))
 - candidate facts and hard gates ([docs](docs/gates.md))
 - entity matching ([docs](docs/matching.md))
 
@@ -39,6 +40,7 @@ uv sync
 uv run uvicorn writer_service.app:create_app --factory --reload   # http://localhost:8000/health
 uv run writer-db upgrade                          # create governance tables
 uv run writer-ontology bootstrap                  # publish core ontology + Neo4j constraints
+uv run writer-users create alice --role admin      # first admin user
 uv run pytest
 
 cd admin-ui && bun install && bun run dev        # http://localhost:3000
@@ -72,6 +74,10 @@ All settings use the `WRITER_` prefix. See [`.env.example`](.env.example).
 | `WRITER_NEO4J_URI` | `bolt://localhost:7687` | Neo4j connection |
 | `WRITER_NEO4J_USER` | `neo4j` | Neo4j user |
 | `WRITER_NEO4J_PASSWORD` | `change-me-neo4j` | **Secret.** Neo4j password (min 8 chars) |
+| `WRITER_INGEST_API_KEY` | *(none)* | **Secret.** `X-API-Key` for ingestion; unset = ingestion refused |
+| `WRITER_ADMIN_JWT_SECRET` | *(random in dev)* | **Secret.** Signs admin sessions; 32+ chars, required in prod |
+| `WRITER_SESSION_TTL_MINUTES` | `480` | Admin session length |
+| `WRITER_COOKIE_SECURE` | `false` | Secure cookie flag; must be `true` in prod |
 | `WRITER_GOVERNANCE_DB_URL` | `sqlite:///./governance.sqlite` | Governance store |
 
 Empty values in `.env` are treated as unset. Invalid values stop the service at startup.
