@@ -52,10 +52,16 @@ in the same batch**:
 | Check | Example conflict |
 |---|---|
 | property contradiction | `Issuer 'APH': property 'board' is 'mainboard' in the graph, candidate says 'catalist'` |
-| `many_to_one` / `one_to_one` (source side) | `FILED_BY is many_to_one: Filing 'AR-2025-APH' already points to 'APH' in the graph, candidate says 'BYL'` |
-| `one_to_many` / `one_to_one` (target side) | `ISSUED is one_to_many: Filing 'F1' already has source 'APH' …` |
+| `many_to_one` / `one_to_one` (source side) | `FILED_BY is many_to_one: Filing 'AR-2025-APH' already points to Issuer 'APH' in the graph, candidate says Issuer 'BYL'` |
+| `one_to_many` / `one_to_one` (target side) | `ISSUED is one_to_many: Filing 'F1' already has source Issuer 'APH' …` |
 
-Comparison ignores whitespace and case, so re-asserting a known fact passes. A conflict is
+Cardinality looks at existing edges to **any subclass** of the relation's range (or domain):
+if `AUDITED_BY` ranges over `Organisation`, an existing edge to an `Issuer` counts.
+
+Keys: the schema gate canonicalises them (whitespace collapsed) and the writer stores them that
+way; matching then ignores case. In Neo4j the lookup tries the exact key first (served by the
+identity-key uniqueness index) and only falls back to a case-insensitive label scan on a miss.
+Re-asserting a known fact passes. A conflict is
 **never** auto-resolved: it goes to the review queue with both facts side by side
 ([ADR-0010](adr/0010-neo4j-accepted-facts-only.md)).
 

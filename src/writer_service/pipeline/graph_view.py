@@ -1,30 +1,38 @@
 """Read-only view of accepted facts in the graph, used by the constraint gate.
 
-Keys are compared with ``match_key`` (whitespace/case-insensitive) on both sides.
+Key matching: the schema gate canonicalises every key (``canonical_text``: whitespace
+collapsed) and the writer stores keys in that form, so lookups receive canonical keys. Both
+views then match case-insensitively. ``Neo4jGraphView`` first tries an exact match (served by
+the identity-key uniqueness index) and only scans with ``toLower`` when that misses.
 """
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import Any, Protocol
 
-from writer_service.pipeline.candidates import match_key
+from writer_service.pipeline.candidates import canonical_text, match_key
 
 NodeRef = tuple[str, str, str]  # (label, key property, key value)
+# One existing node at the far end of an edge: {label: identity-key value} for each of its
+# labels that is in the requested ``keys_by_label`` (a node may carry several class labels).
+FarNode = dict[str, str]
 
 
 class GraphView(Protocol):
     def node_properties(self, label: str, key: str, value: str) -> dict[str, Any] | None: ...
 
     def targets(
-        self, relation: str, source: NodeRef, target_label: str, target_key: str
-    ) -> set[str]:
-        """Key values (raw) of nodes ``source`` already points to via ``relation``."""
+        self, relation: str, source: NodeRef, keys_by_label: Mapping[str, str]
+    ) -> list[FarNode]:
+        """Nodes ``source`` already points to via ``relation`` whose labels are in
+        ``keys_by_label`` (label -> identity key)."""
         ...
 
     def sources(
-        self, relation: str, target: NodeRef, source_label: str, source_key: str
-    ) -> set[str]:
-        """Key values (raw) of nodes already pointing to ``target`` via ``relation``."""
+        self, relation: str, target: NodeRef, keys_by_label: Mapping[str, str]
+    ) -> list[FarNode]:
+        """Nodes already pointing to ``target`` via ``relation`` (labels as for ``targets``)."""
         ...
 
 
@@ -51,24 +59,24 @@ class InMemoryGraphView:
         return self.nodes.get((label, match_key(value)))
 
     def targets(
-        self, relation: str, source: NodeRef, target_label: str, target_key: str
-    ) -> set[str]:
+        self, relation: str, source: NodeRef, keys_by_label: Mapping[str, str]
+    ) -> list[FarNode]:
         src = (source[0], match_key(source[2]))
-        return {
-            raw_t
+        return [
+            {t[0]: raw_t}
             for rel, s, t, _, raw_t in self.edges
-            if rel == relation and s == src and t[0] == target_label
-        }
+            if rel == relation and s == src and t[0] in keys_by_label
+        ]
 
     def sources(
-        self, relation: str, target: NodeRef, source_label: str, source_key: str
-    ) -> set[str]:
+        self, relation: str, target: NodeRef, keys_by_label: Mapping[str, str]
+    ) -> list[FarNode]:
         tgt = (target[0], match_key(target[2]))
-        return {
-            raw_s
+        return [
+            {s[0]: raw_s}
             for rel, s, t, raw_s, _ in self.edges
-            if rel == relation and t == tgt and s[0] == source_label
-        }
+            if rel == relation and t == tgt and s[0] in keys_by_label
+        ]
 
 
 class Neo4jGraphView:
@@ -83,31 +91,46 @@ class Neo4jGraphView:
         records, _, _ = self.driver.execute_query(cypher, database_=self.database, **params)
         return list(records)
 
-    def node_properties(self, label: str, key: str, value: str) -> dict[str, Any] | None:
+    def _find(self, label: str, key: str, value: str) -> Any | None:
         rows = self._query(
-            f"MATCH (n:{label}) WHERE toLower(trim(toString(n.{key}))) = $v RETURN n LIMIT 1",
-            v=match_key(value),
+            f"MATCH (n:{label}) WHERE n.{key} = $v RETURN n LIMIT 1", v=canonical_text(value)
         )
-        return dict(rows[0]["n"]) if rows else None
+        if not rows:  # case differs from the stored key: fall back to a label scan
+            rows = self._query(
+                f"MATCH (n:{label}) WHERE toLower(toString(n.{key})) = $v RETURN n LIMIT 1",
+                v=match_key(value),
+            )
+        return rows[0]["n"] if rows else None
+
+    def node_properties(self, label: str, key: str, value: str) -> dict[str, Any] | None:
+        node = self._find(label, key, value)
+        return dict(node) if node is not None else None
+
+    def _far(self, pattern: str, ref: NodeRef, keys_by_label: Mapping[str, str]) -> list[FarNode]:
+        node = self._find(*ref)
+        if node is None:
+            return []
+        rows = self._query(
+            f"MATCH {pattern} WHERE elementId(n) = $id RETURN labels(m) AS ls, properties(m) AS p",
+            id=node.element_id,
+        )
+        out: list[FarNode] = []
+        for row in rows:
+            far = {
+                label: str(row["p"][keys_by_label[label]])
+                for label in row["ls"]
+                if label in keys_by_label and keys_by_label[label] in row["p"]
+            }
+            if far:
+                out.append(far)
+        return out
 
     def targets(
-        self, relation: str, source: NodeRef, target_label: str, target_key: str
-    ) -> set[str]:
-        s_label, s_key, s_value = source
-        rows = self._query(
-            f"MATCH (s:{s_label})-[:{relation}]->(t:{target_label}) "
-            f"WHERE toLower(trim(toString(s.{s_key}))) = $v RETURN t.{target_key} AS k",
-            v=match_key(s_value),
-        )
-        return {str(r["k"]) for r in rows}
+        self, relation: str, source: NodeRef, keys_by_label: Mapping[str, str]
+    ) -> list[FarNode]:
+        return self._far(f"(n:{source[0]})-[:{relation}]->(m)", source, keys_by_label)
 
     def sources(
-        self, relation: str, target: NodeRef, source_label: str, source_key: str
-    ) -> set[str]:
-        t_label, t_key, t_value = target
-        rows = self._query(
-            f"MATCH (s:{source_label})-[:{relation}]->(t:{t_label}) "
-            f"WHERE toLower(trim(toString(t.{t_key}))) = $v RETURN s.{source_key} AS k",
-            v=match_key(t_value),
-        )
-        return {str(r["k"]) for r in rows}
+        self, relation: str, target: NodeRef, keys_by_label: Mapping[str, str]
+    ) -> list[FarNode]:
+        return self._far(f"(m)-[:{relation}]->(n:{target[0]})", target, keys_by_label)

@@ -60,7 +60,7 @@ def test_many_to_one_second_target_in_graph_is_conflict(
     (other,) = check_batch([filed_by("AR-2025-APH", "BYL")], spec, graph)
     assert other.status == "conflict"
     assert "FILED_BY is many_to_one" in other.conflict  # type: ignore[operator]
-    assert "already points to 'APH'" in other.conflict  # type: ignore[operator]
+    assert "already points to Issuer 'APH'" in other.conflict  # type: ignore[operator]
 
 
 def test_many_to_one_contradiction_within_batch(
@@ -108,4 +108,69 @@ def test_one_to_many_checks_the_source_side(spec: OntologySpec, graph: InMemoryG
         target=EntityRef(class_name="Filing", key="F1"),
     )
     (res,) = check_batch([r], owns, graph)
-    assert res.status == "conflict" and "already has source 'APH'" in res.conflict  # type: ignore[operator]
+    assert res.status == "conflict" and "already has source Issuer 'APH'" in res.conflict  # type: ignore[operator]
+
+
+def with_relations(spec: OntologySpec, *rels: object) -> OntologySpec:
+    return OntologySpec(spec.classes, (*spec.relations, *rels))  # type: ignore[arg-type]
+
+
+def test_many_to_one_sees_existing_edge_to_a_subclass_node(
+    spec: OntologySpec, graph: InMemoryGraphView
+) -> None:
+    """Range is Organisation; the graph edge points to an Issuer (subclass) node."""
+    from writer_service.ontology.spec import RelationSpec
+
+    audited = with_relations(
+        spec, RelationSpec("AUDITED_BY", "Filing", "Organisation", "many_to_one")
+    )
+    graph.add_edge("AUDITED_BY", ("Filing", "filing_id", "F1"), ("Issuer", "ticker", "APH"))
+    kpmg = CandidateRelation(
+        relation="AUDITED_BY",
+        source=EntityRef(class_name="Filing", key="F1"),
+        target=EntityRef(class_name="Organisation", key="KPMG"),
+    )
+    (res,) = check_batch([kpmg], audited, graph)
+    assert res.status == "conflict" and "Issuer 'APH'" in res.conflict  # type: ignore[operator]
+    same = kpmg.model_copy(update={"target": EntityRef(class_name="Issuer", key="aph")})
+    assert check_batch([same], audited, graph)[0].status == "pass"
+
+
+def test_one_to_many_contradiction_within_batch(
+    spec: OntologySpec, graph: InMemoryGraphView
+) -> None:
+    from writer_service.ontology.spec import RelationSpec
+
+    issued = with_relations(spec, RelationSpec("ISSUED", "Issuer", "Filing", "one_to_many"))
+    rels = [
+        CandidateRelation(
+            relation="ISSUED",
+            source=EntityRef(class_name="Issuer", key=src),
+            target=EntityRef(class_name="Filing", key="F1"),
+        )
+        for src in ("APH", "BYL")
+    ]
+    results = check_batch(rels, issued, graph)
+    assert [r.status for r in results] == ["pass", "conflict"]
+    assert "has source Issuer 'APH' in this batch" in results[1].conflict  # type: ignore[operator]
+
+
+def test_one_to_one_checks_both_sides(spec: OntologySpec, graph: InMemoryGraphView) -> None:
+    from writer_service.ontology.spec import RelationSpec
+
+    heads = with_relations(spec, RelationSpec("SUCCEEDS", "Filing", "Filing", "one_to_one"))
+
+    def succ(a: str, b: str) -> CandidateRelation:
+        return CandidateRelation(
+            relation="SUCCEEDS",
+            source=EntityRef(class_name="Filing", key=a),
+            target=EntityRef(class_name="Filing", key=b),
+        )
+
+    graph.add_edge("SUCCEEDS", ("Filing", "filing_id", "F2"), ("Filing", "filing_id", "F1"))
+    (fwd,) = check_batch([succ("F2", "F9")], heads, graph)  # F2 already has a target
+    assert fwd.status == "conflict" and "already points to" in fwd.conflict  # type: ignore[operator]
+    (back,) = check_batch([succ("F3", "F1")], heads, graph)  # F1 already has a source
+    assert back.status == "conflict" and "already has source" in back.conflict  # type: ignore[operator]
+    batch = check_batch([succ("A", "B"), succ("C", "B")], heads, InMemoryGraphView())
+    assert [r.status for r in batch] == ["pass", "conflict"]

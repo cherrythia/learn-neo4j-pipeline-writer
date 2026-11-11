@@ -14,6 +14,7 @@ so one node can never become two unrelated classes; the gate checks what can sti
 from __future__ import annotations
 
 import re
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import date
 from typing import Any, Literal
@@ -171,8 +172,9 @@ class _Batch:
     """Facts already accepted earlier in the same batch."""
 
     props: dict[tuple[str, str], dict[str, Any]] = field(default_factory=dict)
-    targets: dict[tuple[str, str, str], str] = field(default_factory=dict)
-    sources: dict[tuple[str, str, str], str] = field(default_factory=dict)
+    # (relation, source label, source match key) -> (target label, target key) and vice versa
+    targets: dict[tuple[str, str, str], tuple[str, str]] = field(default_factory=dict)
+    sources: dict[tuple[str, str, str], tuple[str, str]] = field(default_factory=dict)
 
 
 def _fmt(value: Any) -> str:
@@ -202,42 +204,58 @@ def _entity_conflict(
     return None
 
 
+def _keys_under(spec: OntologySpec, class_name: str) -> dict[str, str]:
+    """Neo4j label -> identity key for ``class_name`` and every subclass of it.
+
+    A relation whose range is Organisation can point to an Issuer node, so cardinality must
+    look at edges to any of these labels, not only the candidate's own class.
+    """
+    return {neo4j_label(c): c.identity_key for c in spec.classes if _is_a(spec, c.name, class_name)}
+
+
+def _same_node(node: Mapping[str, str], label: str, key: str) -> bool:
+    return label in node and match_key(node[label]) == match_key(key)
+
+
+def _describe(node: Mapping[str, str]) -> str:
+    label, value = sorted(node.items())[0]
+    return f"{label} {value!r}"
+
+
 def _relation_conflict(
     c: CandidateRelation, rel: RelationSpec, spec: OntologySpec, graph: GraphView, batch: _Batch
 ) -> str | None:
     by_name = {x.name: x for x in spec.classes}
     src_cls, tgt_cls = by_name[c.source.class_name], by_name[c.target.class_name]
-    src = (neo4j_label(src_cls), src_cls.identity_key, c.source.key)
-    tgt = (neo4j_label(tgt_cls), tgt_cls.identity_key, c.target.key)
+    s_label, t_label = neo4j_label(src_cls), neo4j_label(tgt_cls)
+    src = (s_label, src_cls.identity_key, c.source.key)
+    tgt = (t_label, tgt_cls.identity_key, c.target.key)
+    head = f"{rel.name} is {rel.cardinality}:"
     if rel.cardinality in ("many_to_one", "one_to_one"):
-        known = {*graph.targets(rel.name, src, tgt[0], tgt[1])}
-        others = {k for k in known if match_key(k) != match_key(c.target.key)}
-        if others:
+        for node in graph.targets(rel.name, src, _keys_under(spec, rel.range)):
+            if not _same_node(node, t_label, c.target.key):
+                return (
+                    f"{head} {c.source.class_name} {c.source.key!r} already points to "
+                    f"{_describe(node)} in the graph, candidate says {t_label} {c.target.key!r}"
+                )
+        prior = batch.targets.get((rel.name, s_label, match_key(c.source.key)))
+        if prior is not None and not _same_node({prior[0]: prior[1]}, t_label, c.target.key):
             return (
-                f"{rel.name} is {rel.cardinality}: {c.source.class_name} {c.source.key!r} "
-                f"already points to {sorted(others)[0]!r} in the graph, "
-                f"candidate says {c.target.key!r}"
-            )
-        prior = batch.targets.get((rel.name, src[0], match_key(c.source.key)))
-        if prior is not None and match_key(prior) != match_key(c.target.key):
-            return (
-                f"{rel.name} is {rel.cardinality}: {c.source.class_name} {c.source.key!r} "
-                f"points to {prior!r} in this batch, candidate says {c.target.key!r}"
+                f"{head} {c.source.class_name} {c.source.key!r} points to {prior[0]} "
+                f"{prior[1]!r} in this batch, candidate says {t_label} {c.target.key!r}"
             )
     if rel.cardinality in ("one_to_many", "one_to_one"):
-        known = {*graph.sources(rel.name, tgt, src[0], src[1])}
-        others = {k for k in known if match_key(k) != match_key(c.source.key)}
-        if others:
+        for node in graph.sources(rel.name, tgt, _keys_under(spec, rel.domain)):
+            if not _same_node(node, s_label, c.source.key):
+                return (
+                    f"{head} {c.target.class_name} {c.target.key!r} already has source "
+                    f"{_describe(node)} in the graph, candidate says {s_label} {c.source.key!r}"
+                )
+        prior = batch.sources.get((rel.name, t_label, match_key(c.target.key)))
+        if prior is not None and not _same_node({prior[0]: prior[1]}, s_label, c.source.key):
             return (
-                f"{rel.name} is {rel.cardinality}: {c.target.class_name} {c.target.key!r} "
-                f"already has source {sorted(others)[0]!r} in the graph, "
-                f"candidate says {c.source.key!r}"
-            )
-        prior = batch.sources.get((rel.name, tgt[0], match_key(c.target.key)))
-        if prior is not None and match_key(prior) != match_key(c.source.key):
-            return (
-                f"{rel.name} is {rel.cardinality}: {c.target.class_name} {c.target.key!r} "
-                f"has source {prior!r} in this batch, candidate says {c.source.key!r}"
+                f"{head} {c.target.class_name} {c.target.key!r} has source {prior[0]} "
+                f"{prior[1]!r} in this batch, candidate says {s_label} {c.source.key!r}"
             )
     return None
 
@@ -270,10 +288,10 @@ def check_batch(
                 s_label = neo4j_label(by_name[cand.source.class_name])
                 t_label = neo4j_label(by_name[cand.target.class_name])
                 batch.targets.setdefault(
-                    (rel.name, s_label, match_key(cand.source.key)), cand.target.key
+                    (rel.name, s_label, match_key(cand.source.key)), (t_label, cand.target.key)
                 )
                 batch.sources.setdefault(
-                    (rel.name, t_label, match_key(cand.target.key)), cand.source.key
+                    (rel.name, t_label, match_key(cand.target.key)), (s_label, cand.source.key)
                 )
         results.append(GateResult(cand, "conflict" if conflict else "pass", conflict=conflict))
     return results

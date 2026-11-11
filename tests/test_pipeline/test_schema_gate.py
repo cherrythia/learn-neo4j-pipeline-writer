@@ -105,3 +105,30 @@ def test_relation_accepts_subclass_endpoint_via_taxonomy(spec: OntologySpec) -> 
 def test_relation_failures(spec: OntologySpec, candidate: CandidateRelation, message: str) -> None:
     failures, _ = schema_gate(candidate, spec)
     assert any(message in f for f in failures), failures
+
+
+def test_deprecated_relation_rejected(spec: OntologySpec) -> None:
+    from dataclasses import replace
+
+    dep = OntologySpec(
+        spec.classes,
+        tuple(replace(r, deprecated=True) if r.name == "CITES" else r for r in spec.relations),
+    )
+    failures, _ = schema_gate(rel("CITES", ("Filing", "F"), ("Rule", "LR-705")), dep)
+    assert failures == ["schema: relation 'CITES' is deprecated"]
+
+
+def test_empty_target_key_rejected(spec: OntologySpec) -> None:
+    failures, _ = schema_gate(rel("FILED_BY", ("Filing", "F"), ("Issuer", "   ")), spec)
+    assert "schema: target key is empty" in failures
+
+
+def test_deprecated_endpoint_class_rejected(spec: OntologySpec) -> None:
+    from dataclasses import replace
+
+    dep = OntologySpec(
+        tuple(replace(c, deprecated=True) if c.name == "Issuer" else c for c in spec.classes),
+        spec.relations,
+    )
+    failures, _ = schema_gate(rel("FILED_BY", ("Filing", "F"), ("Issuer", "APH")), dep)
+    assert "schema: class 'Issuer' is deprecated" in failures

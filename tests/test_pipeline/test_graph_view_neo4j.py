@@ -45,8 +45,12 @@ def driver() -> Iterator[Driver]:
 def test_reads_nodes_and_edges_case_insensitively(driver: Driver) -> None:
     view = Neo4jGraphView(driver)
     assert view.node_properties("Issuer", "ticker", ISSUER.lower())["board"] == "mainboard"  # type: ignore[index]
-    assert view.targets("FILED_BY", ("Filing", "filing_id", FILING), "Issuer", "ticker") == {ISSUER}
-    assert view.sources("FILED_BY", ("Issuer", "ticker", ISSUER), "Filing", "filing_id") == {FILING}
+    assert view.targets("FILED_BY", ("Filing", "filing_id", FILING), {"Issuer": "ticker"}) == [
+        {"Issuer": ISSUER}
+    ]
+    assert view.sources("FILED_BY", ("Issuer", "ticker", ISSUER), {"Filing": "filing_id"}) == [
+        {"Filing": FILING}
+    ]
     assert view.node_properties("Issuer", "ticker", "__nope__") is None
 
 
@@ -67,3 +71,15 @@ def test_gates_detect_conflicts_against_real_graph(driver: Driver, spec: Ontolog
         Neo4jGraphView(driver),
     )
     assert [r.status for r in results] == ["conflict", "conflict"]
+
+
+def test_subclass_target_and_whitespace_variant_key(driver: Driver, spec: OntologySpec) -> None:
+    """The gate canonicalises '__T_FILING__' typed with doubled spaces etc.; the edge's far
+    node is reported per label so a parent-range relation sees it."""
+    view = Neo4jGraphView(driver)
+    far = view.targets(
+        "FILED_BY",
+        ("Filing", "filing_id", f"  {FILING} "),
+        {"Issuer": "ticker", "Organisation": "name"},
+    )
+    assert far == [{"Issuer": ISSUER}]
