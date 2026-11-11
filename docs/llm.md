@@ -78,6 +78,7 @@ Nothing else changes: prompts, caching, validation and the pipeline are provider
 - Unit tests use `FakeLLM`; the Claude adapter is tested through the real `anthropic` SDK
   over a mocked HTTP transport (`httpx2.MockTransport`). CI never calls a real model.
 - Recorded fixtures: a `FileCache` directory can be committed and replayed with
-  `ReplayOnlyLLM`.
+  `ReplayOnlyLLM(model)`, where `model` is the model the answers were recorded with (it is
+  part of the cache key).
 - Live check (optional, costs a few cents):
   `WRITER_TEST_ANTHROPIC_API_KEY=sk-... uv run pytest -m live`.

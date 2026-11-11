@@ -1,3 +1,4 @@
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -10,7 +11,7 @@ from writer_service.llm.base import (
     LLMRequest,
     LLMResponse,
 )
-from writer_service.llm.cache import InMemoryCache
+from writer_service.llm.cache import FileCache, InMemoryCache
 from writer_service.llm.fake import FakeLLM, ReplayOnlyLLM
 from writer_service.llm.prompts import PromptTemplate
 from writer_service.llm.schema import strict_json_schema
@@ -97,7 +98,7 @@ def test_gives_up_after_max_attempts_and_caches_nothing() -> None:
 
 
 def test_replay_only_raises_on_cache_miss() -> None:
-    llm = StructuredLLM(ReplayOnlyLLM(), InMemoryCache())
+    llm = StructuredLLM(ReplayOnlyLLM("claude-sonnet-5-5"), InMemoryCache())
     with pytest.raises(LLMReplayMissError, match="no recorded response"):
         ask(llm)
 
@@ -168,3 +169,15 @@ def test_replay_miss_is_not_retried() -> None:
     with pytest.raises(LLMReplayMissError):
         ask(StructuredLLM(client, InMemoryCache(), max_attempts=3))
     assert client.calls == 1
+
+
+def test_record_then_replay_from_file_cache(tmp_path: Path) -> None:
+    """A FileCache recorded with a real model replays offline under the same model name."""
+    model = "claude-sonnet-5-5"
+    recorder = FakeLLM({"extract": [GOOD]}, model=model)  # stands in for the live provider
+    recorded = ask(StructuredLLM(recorder, FileCache(tmp_path)))
+    replayed = ask(StructuredLLM(ReplayOnlyLLM(model), FileCache(tmp_path)))
+    assert replayed.cached is True and replayed.value == recorded.value
+    assert replayed.model == model
+    with pytest.raises(LLMReplayMissError):  # a different model is a different key
+        ask(StructuredLLM(ReplayOnlyLLM("claude-opus-5-5"), FileCache(tmp_path)))

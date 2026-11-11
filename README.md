@@ -57,7 +57,7 @@ All settings use the `WRITER_` prefix. See [`.env.example`](.env.example).
 | `WRITER_ANTHROPIC_API_KEY` | *(none)* | **Secret.** Required when provider is `anthropic` (the LLM factory fails fast without it) |
 | `WRITER_LLM_EFFORT` | `high` | Claude effort: `low` to `max` |
 | `WRITER_LLM_FALLBACKS` | `true` | Server-side fallback when Claude declines a request |
-| `WRITER_LLM_MAX_ATTEMPTS` | `2` | Attempts per call when output fails schema validation |
+| `WRITER_LLM_MAX_ATTEMPTS` | `2` | Attempts per call when output is not JSON, truncated or fails the schema |
 | `WRITER_LLM_CACHE_DIR` | `data/cache/llm` | Cache of validated LLM answers |
 | `WRITER_SELF_CONSISTENCY_RUNS` | `3` | Extraction runs per input (1 to 10) |
 | `WRITER_NEO4J_URI` | `bolt://localhost:7687` | Neo4j connection |

@@ -159,9 +159,12 @@ def test_sticky_fallback_without_block_still_reports_serving_model() -> None:
     assert resp.model == "claude-opus-5-5" and resp.data == {"ok": False}
 
 
-def test_refusal_raises() -> None:
-    client, _ = llm(body([], stop="refusal"), fallbacks=False)
-    with pytest.raises(LLMRefusalError):
+@pytest.mark.parametrize("fallbacks", [True, False])
+def test_refusal_raises_with_category(fallbacks: bool) -> None:
+    reply = body([], stop="refusal")
+    reply["stop_details"] = {"type": "refusal", "category": "cyber", "explanation": "declined"}
+    client, _ = llm(reply, fallbacks=fallbacks)
+    with pytest.raises(LLMRefusalError, match="category=cyber"):
         client.complete_json(REQ)
 
 

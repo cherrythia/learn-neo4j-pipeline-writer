@@ -17,14 +17,15 @@ class FakeLLM:
     script computes the answer from the request. Every request is recorded in ``calls``.
     """
 
-    def __init__(self, scripts: Mapping[str, Script] | None = None) -> None:
+    def __init__(self, scripts: Mapping[str, Script] | None = None, model: str = "fake") -> None:
+        self._model = model
         self._scripts = dict(scripts or {})
         self._positions: dict[str, int] = {}
         self.calls: list[LLMRequest] = []
 
     @property
     def model(self) -> str:
-        return "fake"
+        return self._model
 
     def complete_json(self, request: LLMRequest) -> LLMResponse:
         self.calls.append(request)
@@ -41,11 +42,18 @@ class FakeLLM:
 
 
 class ReplayOnlyLLM:
-    """Used with a recorded ``FileCache``: any cache miss is an error, never a live call."""
+    """Used with a recorded ``FileCache``: any cache miss is an error, never a live call.
+
+    ``model`` must be the model the answers were recorded with, because the model is part of
+    the cache key (e.g. ``ReplayOnlyLLM(settings.llm_model)``).
+    """
+
+    def __init__(self, model: str) -> None:
+        self._model = model
 
     @property
     def model(self) -> str:
-        return "replay"
+        return self._model
 
     def complete_json(self, request: LLMRequest) -> LLMResponse:
         raise LLMReplayMissError(
