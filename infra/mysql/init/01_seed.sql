@@ -46,10 +46,10 @@ CREATE TABLE rules (
 INSERT INTO rules (rule_code, title, text, filing_type) VALUES
   ('LR-705', 'Annual report timing', 'An issuer must issue its annual report within 4 months of its financial year end.', 'annual_report'),
   ('LR-707', 'Annual report contents', 'The annual report must include the auditor''s report and the directors'' statement.', 'annual_report'),
-  ('LR-711A', 'Sustainability report', 'An issuer must issue a sustainability report for each financial year.', 'esg_report'),
+  ('LR-711A', 'Sustainability report', 'An issuer must issue a sustainability report for each financial year within 4 months of year end.', 'esg_report'),
   ('LR-711B', 'Climate disclosures', 'The sustainability report must include climate-related disclosures.', 'esg_report'),
   ('CR-705', 'Catalist annual report timing', 'A Catalist issuer must issue its annual report within 4 months of year end, with its sponsor''s review.', 'annual_report'),
-  ('CR-711A', 'Catalist sustainability report', 'A Catalist issuer must issue a sustainability report within 5 months of year end.', 'esg_report');
+  ('CR-711A', 'Catalist sustainability report', 'A Catalist issuer must issue a sustainability report within 150 days of year end.', 'esg_report');
 
 CREATE TABLE obligations (
   obligation_id INT PRIMARY KEY,

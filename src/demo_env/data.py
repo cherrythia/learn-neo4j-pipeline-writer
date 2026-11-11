@@ -90,7 +90,8 @@ RULES: list[Rule] = [
     Rule(
         "LR-711A",
         "Sustainability report",
-        "An issuer must issue a sustainability report for each financial year.",
+        "An issuer must issue a sustainability report for each financial year within 4 months "
+        "of year end.",
         "esg_report",
     ),
     Rule(
@@ -109,7 +110,7 @@ RULES: list[Rule] = [
     Rule(
         "CR-711A",
         "Catalist sustainability report",
-        "A Catalist issuer must issue a sustainability report within 5 months of year end.",
+        "A Catalist issuer must issue a sustainability report within 150 days of year end.",
         "esg_report",
     ),
 ]

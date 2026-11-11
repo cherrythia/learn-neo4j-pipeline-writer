@@ -58,3 +58,24 @@ def test_deadlines_derive_from_obligations() -> None:
             o for o in data.OBLIGATIONS if o.rule_code == rule.rule_code and o.board == issuer.board
         )
         assert (f.due_on - data.date(2025, 12, 31)).days == ob.deadline_days
+
+
+def test_timing_rule_text_agrees_with_obligation_deadline() -> None:
+    """The pipeline reads deadlines from rule text, so text and obligation must agree."""
+    import re
+
+    year_end = data.date(2025, 12, 31)
+    for (board, _ftype), code in data.TIMING_RULE.items():
+        rule = next(r for r in data.RULES if r.rule_code == code)
+        days = next(
+            o.deadline_days for o in data.OBLIGATIONS if o.rule_code == code and o.board == board
+        )
+        m = re.search(r"within (\d+) (months|days)", rule.text)
+        assert m, code
+        n, unit = int(m.group(1)), m.group(2)
+        if unit == "days":
+            text_due = year_end + data.timedelta(days=n)
+        else:  # month-end arithmetic from 31 Dec
+            month = n
+            text_due = data.date(2026, month + 1, 1) - data.timedelta(days=1)
+        assert text_due == year_end + data.timedelta(days=days), code
