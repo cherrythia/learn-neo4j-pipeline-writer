@@ -70,6 +70,7 @@ def test_attribute_accuracy_counts_wrong_and_missing_properties() -> None:
 def test_empty_prediction() -> None:
     s = score_facts([], GOLDEN, SPEC)
     assert (s.precision, s.recall, s.f1) == (0.0, 0.0, 0.0)
+    assert s.attribute_accuracy is None  # nothing matched: not "1.00" (review round 1)
 
 
 def test_entities_without_identity_key_are_ignored() -> None:
@@ -84,3 +85,29 @@ def test_agreement_is_mean_pairwise_jaccard() -> None:
     assert agreement([{a}, {a, b}]) == 0.5
     assert agreement([{a}, {a, b}, {a, b}]) == pytest.approx((0.5 + 0.5 + 1.0) / 3)
     assert agreement([{a}]) == 1.0
+
+
+def test_relation_from_the_wrong_class_is_not_a_match() -> None:
+    wrong = CandidateRelation(
+        relation="CITES",
+        source=EntityRef(class_name="Issuer", key="F1"),  # golden source is a Filing
+        target=EntityRef(class_name="Rule", key="LR-705"),
+    )
+    s = score_facts([RULE, wrong], GOLDEN, SPEC)
+    assert (s.true_positives, s.false_positives, s.false_negatives) == (1, 1, 2)
+
+
+def test_golden_can_name_endpoint_classes_explicitly() -> None:
+    golden = {
+        "entities": [],
+        "relations": [
+            {
+                "relation": "CITES",
+                "source": "F1",
+                "source_class": "Filing",
+                "target": "LR-705",
+                "target_class": "Rule",
+            }
+        ],
+    }
+    assert score_facts([cites("F1", "LR-705")], golden, SPEC).f1 == 1.0

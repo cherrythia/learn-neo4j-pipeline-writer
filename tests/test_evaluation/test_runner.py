@@ -49,3 +49,32 @@ def test_replay_miss_is_an_error(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.chdir(ROOT)
     with pytest.raises(LLMReplayMissError):
         main(["--runs", "4"])  # no recording exists for a 4th sample
+
+
+def test_live_mode_refuses_a_folder_with_recordings(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Review round 1: live mode over cached answers would report them as a live run."""
+    monkeypatch.chdir(ROOT)
+    with pytest.raises(SystemExit) as exc:
+        main(["--mode", "live", "--recordings", str(RECORDINGS)])
+    assert exc.value.code == 2
+    assert "needs an empty --recordings folder" in capsys.readouterr().err
+
+
+def test_live_mode_calls_the_model_into_a_fresh_folder(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    fake = FakeLLM({EXTRACTION_PROMPT.name: RUNS})
+    monkeypatch.setattr("writer_service.evaluation.cli.build_llm_client", lambda s: fake)
+    monkeypatch.chdir(ROOT)
+    live = tmp_path / "live"
+    assert main(["--mode", "live", "--runs", "3", "--recordings", str(live)]) == 0
+    assert len(fake.calls) == 3 and any(live.iterdir())  # answers really came from the client
+
+
+def test_scripted_recordings_use_the_default_model() -> None:
+    from writer_service.config import Settings
+    from writer_service.evaluation.scripted import MODEL
+
+    assert Settings.model_fields["llm_model"].default == MODEL

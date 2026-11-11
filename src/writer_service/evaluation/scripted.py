@@ -7,7 +7,8 @@ report is meaningful: run 0 invents a rule, run 1 misses one, run 2 is clean.
 
 Regenerate after changing the prompt, ontology or golden set:
     uv run python -m writer_service.evaluation.scripted
-Replace with real recordings:  writer-eval --mode live   (needs WRITER_ANTHROPIC_API_KEY)
+Real answers: ``writer-eval --mode live`` (needs WRITER_ANTHROPIC_API_KEY) writes them to
+``evaluation/recordings-live``; CI replays that folder too when it is committed.
 """
 
 from __future__ import annotations
@@ -15,6 +16,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from writer_service.config import Settings
 from writer_service.ingestion.documents import EXTRACTION_PROMPT
 from writer_service.llm.cache import FileCache
 from writer_service.llm.fake import FakeLLM
@@ -24,7 +26,10 @@ from .runner import evaluate
 
 RECORDINGS = Path("evaluation/recordings")
 GOLDEN = Path("evaluation/golden/aurora_annual_report_2025.json")
-MODEL = "claude-sonnet-5-5"
+LIVE_RECORDINGS = Path("evaluation/recordings-live")  # real answers from --mode live
+# Keyed under the default model, so a plain `writer-eval` replays them. (With WRITER_LLM_MODEL
+# set to something else, replay misses and fails loudly instead of scoring stale answers.)
+MODEL = str(Settings.model_fields["llm_model"].default)
 
 
 def _ent(cls: str, props: dict[str, str], page: int, quote: str) -> dict[str, Any]:
@@ -55,7 +60,7 @@ BASE_ENTITIES = [
             "ticker": "APH",
             "name": "Aurora Pacific Holdings (Demo)",
             "board": "mainboard",
-            "country": "SG",
+            "country": "Singapore",
         },
         1,
         "Aurora Pacific Holdings (Demo) (ticker APH) is listed on the Mainboard",
@@ -109,7 +114,10 @@ RUNS: list[dict[str, Any]] = [
 
 
 def record(directory: Path = RECORDINGS, root: Path = Path(".")) -> None:
-    """Write the scripted answers as recordings (one per self-consistency sample)."""
+    """Write the scripted answers as recordings (one per self-consistency sample).
+    Old entries are removed first: otherwise the cache would serve them back unchanged."""
+    for stale in directory.glob("*.json"):
+        stale.unlink()
     fake = FakeLLM({EXTRACTION_PROMPT.name: RUNS}, model=MODEL)
     evaluate(StructuredLLM(fake, FileCache(directory)), root / GOLDEN, len(RUNS), root)
 

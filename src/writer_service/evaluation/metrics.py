@@ -17,8 +17,19 @@ def entity_key(class_name: str, key: str) -> FactKey:
     return ("entity", class_name, match_key(key))
 
 
-def relation_key(relation: str, source: str, target: str) -> FactKey:
-    return ("relation", relation, match_key(source), match_key(target))
+def relation_key(
+    relation: str, source_class: str, source: str, target_class: str, target: str
+) -> FactKey:
+    """Endpoint classes are part of the identity: a relation from the wrong kind of node is
+    a different (wrong) fact, even when the keys match."""
+    return (
+        "relation",
+        relation,
+        source_class,
+        match_key(source),
+        target_class,
+        match_key(target),
+    )
 
 
 def fact_keys(candidates: list[AnyCandidate], spec: OntologySpec) -> set[FactKey]:
@@ -31,14 +42,31 @@ def fact_keys(candidates: list[AnyCandidate], spec: OntologySpec) -> set[FactKey
             if key is not None:
                 out.add(entity_key(c.class_name, str(key)))
         else:
-            out.add(relation_key(c.relation, c.source.key, c.target.key))
+            out.add(
+                relation_key(
+                    c.relation, c.source.class_name, c.source.key, c.target.class_name, c.target.key
+                )
+            )
     return out
 
 
-def golden_keys(golden: dict[str, Any]) -> set[FactKey]:
-    return {entity_key(e["class_name"], e["key"]) for e in golden["entities"]} | {
-        relation_key(r["relation"], r["source"], r["target"]) for r in golden["relations"]
-    }
+def golden_keys(golden: dict[str, Any], spec: OntologySpec) -> set[FactKey]:
+    """Golden relations may name ``source_class``/``target_class``; by default they are the
+    relation's domain and range in the ontology."""
+    rels = {r.name: r for r in spec.relations}
+    out = {entity_key(e["class_name"], e["key"]) for e in golden["entities"]}
+    for r in golden["relations"]:
+        rs = rels.get(r["relation"])
+        out.add(
+            relation_key(
+                r["relation"],
+                r.get("source_class") or (rs.domain if rs else ""),
+                r["source"],
+                r.get("target_class") or (rs.range if rs else ""),
+                r["target"],
+            )
+        )
+    return out
 
 
 @dataclass(frozen=True)
@@ -49,7 +77,9 @@ class Scores:
     true_positives: int
     false_positives: int
     false_negatives: int
-    attribute_accuracy: float  # share of golden properties reproduced on matched entities
+    # share of golden properties reproduced on matched entities; None when nothing to check
+    # (no golden entity matched, or the matched ones have no labelled properties)
+    attribute_accuracy: float | None
 
     def as_dict(self) -> dict[str, Any]:
         return {k: round(v, 4) if isinstance(v, float) else v for k, v in asdict(self).items()}
@@ -58,7 +88,7 @@ class Scores:
 def score_facts(
     candidates: list[AnyCandidate], golden: dict[str, Any], spec: OntologySpec
 ) -> Scores:
-    predicted, expected = fact_keys(candidates, spec), golden_keys(golden)
+    predicted, expected = fact_keys(candidates, spec), golden_keys(golden, spec)
     tp, fp, fn = len(predicted & expected), len(predicted - expected), len(expected - predicted)
     precision = tp / (tp + fp) if tp + fp else 0.0
     recall = tp / (tp + fn) if tp + fn else 0.0
@@ -80,7 +110,7 @@ def score_facts(
             checked += 1
             got = cand.properties.get(prop)
             correct += got is not None and match_key(got) == match_key(value)
-    accuracy = correct / checked if checked else 1.0
+    accuracy = correct / checked if checked else None
     return Scores(precision, recall, f1, tp, fp, fn, accuracy)
 
 

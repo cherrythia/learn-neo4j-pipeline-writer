@@ -10,9 +10,13 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   - Hand-labelled golden facts for the sample annual report; the sample PDF now states its
     filing references so they are extractable.
   - Precision / recall / F1 on fact identity, attribute accuracy, run-to-run agreement; per-run
-    and self-consistency-voted results; `--min-f1` gate (CI runs it at 0.95).
-  - Replay mode over recordings (CI) and live mode that records; the committed recordings are
-    scripted stand-ins, clearly documented. Docs: `docs/evaluation.md`.
+    and self-consistency-voted results; `--min-f1` gate. Relations are matched including their
+    endpoint classes.
+  - Replay mode over recordings and live mode (which refuses a non-empty recordings folder, so
+    it can't report cached answers as live). The committed recordings are **scripted
+    stand-ins**: CI's step with them is a self-test of the harness, not an accuracy gate on
+    the model. Committed live recordings (`evaluation/recordings-live/`) are replayed and gated
+    in CI when present. Docs: `docs/evaluation.md`.
 - **#11 Document ingestion library** (`writer_service.ingestion.documents`)
   - PDF → one chunk per page (`page N`); Excel → one chunk per row (`sheet S row N`), from
     paths or uploaded bytes; windowing without splitting chunks.
