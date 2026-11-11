@@ -8,14 +8,18 @@
 
 from __future__ import annotations
 
+import logging
 import re
 from collections.abc import Iterator
 from dataclasses import dataclass
+from datetime import date, datetime, time
+from decimal import Decimal
 from typing import Any, Literal
 
 import httpx2
 from pydantic import BaseModel, Field, create_model
 from sqlalchemy import Engine, column, func, select, table, text
+from sqlalchemy.exc import SQLAlchemyError
 
 from writer_service.governance.models import ColumnMapping, utcnow
 from writer_service.governance.uow import UnitOfWork
@@ -27,14 +31,25 @@ from writer_service.pipeline.candidates import (
     CandidateRelation,
     EntityRef,
     Evidence,
+    Scalar,
     canonical_text,
 )
+from writer_service.pipeline.gates import is_a
 
+log = logging.getLogger(__name__)
 _IDENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,63}$")
 
 
 class SupersetError(Exception):
     pass
+
+
+class DatasetNotFound(SupersetError):
+    pass
+
+
+class SourceReadError(Exception):
+    """The source database could not be read (details are logged, not returned)."""
 
 
 # --------------------------------------------------------------------------- Superset API
@@ -73,9 +88,16 @@ class SupersetClient:
     def __exit__(self, *_: object) -> None:
         self.close()
 
+    def _call(self, method: str, url: str, **kw: Any) -> httpx2.Response:
+        try:
+            return self.http.request(method, url, **kw)
+        except httpx2.HTTPError as exc:  # connection refused, timeout, protocol error
+            raise SupersetError(f"Superset unreachable: {type(exc).__name__}") from exc
+
     def _auth(self) -> dict[str, str]:
         if self._token is None:
-            r = self.http.post(
+            r = self._call(
+                "POST",
                 "/api/v1/security/login",
                 json={
                     "username": self.username,
@@ -90,9 +112,9 @@ class SupersetClient:
         return {"Authorization": f"Bearer {self._token}"}
 
     def dataset(self, dataset_id: int) -> DatasetInfo:
-        r = self.http.get(f"/api/v1/dataset/{dataset_id}", headers=self._auth())
+        r = self._call("GET", f"/api/v1/dataset/{dataset_id}", headers=self._auth())
         if r.status_code == 404:
-            raise SupersetError(f"Superset dataset {dataset_id} not found")
+            raise DatasetNotFound(f"Superset dataset {dataset_id} not found")
         if r.status_code != 200:
             raise SupersetError(f"Superset dataset {dataset_id}: HTTP {r.status_code}")
         d = r.json()["result"]
@@ -120,14 +142,27 @@ class DatasetReader:
         self.engine = engine
         self.page_size = page_size
 
-    def rows(self, ds: DatasetInfo, limit: int | None = None) -> Iterator[dict[str, Any]]:
+    @staticmethod
+    def _source(ds: DatasetInfo) -> tuple[Any, list[Any]]:
         if ds.sql:  # virtual dataset: Superset already holds the SQL; wrap it as a subquery
             source: Any = text(ds.sql).columns(*(column(c) for c in ds.columns)).subquery("ds")
-            cols = [source.c[c] for c in ds.columns]
-        else:  # identifiers were validated in SupersetClient and are quoted by SQLAlchemy
-            source = table(ds.table_name, *(column(c) for c in ds.columns), schema=ds.schema)
-            cols = list(source.c)
-        order = cols[0]
+            return source, [source.c[c] for c in ds.columns]
+        # identifiers were validated in SupersetClient and are quoted by SQLAlchemy
+        source = table(ds.table_name, *(column(c) for c in ds.columns), schema=ds.schema)
+        return source, list(source.c)
+
+    def rows(self, ds: DatasetInfo, limit: int | None = None) -> Iterator[dict[str, Any]]:
+        """Pages are ordered by *every* column: with LIMIT/OFFSET, ordering by a non-unique
+        column lets the database skip or repeat rows between pages. (Fully duplicate rows are
+        indistinguishable anyway.)"""
+        try:
+            yield from self._rows(ds, limit)
+        except SQLAlchemyError as exc:
+            log.warning("reading %s failed: %s", ds.ref, exc)
+            raise SourceReadError(f"could not read {ds.ref} from the source database") from exc
+
+    def _rows(self, ds: DatasetInfo, limit: int | None) -> Iterator[dict[str, Any]]:
+        source, cols = self._source(ds)
         offset, seen = 0, 0
         with self.engine.connect() as conn:
             while True:
@@ -135,7 +170,7 @@ class DatasetReader:
                     conn.execute(
                         select(*cols)
                         .select_from(source)
-                        .order_by(order)
+                        .order_by(*cols)
                         .limit(self.page_size)
                         .offset(offset)
                     )
@@ -152,7 +187,7 @@ class DatasetReader:
                 offset += self.page_size
 
     def count(self, ds: DatasetInfo) -> int:
-        source = table(ds.table_name, *(column(c) for c in ds.columns), schema=ds.schema)
+        source, _ = self._source(ds)
         with self.engine.connect() as conn:
             return int(conn.execute(select(func.count()).select_from(source)).scalar_one())
 
@@ -205,6 +240,16 @@ def validate_mapping(m: DatasetMapping, spec: OntologySpec, ds: DatasetInfo) -> 
         spec_rel = rels.get(r.relation)
         if spec_rel is None:
             errors.append(f"unknown or deprecated relation '{r.relation}'")
+        else:
+            for side, end, allowed in (
+                ("source", r.source, spec_rel.domain),
+                ("target", r.target, spec_rel.range),
+            ):
+                if end.class_name in classes and not is_a(spec, end.class_name, allowed):
+                    errors.append(
+                        f"relation '{r.relation}' {side} must be a '{allowed}', "
+                        f"not '{end.class_name}'"
+                    )
         for end in (r.source, r.target):
             if end.class_name not in classes:
                 errors.append(f"unknown or deprecated class '{end.class_name}'")
@@ -213,13 +258,31 @@ def validate_mapping(m: DatasetMapping, spec: OntologySpec, ds: DatasetInfo) -> 
     return errors
 
 
+def _scalar(value: Any) -> Scalar:
+    """Driver values → candidate scalars: DATETIME at midnight → date, other DATETIME → ISO
+    text, DECIMAL → int/float, bytes → text."""
+    if isinstance(value, datetime):
+        return (
+            value.date() if value.time() == time() and value.tzinfo is None else value.isoformat()
+        )
+    if isinstance(value, Decimal):
+        return int(value) if value == value.to_integral_value() else float(value)
+    if isinstance(value, bytes | bytearray):
+        return value.decode("utf-8", errors="replace")
+    if value is None or isinstance(value, str | int | float | bool | date):
+        return value
+    return str(value)
+
+
 def row_text(row: dict[str, Any]) -> str:
     return "; ".join(f"{k}: {canonical_text(str(v))}" for k, v in row.items() if v is not None)
 
 
-def row_locator(ds: DatasetInfo, row: dict[str, Any]) -> str:
+def row_locator(ds: DatasetInfo, row: dict[str, Any], position: int) -> str:
+    """Unique within a sync: ``position`` is the row's 1-based place in the ordered read (the
+    first column alone can repeat, and texts are looked up by (source, locator))."""
     first = ds.columns[0]
-    return f"row {first}={row.get(first)}"
+    return f"row {position} ({first}={row.get(first)})"
 
 
 def rows_to_candidates(
@@ -230,8 +293,8 @@ def rows_to_candidates(
     Returns (candidates, texts)."""
     out: list[CandidateEntity | CandidateRelation] = []
     texts: list[tuple[str, str, str]] = []
-    for row in rows:
-        locator, body = row_locator(ds, row), row_text(row)
+    for position, row in enumerate(rows, start=1):
+        locator, body = row_locator(ds, row, position), row_text(row)
         texts.append((ds.ref, locator, body))
 
         def ev(*cols: str, locator: str = locator, row: dict[str, Any] = row) -> list[Evidence]:
@@ -250,7 +313,7 @@ def rows_to_candidates(
             ]
 
         for e in m.entities:
-            props = {p: row.get(c) for p, c in e.columns.items() if row.get(c) is not None}
+            props = {p: _scalar(row[c]) for p, c in e.columns.items() if row.get(c) is not None}
             ordered = [c for c in ds.columns if c in e.columns.values()]
             out.append(
                 CandidateEntity(class_name=e.class_name, properties=props, evidence=ev(*ordered))
@@ -263,8 +326,9 @@ def rows_to_candidates(
             out.append(
                 CandidateRelation(
                     relation=r.relation,
-                    source=EntityRef(class_name=r.source.class_name, key=str(s)),
-                    target=EntityRef(class_name=r.target.class_name, key=str(t)),
+                    # same normalisation as entity keys, so "5.00" (DECIMAL) matches 5
+                    source=EntityRef(class_name=r.source.class_name, key=str(_scalar(s))),
+                    target=EntityRef(class_name=r.target.class_name, key=str(_scalar(t))),
                     evidence=ev(*ordered),
                 )
             )
@@ -369,6 +433,10 @@ def approve_mapping(
     row = uow.session.get(ColumnMapping, mapping_id)
     if row is None or row.status != "draft":
         raise MappingError(f"mapping {mapping_id} is not a draft")
+    if row.dataset_id != ds.id:  # would validate the wrong columns and retire another mapping
+        raise MappingError(
+            f"mapping {mapping_id} belongs to dataset {row.dataset_id}, not dataset {ds.id}"
+        )
     errors = validate_mapping(DatasetMapping.model_validate(row.mapping), spec, ds)
     if errors:
         raise MappingError("; ".join(errors))
