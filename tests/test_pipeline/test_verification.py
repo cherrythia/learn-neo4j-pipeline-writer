@@ -1,9 +1,11 @@
 from typing import Any
 
 import pytest
+from pydantic import BaseModel
 
 from writer_service.llm.cache import InMemoryCache
 from writer_service.llm.fake import FakeLLM
+from writer_service.llm.prompts import PromptTemplate
 from writer_service.llm.structured import StructuredLLM
 from writer_service.pipeline.candidates import (
     CandidateEntity,
@@ -59,11 +61,31 @@ def test_near_quote_scores_high_but_below_one() -> None:
 def test_partial_quote_scores_in_between() -> None:
     # half the clause is missing: clearly related, but not a faithful quote
     s = grounding_score("issued the annual report on 28 April 2026", PAGE1)
-    assert 0.5 <= s < 0.8
+    assert 0.3 <= s < 0.6
 
 
-def test_hallucinated_quote_scores_low() -> None:
-    assert grounding_score("The board approved a dividend of 5 cents per share", PAGE1) < 0.5
+def test_hallucinated_quote_scores_about_zero() -> None:
+    assert grounding_score("The board approved a dividend of 5 cents per share", PAGE1) < 0.1
+
+
+@pytest.mark.parametrize(
+    "quote",
+    [
+        "issued this annual report for the financial year ended 31 December 2024",  # year
+        "in accordance with Listing Rule LR-707",  # rule number
+        "Banyan Logistics (Demo) issued this annual report",  # other issuer
+        "Aurora Pacific Holdings (Demo) did not issue this annual report",  # negation
+    ],
+)
+def test_altered_critical_detail_is_capped(quote: str) -> None:
+    assert grounding_score(quote, PAGE1) <= 0.1
+
+
+def test_abbreviated_names_are_not_treated_as_altered() -> None:
+    from writer_service.pipeline.verification import ALTERED_CAP, _missing_critical
+
+    assert _missing_critical("financial year ended 31 Dec 2025", PAGE1) == []
+    assert grounding_score("financial year ended 31 Dec 2025", PAGE1) > 2 * ALTERED_CAP
 
 
 def test_missing_source_text_scores_zero() -> None:
@@ -174,3 +196,55 @@ def test_order_is_deterministic_by_first_appearance() -> None:
 def test_n_must_be_positive() -> None:
     with pytest.raises(ValueError):
         self_consistency(runs(), n=0)
+
+
+# ---------------------------------------------------------------- self-consistency via the LLM
+
+
+class Extraction(BaseModel):
+    entities: list[CandidateEntity]
+
+
+EXTRACT = PromptTemplate(name="extract", version=1, system="Extract.", user="Text: {text}")
+
+
+def entity_json(ticker: str) -> dict[str, Any]:
+    return {
+        "kind": "entity",
+        "class_name": "Issuer",
+        "properties": {"ticker": ticker, "name": f"{ticker} Co"},
+        "confidence": 0.9,
+    }
+
+
+def llm_extractor(llm: StructuredLLM) -> Any:
+    def extract(sample: int) -> list[CandidateEntity]:
+        result = llm.ask(EXTRACT, {"text": PAGE1}, Extraction, ontology_version=1, sample=sample)
+        return list(result.value.entities)
+
+    return extract
+
+
+def test_self_consistency_through_structured_llm_3_2_1_agreement() -> None:
+    # A in 3/3 runs, B in 2/3, C in 1/3
+    fake = FakeLLM(
+        {
+            "extract": [
+                {"entities": [entity_json("AAA"), entity_json("BBB")]},
+                {"entities": [entity_json("AAA"), entity_json("BBB"), entity_json("CCC")]},
+                {"entities": [entity_json("AAA")]},
+            ]
+        }
+    )
+    cache = InMemoryCache()
+    voted = self_consistency(llm_extractor(StructuredLLM(fake, cache)), n=3)
+    assert len(fake.calls) == 3  # one real call per sample, not one cached answer reused
+    stability = {v.candidate.properties["ticker"]: v.stability for v in voted}
+    assert stability == {"AAA": 1.0, "BBB": pytest.approx(2 / 3)}  # CCC (1/3) dropped
+
+    # Replaying from the cache makes no new calls and reproduces the same votes.
+    replay = self_consistency(llm_extractor(StructuredLLM(fake, cache)), n=3)
+    assert len(fake.calls) == 3
+    assert [(v.candidate.properties["ticker"], v.votes) for v in replay] == [
+        (v.candidate.properties["ticker"], v.votes) for v in voted
+    ]

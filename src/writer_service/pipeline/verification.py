@@ -4,6 +4,7 @@ self-consistency. Each turns "the LLM said so" into a number the scoring engine 
 
 from __future__ import annotations
 
+import re
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 
@@ -29,15 +30,56 @@ def _norm(text: str) -> str:
     return canonical_text(text).casefold()
 
 
+GROUNDING_FLOOR = 0.5  # raw similarity at or below this is noise, not partial support
+ALTERED_CAP = 0.1  # a quote that changes a number, name or negation is not grounded
+_TOKEN = re.compile(r"[\w][\w\-./]*")
+_NEGATIONS = {"not", "no", "never", "without", "none", "neither", "nor", "n't"}
+
+
+def _critical_tokens(quote: str) -> list[str]:
+    """Tokens whose change alters the fact: numbers and identifiers (anything with a digit),
+    capitalised words (names, months, rule titles) and negations."""
+    out = []
+    for tok in _TOKEN.findall(quote):
+        if any(c.isdigit() for c in tok) or tok[0].isupper() or tok.lower() in _NEGATIONS:
+            out.append(tok.lower().rstrip("."))
+    return out
+
+
+def _missing_critical(quote: str, source: str) -> list[str]:
+    source_tokens = {t.lower().rstrip(".") for t in _TOKEN.findall(source)}
+    missing = []
+    for tok in _critical_tokens(quote):
+        if tok in source_tokens:
+            continue
+        if any(c.isdigit() for c in tok) or tok in _NEGATIONS:
+            missing.append(tok)  # numbers, identifiers and negations must match exactly
+        elif not any(s.startswith(tok) for s in source_tokens):
+            missing.append(tok)  # words may be abbreviated ("Dec" for "December")
+    return missing
+
+
 def grounding_score(quote: str, source_text: str | None) -> float:
-    """1.0 if the quote appears verbatim (ignoring whitespace and case); otherwise the best
-    fuzzy partial match in [0, 0.99]. No source text means nothing can be verified: 0."""
+    """How well the source text supports ``quote``, in [0, 1].
+
+    * 1.0: the quote appears verbatim (ignoring whitespace and case).
+    * Otherwise the fuzzy partial-match ratio is rescaled above ``GROUNDING_FLOOR`` (so an
+      invented sentence scores ~0, a typo-level difference ~0.8-0.99), capped at 0.99.
+    * Capped at ``ALTERED_CAP`` when a critical token (number/identifier, capitalised name,
+      negation) is absent from the source: "2024" for "2025", "LR-707" for "LR-705", another
+      issuer, or "did not" - a different fact, however similar the wording.
+    * 0 when there is no source text to check.
+    """
     if not source_text or not quote.strip():
         return 0.0
     q, s = _norm(quote), _norm(source_text)
     if q in s:
         return 1.0
-    return min(0.99, fuzz.partial_ratio(q, s) / 100.0)
+    raw = fuzz.partial_ratio(q, s) / 100.0
+    score = min(0.99, max(0.0, (raw - GROUNDING_FLOOR) / (1 - GROUNDING_FLOOR)))
+    if _missing_critical(quote, source_text):
+        score = min(score, ALTERED_CAP)
+    return score
 
 
 class DictSourceText:
