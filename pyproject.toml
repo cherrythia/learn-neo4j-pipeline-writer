@@ -24,6 +24,7 @@ dependencies = [
 [project.scripts]
 writer-db = "writer_service.governance.migrate:main"
 writer-users = "writer_service.auth.cli:main"
+writer-eval = "writer_service.evaluation.cli:run"
 writer-ontology = "writer_service.ontology.cli:main"
 
 [dependency-groups]
