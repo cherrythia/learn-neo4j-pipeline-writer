@@ -34,9 +34,9 @@ _PAGES = [
         [
             "Aurora Pacific Holdings (Demo) (ticker APH) is listed on the Mainboard and is "
             "incorporated in Singapore. This document is fictional and for demonstration only.",
-            "Aurora Pacific Holdings (Demo) issued this annual report for the financial year "
-            f"ended 31 December 2025 on {_long_date(_APH_ANNUAL.filed_on)}, in accordance with "
-            "Listing Rule LR-705.",
+            f"Aurora Pacific Holdings (Demo) issued this annual report (filing "
+            f"{_APH_ANNUAL.filing_id}) for the financial year ended 31 December 2025 on "
+            f"{_long_date(_APH_ANNUAL.filed_on)}, in accordance with Listing Rule LR-705.",
             "The annual report includes the independent auditor's report and the directors' "
             "statement as required by Listing Rule LR-707.",
         ],
@@ -44,8 +44,9 @@ _PAGES = [
     (
         "Sustainability (ESG) Statement",
         [
-            "Aurora Pacific Holdings (Demo) published its ESG sustainability report for 2025 on "
-            f"{_long_date(_APH_ESG.filed_on)} under Listing Rule LR-711A.",
+            f"Aurora Pacific Holdings (Demo) published its ESG sustainability report (filing "
+            f"{_APH_ESG.filing_id}) for 2025 on {_long_date(_APH_ESG.filed_on)} under Listing "
+            "Rule LR-711A.",
             "Climate-related disclosures aligned with LR-711B are included, covering Scope 1 and "
             "Scope 2 emissions.",
             "The board identified one finding: Scope 3 emissions data was not yet assured.",
