@@ -26,6 +26,7 @@ Currently in place:
 - core ontology and publish workflow ([docs](docs/ontology.md))
 - scoring engine ([docs](docs/scoring.md))
 - candidate facts and hard gates ([docs](docs/gates.md))
+- verification signals ([docs](docs/verification.md))
 
 ## Quick start
 

@@ -6,6 +6,14 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Added
+- **#8 Verification signals** (`writer_service.pipeline.verification`)
+  - Evidence grounding: exact (normalised) match, else fuzzy partial match (`rapidfuzz`), per
+    `(source_ref, locator)` source text.
+  - Back-translation: plain-language fact + quotes judged by an LLM (prompt v1, validated,
+    cached); disagreement caps the score at 0.3.
+  - Self-consistency: N extraction runs, strict-majority vote on `fact_hash`, merged evidence,
+    `stability = votes / N`.
+  - Docs: `docs/verification.md`.
 - **#6 Candidate facts and hard gates** (`writer_service.pipeline`)
   - Pydantic candidate models (entity / relation, discriminated) with `Evidence`;
     `fact_hash` (whitespace/case/order-insensitive, evidence-free) and `identity_hash`.
