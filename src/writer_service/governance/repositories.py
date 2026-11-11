@@ -34,6 +34,14 @@ class OntologyVersionRepository(Repository[OntologyVersion]):
         stmt = select(OntologyVersion).where(OntologyVersion.version == version)
         return self.session.scalars(stmt).one_or_none()
 
+    def lock_all(self) -> list[OntologyVersion]:
+        """All versions, row-locked until the transaction ends (``FOR UPDATE``; no-op on SQLite).
+
+        Serialises publish / rollback / new-draft across processes.
+        """
+        stmt = select(OntologyVersion).order_by(OntologyVersion.version).with_for_update()
+        return list(self.session.scalars(stmt))
+
     def published(self) -> OntologyVersion | None:
         """The current published version.
 
