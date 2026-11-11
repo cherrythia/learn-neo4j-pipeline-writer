@@ -25,6 +25,7 @@ Currently in place:
 - LLM layer ([docs](docs/llm.md))
 - core ontology and publish workflow ([docs](docs/ontology.md))
 - scoring engine ([docs](docs/scoring.md))
+- candidate facts and hard gates ([docs](docs/gates.md))
 
 ## Quick start
 
