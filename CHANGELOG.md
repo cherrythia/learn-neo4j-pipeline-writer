@@ -6,6 +6,15 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Added
+- **#3 Governance store**
+  - SQLAlchemy 2 models for ontology versions, classes (with taxonomy parent), properties,
+    relation types, extension proposals, scoring configs, ingestion runs, candidates, review
+    items, column mappings, users and audit log (`writer_service.governance`).
+  - Enumerations enforced by the database (VARCHAR + CHECK) with MySQL-safe constraint names.
+  - Alembic migration `0001` and the `writer-db` CLI (`upgrade`, `downgrade`, `revision`).
+  - `UnitOfWork` (commit or rollback per operation) with repositories and an `audit()` helper.
+  - Tests: models, constraints, model/migration drift, UoW; MySQL integration test in CI.
+  - Docs: `docs/governance-store.md`.
 - **#2 Local demo infrastructure**
   - `docker-compose.yml`: Neo4j 5, MySQL 8.4 and a mock Superset API, all bound to localhost;
     optional `--profile superset` runs real Apache Superset 4.1 plus a bootstrap job that
