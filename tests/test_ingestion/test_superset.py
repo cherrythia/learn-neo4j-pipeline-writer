@@ -183,7 +183,7 @@ def test_rows_become_grounded_candidates() -> None:
         "ticker: APH",
         "board: mainboard",
     ]
-    assert all(e.locator == "row issuer_id=1" for e in c.evidence)
+    assert all(e.locator == "row 1 (issuer_id=1)" for e in c.evidence)
     from writer_service.pipeline.verification import grounding_score
 
     assert all(grounding_score(e.quote, texts[0][2]) == 1.0 for e in c.evidence)
@@ -389,3 +389,47 @@ def test_missing_dataset_is_a_distinct_error() -> None:
 
     with pytest.raises(DatasetNotFound):
         superset().dataset(999)
+
+
+def test_rows_sharing_a_first_column_all_ground_exactly() -> None:
+    """Review round 2: locators must be unique, or row texts overwrite each other."""
+    from writer_service.pipeline.verification import DictSourceText
+
+    ds = DatasetInfo(2, "filings", None, None, "mysql", ("issuer_id", "filing_id", "filing_type"))
+    m = DatasetMapping(
+        entities=[
+            EntityMapping(
+                class_name="Filing",
+                columns={"filing_id": "filing_id", "filing_type": "filing_type"},
+            )
+        ]
+    )
+    rows = [
+        {"issuer_id": 1, "filing_id": "F1", "filing_type": "annual_report"},
+        {"issuer_id": 1, "filing_id": "F2", "filing_type": "esg_report"},
+    ]
+    cands, texts = rows_to_candidates(m, ds, rows)
+    assert len({t[1] for t in texts}) == 2
+    lookup = DictSourceText({(t[0], t[1]): t[2] for t in texts})
+    assert [lookup.grounding(c) for c in cands] == [1.0, 1.0]
+
+
+def test_relation_keys_are_normalised_like_entity_keys() -> None:
+    from decimal import Decimal
+
+    ds = DatasetInfo(2, "filings", None, None, "mysql", ("filing_id", "issuer_id"))
+    m = DatasetMapping(
+        entities=[EntityMapping(class_name="Issuer", columns={"ticker": "issuer_id"})],
+        relations=[
+            RelationMapping(
+                relation="FILED_BY",
+                source=EndMapping(class_name="Filing", key_column="filing_id"),
+                target=EndMapping(class_name="Issuer", key_column="issuer_id"),
+            )
+        ],
+    )
+    (issuer, rel), _ = rows_to_candidates(
+        m, ds, [{"filing_id": "F1", "issuer_id": Decimal("5.00")}]
+    )
+    assert isinstance(issuer, CandidateEntity) and isinstance(rel, CandidateRelation)
+    assert str(issuer.properties["ticker"]) == rel.target.key == "5"
