@@ -35,7 +35,8 @@ gives them no identity key.
 
 Facts are matched on **identity** (class + key, or relation + endpoint classes + endpoint
 keys), ignoring case and whitespace in keys. A golden relation's endpoint classes default to the
-relation's domain and range; set `source_class`/`target_class` to override. Matching is so wording differences in other properties don't count as errors; attribute
+relation's domain and range; set `source_class`/`target_class` to override. Matching on
+identity means wording differences in other properties don't count as errors; attribute
 accuracy measures those separately.
 
 The report shows every run and the **voted** result (self-consistency, the same majority vote
