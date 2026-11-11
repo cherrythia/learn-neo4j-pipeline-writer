@@ -28,8 +28,15 @@ def test_coerce_ok(value: object, datatype: str, expected: object) -> None:
 @pytest.mark.parametrize(
     "value,datatype",
     [
-        (True, "int"), (1.5, "int"), ("1.5", "int"), ("x", "float"), (True, "float"),
-        ("2026-02-30", "date"), ("30 April 2026", "date"), ("maybe", "bool"), ("x", "unknown"),
+        (True, "int"),
+        (1.5, "int"),
+        ("1.5", "int"),
+        ("x", "float"),
+        (True, "float"),
+        ("2026-02-30", "date"),
+        ("30 April 2026", "date"),
+        ("maybe", "bool"),
+        ("x", "unknown"),
     ],
 )
 def test_coerce_rejects(value: object, datatype: str) -> None:

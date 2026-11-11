@@ -21,18 +21,25 @@ def driver() -> Iterator[Driver]:
     uri = os.environ.get("WRITER_TEST_NEO4J_URI")
     if not uri:
         pytest.skip("WRITER_TEST_NEO4J_URI not set")
-    auth = (os.environ.get("WRITER_TEST_NEO4J_USER", "neo4j"),
-            os.environ.get("WRITER_TEST_NEO4J_PASSWORD", ""))
+    auth = (
+        os.environ.get("WRITER_TEST_NEO4J_USER", "neo4j"),
+        os.environ.get("WRITER_TEST_NEO4J_PASSWORD", ""),
+    )
     with GraphDatabase.driver(uri, auth=auth) as d:
         d.execute_query(
             "MERGE (i:Issuer {ticker: $i}) SET i.name = 'Test', i.board = 'mainboard' "
-            "MERGE (f:Filing {filing_id: $f}) MERGE (f)-[:FILED_BY]->(i)", i=ISSUER, f=FILING,
+            "MERGE (f:Filing {filing_id: $f}) MERGE (f)-[:FILED_BY]->(i)",
+            i=ISSUER,
+            f=FILING,
         )
         try:
             yield d
         finally:
-            d.execute_query("MATCH (n) WHERE n.ticker = $i OR n.filing_id = $f DETACH DELETE n",
-                            i=ISSUER, f=FILING)
+            d.execute_query(
+                "MATCH (n) WHERE n.ticker = $i OR n.filing_id = $f DETACH DELETE n",
+                i=ISSUER,
+                f=FILING,
+            )
 
 
 def test_reads_nodes_and_edges_case_insensitively(driver: Driver) -> None:
@@ -46,11 +53,15 @@ def test_reads_nodes_and_edges_case_insensitively(driver: Driver) -> None:
 def test_gates_detect_conflicts_against_real_graph(driver: Driver, spec: OntologySpec) -> None:
     results = check_batch(
         [
-            CandidateEntity(class_name="Issuer",
-                            properties={"ticker": ISSUER, "name": "Test", "board": "catalist"}),
-            CandidateRelation(relation="FILED_BY",
-                              source=EntityRef(class_name="Filing", key=FILING),
-                              target=EntityRef(class_name="Issuer", key="__OTHER__")),
+            CandidateEntity(
+                class_name="Issuer",
+                properties={"ticker": ISSUER, "name": "Test", "board": "catalist"},
+            ),
+            CandidateRelation(
+                relation="FILED_BY",
+                source=EntityRef(class_name="Filing", key=FILING),
+                target=EntityRef(class_name="Issuer", key="__OTHER__"),
+            ),
         ],
         spec,
         Neo4jGraphView(driver),
