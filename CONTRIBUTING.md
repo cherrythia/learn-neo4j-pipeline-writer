@@ -12,8 +12,10 @@ what was built and why.
 4. **Docs**: update `CHANGELOG.md` and the relevant `docs/` page or ADR in the same PR.
 5. **PR**: title `<type>: <summary> (#N)`, body includes `Closes #N`.
 6. **Independent review**: a fresh review agent, given only the issue and the diff, posts its
-   findings as a PR comment.
-7. **Fix and re-review**: fix every finding, push, and re-review until clean (max 3 rounds,
+   findings as one PR comment titled `## Independent review — round N` (N = 1, 2, 3), each
+   finding with severity (blocker/major/minor/nit), `file:line`, problem and fix.
+7. **Fix and re-review**: fix every finding, push, and post a reply listing how each was
+   addressed. Re-review until a round reports `No findings — review clean` (max 3 rounds,
    then escalate to a human).
 8. **Merge**: when CI is green and the review is clean, squash-merge. The issue closes
    automatically.

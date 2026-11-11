@@ -5,10 +5,14 @@ from collections.abc import Awaitable, Callable
 from fastapi import FastAPI, Request, Response
 
 from writer_service import __version__
+from writer_service.config import Settings, get_settings
 
 
-def create_app() -> FastAPI:
+def create_app(settings: Settings | None = None) -> FastAPI:
+    """Build the app. Settings are validated here so bad config fails at startup."""
+    settings = settings or get_settings()
     app = FastAPI(title="Writer Service", version=__version__)
+    app.state.settings = settings
 
     @app.middleware("http")
     async def version_header(
@@ -23,6 +27,3 @@ def create_app() -> FastAPI:
         return {"status": "ok"}
 
     return app
-
-
-app = create_app()

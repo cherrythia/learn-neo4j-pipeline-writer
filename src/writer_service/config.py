@@ -10,7 +10,11 @@ LLMProvider = Literal["anthropic", "fake"]
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
-        env_prefix="WRITER_", env_file=".env", extra="ignore", frozen=True
+        env_prefix="WRITER_",
+        env_file=".env",
+        env_ignore_empty=True,
+        extra="ignore",
+        frozen=True,
     )
 
     app_env: Literal["dev", "test", "prod"] = "dev"

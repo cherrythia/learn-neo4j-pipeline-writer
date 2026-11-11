@@ -104,7 +104,7 @@ An LLM is not bit-for-bit repeatable, even at minimum randomness. So:
    restricted to the published ontology.
 2. **Make repeatable**: canonicalize outputs; cache by `(input hash, prompt version, model,
    ontology version)`; idempotent `MERGE` writes.
-3. **Measure**: self-consistency with `SELF_CONSISTENCY_RUNS` (default 3). A fact is kept only if
+3. **Measure**: self-consistency with `WRITER_SELF_CONSISTENCY_RUNS` (default 3). A fact is kept only if
    a majority of runs produce it, and stability feeds the score.
 4. **Verify over time**: a golden dataset plus `writer-eval` reporting precision, recall and
    run-to-run agreement. CI replays recorded responses.

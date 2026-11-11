@@ -27,7 +27,7 @@ infrastructure, added in #2).
 ```sh
 cp .env.example .env              # fill in WRITER_ANTHROPIC_API_KEY to use Claude
 uv sync
-uv run uvicorn writer_service.app:app --reload   # http://localhost:8000/health
+uv run uvicorn writer_service.app:create_app --factory --reload   # http://localhost:8000/health
 uv run pytest
 
 cd admin-ui && bun install && bun run dev        # http://localhost:3000
@@ -39,8 +39,14 @@ All settings use the `WRITER_` prefix. See [`.env.example`](.env.example).
 
 | Variable | Default | Purpose |
 |---|---|---|
+| `WRITER_APP_ENV` | `dev` | `dev`, `test` or `prod` |
 | `WRITER_LLM_PROVIDER` | `anthropic` | `anthropic` or `fake` (tests) |
 | `WRITER_LLM_MODEL` | `claude-sonnet-5-5` | Model id |
+| `WRITER_ANTHROPIC_API_KEY` | *(none)* | **Secret.** Required when provider is `anthropic` |
 | `WRITER_SELF_CONSISTENCY_RUNS` | `3` | Extraction runs per input (1 to 10) |
 | `WRITER_NEO4J_URI` | `bolt://localhost:7687` | Neo4j connection |
+| `WRITER_NEO4J_USER` | `neo4j` | Neo4j user |
+| `WRITER_NEO4J_PASSWORD` | `change-me` | **Secret.** Neo4j password |
 | `WRITER_GOVERNANCE_DB_URL` | `sqlite:///./governance.sqlite` | Governance store |
+
+Empty values in `.env` are treated as unset. Invalid values stop the service at startup.

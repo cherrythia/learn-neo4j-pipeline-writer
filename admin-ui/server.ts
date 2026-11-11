@@ -4,6 +4,8 @@ import index from "./index.html";
 const API = process.env.WRITER_API_URL ?? "http://localhost:8000";
 
 Bun.serve({
+  // Loopback only: the /api proxy must not be reachable from the network.
+  hostname: process.env.HOST ?? "127.0.0.1",
   port: Number(process.env.PORT ?? 3000),
   routes: { "/": index },
   async fetch(req) {
