@@ -42,7 +42,7 @@ All settings use the `WRITER_` prefix. See [`.env.example`](.env.example).
 | `WRITER_APP_ENV` | `dev` | `dev`, `test` or `prod` |
 | `WRITER_LLM_PROVIDER` | `anthropic` | `anthropic` or `fake` (tests) |
 | `WRITER_LLM_MODEL` | `claude-sonnet-5-5` | Model id |
-| `WRITER_ANTHROPIC_API_KEY` | *(none)* | **Secret.** Required when provider is `anthropic` |
+| `WRITER_ANTHROPIC_API_KEY` | *(none)* | **Secret.** Needed for real LLM calls; not checked at startup yet (enforced by the LLM adapter, #5) |
 | `WRITER_SELF_CONSISTENCY_RUNS` | `3` | Extraction runs per input (1 to 10) |
 | `WRITER_NEO4J_URI` | `bolt://localhost:7687` | Neo4j connection |
 | `WRITER_NEO4J_USER` | `neo4j` | Neo4j user |
