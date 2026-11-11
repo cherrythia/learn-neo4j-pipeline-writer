@@ -28,6 +28,7 @@ Currently in place:
 - authentication and roles ([docs](docs/auth.md))
 - candidate facts and hard gates ([docs](docs/gates.md))
 - verification signals ([docs](docs/verification.md))
+- entity matching ([docs](docs/matching.md))
 
 ## Quick start
 

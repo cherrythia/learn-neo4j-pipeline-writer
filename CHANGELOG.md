@@ -15,6 +15,12 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   - Self-consistency: N extraction runs, strict-majority vote on `fact_hash`, merged evidence,
     `stability = votes / N`.
   - Docs: `docs/verification.md`.
+- **#9 Entity matching** (`writer_service.pipeline.matching`)
+  - Exact (case-insensitive) key matches, fuzzy name/title resolution (token-set + token-sort
+    average), ambiguity detection (partial or near-tie matches), possible duplicates.
+  - Relation endpoints rewritten to existing keys with notes for reviewers; confidence feeds
+    `entity_match`. Batch-local entities are resolvable.
+  - In-memory and Neo4j match indexes (Neo4j integration test). Docs: `docs/matching.md`.
 - **#13 Authentication and roles** (`writer_service.auth`)
   - `X-API-Key` dependency for ingestion (constant-time; refused with 503 when unset).
   - Admin login: scrypt password hashes, JWT session in an httpOnly SameSite=Lax cookie,
