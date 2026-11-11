@@ -12,6 +12,15 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   - LLM extraction whose structured-output schema enumerates the published ontology's class,
     relation and property names; evidence anchored to existing locators only.
   - `pypdf` and `openpyxl` are now runtime dependencies. Docs: `docs/document-ingestion.md`.
+- **#8 Verification signals** (`writer_service.pipeline.verification`)
+  - Evidence grounding: only verbatim quotes (after Unicode/typography normalisation, on word
+    and number boundaries, without a dropped preceding negation) score 1.0; near-quotes are
+    capped at 0.5 (human review); altered numbers, names or negations at 0.1.
+  - Back-translation: plain-language fact + quotes judged by an LLM (prompt v1, validated,
+    cached); disagreement caps the score at 0.3.
+  - Self-consistency: N extraction runs, strict-majority vote on `fact_hash`, merged evidence,
+    `stability = votes / N`.
+  - Docs: `docs/verification.md`.
 - **#9 Entity matching** (`writer_service.pipeline.matching`)
   - Exact (case-insensitive) key matches, fuzzy name/title resolution (token-set + token-sort
     average), ambiguity detection (partial or near-tie matches), possible duplicates.
@@ -114,3 +123,8 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   - GitHub Actions CI: ruff, mypy (strict), pytest, plus UI typecheck, test and build.
   - Design spec (`docs/design.md`), ADRs 0001–0013 (`docs/adr/`), `CONTRIBUTING.md`,
     `.env.example`.
+
+### Changed
+- **#30 Review process**: up to 5 independent review rounds per PR (was 3) before escalating
+  (CONTRIBUTING, design §11, ADR-0001 amendment).
+
