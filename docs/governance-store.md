@@ -67,4 +67,9 @@ with UnitOfWork(engine) as uow:  # commits on success, rolls back on error
   `WRITER_TEST_MYSQL_URL=mysql+pymysql://writer:<pw>@127.0.0.1:3306/governance_test`; runs in
   the CI `demo-infra` job.
 
+MySQL runs its init scripts only when the volume is first created. If your compose stack
+predates `governance_test`, either recreate it (`docker compose down -v && docker compose up
+-d --wait`, which also resets demo data) or create it once by hand:
+`CREATE DATABASE governance_test; GRANT ALL PRIVILEGES ON governance_test.* TO 'writer'@'%';`
+
 Timestamps are stored as UTC and always read back timezone-aware; naive datetimes are rejected.

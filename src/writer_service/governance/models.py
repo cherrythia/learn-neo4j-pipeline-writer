@@ -129,7 +129,11 @@ class OntologyClass(Base):
     name: Mapped[str] = mapped_column(String(100))
     description: Mapped[str | None] = mapped_column(Text)
     identity_key: Mapped[str] = mapped_column(String(100))
-    parent_id: Mapped[int | None] = mapped_column(ForeignKey("ontology_classes.id"))
+    # SET NULL so a database-level cascade from the version can delete a whole hierarchy
+    # (the default RESTRICT makes MySQL reject it with error 1451).
+    parent_id: Mapped[int | None] = mapped_column(
+        ForeignKey("ontology_classes.id", ondelete="SET NULL")
+    )
     deprecated: Mapped[bool] = mapped_column(default=False)
 
     version: Mapped[OntologyVersion] = relationship(back_populates="classes")

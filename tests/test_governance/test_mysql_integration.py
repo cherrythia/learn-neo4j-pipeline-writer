@@ -16,7 +16,7 @@ from sqlalchemy.engine import make_url
 
 from writer_service.governance.db import create_engine_for
 from writer_service.governance.migrate import downgrade, upgrade
-from writer_service.governance.models import OntologyVersion
+from writer_service.governance.models import OntologyClass, OntologyVersion
 from writer_service.governance.uow import UnitOfWork
 
 pytestmark = pytest.mark.integration
@@ -45,6 +45,17 @@ def test_upgrade_downgrade_roundtrip_on_mysql(mysql_url: str) -> None:
         with UnitOfWork(engine) as uow:
             loaded = uow.ontology_versions.get_by_number(1)
             assert loaded is not None and loaded.created_at.tzinfo is UTC
+        # DB-level cascade through a class hierarchy (MySQL enforces FK actions strictly).
+        with UnitOfWork(engine) as uow:
+            v = uow.ontology_versions.get_by_number(1)
+            assert v is not None
+            parent = OntologyClass(version=v, name="Organisation", identity_key="name")
+            uow.session.add_all(
+                [parent, OntologyClass(version=v, name="Issuer", identity_key="t", parent=parent)]
+            )
+        with engine.begin() as conn:
+            conn.execute(text("DELETE FROM ontology_versions WHERE version = 1"))
+            assert conn.execute(text("SELECT COUNT(*) FROM ontology_classes")).scalar() == 0
         with pytest.raises(Exception, match="(?i)check"), engine.begin() as conn:
             conn.execute(
                 text(

@@ -294,6 +294,7 @@ def upgrade() -> None:
             ["parent_id"],
             ["ontology_classes.id"],
             name=op.f("fk_ontology_classes_parent_id_ontology_classes"),
+            ondelete="SET NULL",
         ),
         sa.ForeignKeyConstraint(
             ["version_id"],
