@@ -47,12 +47,14 @@ def test_xlsx_chunks_one_per_row_with_header_names() -> None:
     assert first.source_type == "excel"
     assert first.locator == "sheet Checklist row 2"  # row 1 is the header
     assert first.text.startswith("issuer: Aurora Pacific Holdings (Demo); rule_code: LR-705")
-    assert len(chunks) == 12
+    assert [c.locator for c in chunks] == [f"sheet Checklist row {n}" for n in range(2, 14)]
 
 
 def test_unsupported_bytes_raise_clear_error() -> None:
     with pytest.raises(ValueError, match="not a readable PDF"):
         pdf_chunks(b"not a pdf", source_ref="x.pdf")
+    with pytest.raises(ValueError, match="not a readable Excel workbook"):
+        xlsx_chunks(b"not a workbook", source_ref="x.xlsx")
 
 
 def test_windows_group_chunks_under_limit() -> None:

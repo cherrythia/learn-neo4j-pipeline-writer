@@ -2,8 +2,10 @@
 
 from typing import Literal
 
-from pydantic import Field, SecretStr
+from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+EXAMPLE_INGEST_KEY = "dev-ingest-key-change-me"  # the value shipped in .env.example
 
 LLMProvider = Literal["anthropic", "fake"]
 
@@ -34,6 +36,29 @@ class Settings(BaseSettings):
     neo4j_user: str = "neo4j"
     neo4j_password: SecretStr = SecretStr("change-me-neo4j")
     governance_db_url: str = "sqlite:///./governance.sqlite"
+
+    # Auth (ADR-0011)
+    ingest_api_key: SecretStr | None = None  # unset = ingestion refused (503)
+    admin_jwt_secret: SecretStr | None = None  # unset in dev = random per process
+    session_ttl_minutes: int = Field(default=480, ge=5, le=7 * 24 * 60)
+    cookie_secure: bool = False  # True behind HTTPS (always in prod)
+
+    @model_validator(mode="after")
+    def _prod_needs_real_secrets(self) -> "Settings":
+        if self.app_env == "prod":
+            secret = self.admin_jwt_secret.get_secret_value() if self.admin_jwt_secret else ""
+            if len(secret) < 32:
+                raise ValueError("WRITER_ADMIN_JWT_SECRET must be at least 32 characters in prod")
+            if not self.cookie_secure:
+                raise ValueError("WRITER_COOKIE_SECURE must be true in prod")
+            if self.ingest_api_key is not None:
+                key = self.ingest_api_key.get_secret_value()
+                if len(key) < 32 or key == EXAMPLE_INGEST_KEY:
+                    raise ValueError(
+                        "WRITER_INGEST_API_KEY must be at least 32 characters (and not the "
+                        "example value) in prod"
+                    )
+        return self
 
 
 def get_settings() -> Settings:

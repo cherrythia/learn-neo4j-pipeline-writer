@@ -298,6 +298,8 @@ class User(Base):
     password_hash: Mapped[str] = mapped_column(String(255))
     role: Mapped[str] = mapped_column(ROLE)
     active: Mapped[bool] = mapped_column(default=True)
+    # Bumped on logout (and future password changes) to revoke every issued session token.
+    session_version: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     created_at: Mapped[datetime] = _ts()
 
 
