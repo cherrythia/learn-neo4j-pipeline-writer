@@ -120,13 +120,31 @@ def _negated_before(source: str, start: int, quote: str) -> bool:
     return any(_is_negation(t) and t.lower() not in quoted for t in preceding)
 
 
+_SENTENCE_BREAK = re.compile(r"[.;:!?]")
+
+
+def _verbatim_score(source: str, start: int, quote: str) -> float:
+    """Score one verbatim occurrence: 0.1 if a negation the quote drops sits in the two words
+    right before it; 0.5 (review) if one appears earlier in the same sentence ("did not, in
+    all respects, comply …"); otherwise 1.0."""
+    if _negated_before(source, start, quote):
+        return ALTERED_CAP
+    sentence = _SENTENCE_BREAK.split(source[:start])[-1]
+    quoted = {t.lower() for t in _tokens(quote) if _is_negation(t)}
+    if any(_is_negation(t) and t.lower() not in quoted for t in _tokens(sentence)):
+        return NEAR_QUOTE_CAP
+    return 1.0
+
+
 def grounding_score(quote: str, source_text: str | None) -> float:
     """How well the source text supports ``quote``, in [0, 1]. "It can miss, never invent":
 
     * **1.0 only for a verbatim quote**: after Unicode/typography/whitespace/case
       normalisation, on word *and number* boundaries ("LR-70" is not inside "LR-705",
-      "$1,200" not inside "$1,200,000", "2025" not inside "2025/26"), and not directly
-      preceded by a negation the quote drops ("did not | comply").
+      "$1,200" not inside "$1,200,000", "2025" not inside "2025/26"), not directly preceded
+      by a negation the quote drops ("did not | comply" → 0.1), and with no such negation
+      earlier in the same sentence ("did not, in all respects, comply" → 0.5). If the quote
+      occurs several times, the best occurrence counts. Empty/punctuation-only quotes → 0.
     * **At most ``NEAR_QUOTE_CAP`` (0.5) for anything else**, however similar: the partial
       ratio rescaled above ``GROUNDING_FLOOR``, times 0.5. A one-word change ("Class A" for
       "Class B", "increased" for "decreased") can't be told from a typo by string similarity,
@@ -135,12 +153,15 @@ def grounding_score(quote: str, source_text: str | None) -> float:
       of the quote (digits, capitalised names, negations) or negates what the quote states.
     * 0 when there is no source text.
     """
-    if not source_text or not quote.strip():
+    if not source_text:
         return 0.0
     q, s = _norm(quote), _norm(source_text)
-    verbatim = re.search(r"(?<![\w\-])(?<!\d[.,/])" + re.escape(q) + r"(?![\w\-])(?![.,/]\d)", s)
-    if verbatim:
-        return ALTERED_CAP if _negated_before(s, verbatim.start(), q) else 1.0
+    if not re.search(r"\w", q):  # empty or punctuation-only after normalisation
+        return 0.0
+    pattern = r"(?<![\w\-])(?<!\d[.,/])" + re.escape(q) + r"(?![\w\-])(?![.,/]\d)"
+    verbatim_scores = [_verbatim_score(s, m.start(), q) for m in re.finditer(pattern, s)]
+    if verbatim_scores:
+        return max(verbatim_scores)  # any un-negated occurrence supports the quote
     aligned = fuzz.partial_ratio_alignment(q, s)
     if aligned is None:
         return 0.0

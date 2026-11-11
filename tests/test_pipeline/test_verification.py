@@ -359,3 +359,26 @@ def test_pdf_typography_does_not_break_verbatim_quotes(quote: str, source: str) 
 
 def test_year_is_not_verbatim_inside_a_fiscal_range() -> None:
     assert grounding_score("for 2025", "the results for 2025/26 were") <= 0.5
+
+
+@pytest.mark.parametrize("quote", ["\u00ad", "-", '"', "  ", "..."])
+def test_empty_or_punctuation_only_quotes_score_zero(quote: str) -> None:
+    assert grounding_score(quote, "Aurora issued the report .") == 0.0
+
+
+def test_any_unnegated_occurrence_counts() -> None:
+    a = "Aurora did not issue the annual report in March. It did issue the annual report in April."
+    b = "It did issue the annual report in April. Aurora did not issue the annual report in March."
+    assert grounding_score("issue the annual report", a) == 1.0
+    assert grounding_score("issue the annual report", b) == 1.0
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "The issuer did not, in all respects, comply with Listing Rule 705.",
+        "The issuer did not at any time comply with Listing Rule 705.",
+    ],
+)
+def test_negation_earlier_in_the_sentence_sends_to_review(source: str) -> None:
+    assert grounding_score("comply with Listing Rule 705", source) == 0.5

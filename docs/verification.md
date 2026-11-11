@@ -18,11 +18,15 @@ Code: `src/writer_service/pipeline/verification.py`. Design: [ADR-0005](adr/0005
 2. **Verbatim → 1.0.** The quote must appear on word *and number* boundaries (`LR-70` is not
    inside `LR-705`, `$1,200` not inside `$1,200,000`, `2025` not inside `2025/26`) and must not
    drop a negation in the two words right before it (*"did not | comply with …"* → 0.1).
-   Words further away, or across punctuation, are context.
+   A negation further back in the same sentence (*"did not, in all respects, comply …"*)
+   caps it at 0.5. Text after the quote, or in other sentences, is context. If the quote
+   occurs several times, the best occurrence counts. Empty or punctuation-only quotes score 0.
 3. **Anything else is a near-quote, capped at 0.5**, however similar. String similarity can't
    tell a typo from a one-word change of meaning ("Class A"/"Class B", "increased"/"decreased",
-   "approved"/"rejected"), so a near-quote is never trusted enough to auto-commit. With weight
-   0.25 it costs at least 0.125 of the overall score, which sends the fact to **human review**.
+   "approved"/"rejected"), so a near-quote is never treated as fully grounded. With weight 0.25
+   it costs at least 0.125 of the overall score. On its own that isn't always enough (a very
+   reliable source can still reach 0.85), so the **writer pipeline also routes any fact whose
+   grounding is below 1.0 to review at most** (issue #10).
    Within the cap the score is the fuzzy `partial_ratio` rescaled above a noise floor of 0.5.
 4. **Altered → at most 0.1** when the best-matching passage lacks a critical token of the quote
    (digits, capitalised names with abbreviations allowed, negations including `didn’t`) or

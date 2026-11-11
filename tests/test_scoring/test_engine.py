@@ -24,15 +24,15 @@ def signals(**kw: float | None) -> Signals:
 def test_worked_example_from_docs() -> None:
     s = Signals(
         source="pdf",
-        grounding=0.9,
+        grounding=1.0,
         back_translation=0.8,
         stability=2 / 3,
         entity_match=None,
         self_confidence=0.9,
     )
     result = score(s, POLICY)
-    # 0.25*0.9 + 0.20*0.8 + 0.15*0.6667 + 0.20*0.75 + 0.10*0.5 + 0.10*0.9 = 0.775
-    assert result.value == pytest.approx(0.775, abs=1e-4)
+    # 0.25*1.0 + 0.20*0.8 + 0.15*0.6667 + 0.20*0.75 + 0.10*0.5 + 0.10*0.9 = 0.800
+    assert result.value == pytest.approx(0.800, abs=1e-4)
     assert result.breakdown["entity_match"].value == 0.5  # new entity is neutral
     assert result.breakdown["source_reliability"].value == 0.75
     assert sum(c.contribution for c in result.breakdown.values()) == pytest.approx(result.value)
