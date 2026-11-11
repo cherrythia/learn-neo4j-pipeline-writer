@@ -10,7 +10,11 @@ from sqlalchemy.orm import Session
 
 from writer_service.governance.db import make_session_factory
 from writer_service.governance.models import AuditLog
-from writer_service.governance.repositories import AuditLogRepository, OntologyVersionRepository
+from writer_service.governance.repositories import (
+    AuditLogRepository,
+    OntologyVersionRepository,
+    ScoringConfigRepository,
+)
 
 
 class UnitOfWork:
@@ -20,6 +24,7 @@ class UnitOfWork:
     def __enter__(self) -> UnitOfWork:
         self.session: Session = self._factory()
         self.ontology_versions = OntologyVersionRepository(self.session)
+        self.scoring_configs = ScoringConfigRepository(self.session)
         self.audit_log = AuditLogRepository(self.session)
         return self
 

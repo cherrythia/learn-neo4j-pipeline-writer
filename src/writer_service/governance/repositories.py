@@ -7,7 +7,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from writer_service.governance.models import AuditLog, Base, OntologyVersion
+from writer_service.governance.models import AuditLog, Base, OntologyVersion, ScoringConfig
 
 
 class Repository[T: Base]:
@@ -35,8 +35,33 @@ class OntologyVersionRepository(Repository[OntologyVersion]):
         return self.session.scalars(stmt).one_or_none()
 
     def published(self) -> OntologyVersion | None:
-        stmt = select(OntologyVersion).where(OntologyVersion.status == "published")
-        return self.session.scalars(stmt).one_or_none()
+        """The current published version.
+
+        Publishing (issue #4) supersedes the previous version in the same transaction, so
+        normally only one row is ``published``; if several ever are, the highest version wins
+        rather than raising.
+        """
+        stmt = (
+            select(OntologyVersion)
+            .where(OntologyVersion.status == "published")
+            .order_by(OntologyVersion.version.desc())
+            .limit(1)
+        )
+        return self.session.scalars(stmt).first()
+
+
+class ScoringConfigRepository(Repository[ScoringConfig]):
+    model = ScoringConfig
+
+    def active(self) -> ScoringConfig | None:
+        """The active scoring config (newest active row if several are flagged)."""
+        stmt = (
+            select(ScoringConfig)
+            .where(ScoringConfig.active.is_(True))
+            .order_by(ScoringConfig.id.desc())
+            .limit(1)
+        )
+        return self.session.scalars(stmt).first()
 
 
 class AuditLogRepository(Repository[AuditLog]):

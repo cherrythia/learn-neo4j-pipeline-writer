@@ -12,12 +12,12 @@ accepted facts ([ADR-0006](adr/0006-governance-store.md), [ADR-0010](adr/0010-ne
 
 | Table | Purpose |
 |---|---|
-| `ontology_versions` | Versioned ontology: `draft` → `published` → `superseded` / `deprecated` |
+| `ontology_versions` | Versioned ontology: `draft` → `published` → `superseded` / `deprecated`; `published()` returns the highest published version (publishing in #4 supersedes the previous one) |
 | `ontology_classes` | Classes per version and namespace (`core` / `ext`); `parent_id` is the taxonomy (subclass-of); `identity_key` is the property used for `MERGE` |
 | `property_defs` | Typed properties of a class (`string`, `int`, `float`, `date`, `bool`) |
 | `relation_types` | Typed edges with `domain_class` → `range_class` and cardinality |
 | `extension_proposals` | New classes/relations proposed by the LLM or a user, awaiting approval |
-| `scoring_configs` | Weights, thresholds and N; one row is `active` |
+| `scoring_configs` | Weights, thresholds and N; `uow.scoring_configs.active()` returns the newest active row |
 | `ingestion_runs` | One per source ingestion (UUID id), with status and outcome counts |
 | `candidates` | Every candidate fact with evidence, score breakdown, gate failures, decision |
 | `review_items` | Human review queue (`score` or `conflict`); at most one per candidate |
@@ -53,7 +53,7 @@ from writer_service.governance.db import create_engine_for
 from writer_service.governance.uow import UnitOfWork
 
 engine = create_engine_for(settings.governance_db_url)
-with UnitOfWork(engine) as uow:            # commits on success, rolls back on error
+with UnitOfWork(engine) as uow:  # commits on success, rolls back on error
     current = uow.ontology_versions.published()
     uow.audit("alice", "ontology.publish", "ontology_version", "2")
 ```
@@ -61,5 +61,10 @@ with UnitOfWork(engine) as uow:            # commits on success, rolls back on e
 ## Tests
 
 - Unit (SQLite, always run): constraints, enums, FKs, taxonomy, UoW, model/migration drift.
-- Integration (MySQL, `-m integration`): upgrade, CHECK enforcement, downgrade. Set
-  `WRITER_TEST_MYSQL_URL`; runs in the CI `demo-infra` job.
+- Integration (MySQL, `-m integration`): upgrade, CHECK enforcement, downgrade. It drops all
+  governance tables, so it uses the separate **`governance_test`** database and refuses any
+  database not ending in `_test`. Set
+  `WRITER_TEST_MYSQL_URL=mysql+pymysql://writer:<pw>@127.0.0.1:3306/governance_test`; runs in
+  the CI `demo-infra` job.
+
+Timestamps are stored as UTC and always read back timezone-aware; naive datetimes are rejected.

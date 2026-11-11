@@ -21,7 +21,7 @@ def upgrade() -> None:
     op.create_table(
         "audit_log",
         sa.Column("id", sa.Integer(), nullable=False),
-        sa.Column("at", sa.DateTime(timezone=True), nullable=False),
+        sa.Column("at", sa.DateTime(), nullable=False),
         sa.Column("actor", sa.String(length=100), nullable=False),
         sa.Column("action", sa.String(length=100), nullable=False),
         sa.Column("entity_type", sa.String(length=50), nullable=False),
@@ -61,8 +61,8 @@ def upgrade() -> None:
             nullable=False,
         ),
         sa.Column("approved_by", sa.String(length=100), nullable=True),
-        sa.Column("approved_at", sa.DateTime(timezone=True), nullable=True),
-        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+        sa.Column("approved_at", sa.DateTime(), nullable=True),
+        sa.Column("created_at", sa.DateTime(), nullable=False),
         sa.PrimaryKeyConstraint("id", name=op.f("pk_column_mappings")),
     )
     with op.batch_alter_table("column_mappings", schema=None) as batch_op:
@@ -105,8 +105,8 @@ def upgrade() -> None:
         sa.Column("counts", sa.JSON(), nullable=False),
         sa.Column("error", sa.Text(), nullable=True),
         sa.Column("started_by", sa.String(length=100), nullable=True),
-        sa.Column("started_at", sa.DateTime(timezone=True), nullable=False),
-        sa.Column("finished_at", sa.DateTime(timezone=True), nullable=True),
+        sa.Column("started_at", sa.DateTime(), nullable=False),
+        sa.Column("finished_at", sa.DateTime(), nullable=True),
         sa.PrimaryKeyConstraint("id", name=op.f("pk_ingestion_runs")),
     )
     op.create_table(
@@ -129,8 +129,8 @@ def upgrade() -> None:
         ),
         sa.Column("notes", sa.Text(), nullable=True),
         sa.Column("created_by", sa.String(length=100), nullable=False),
-        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
-        sa.Column("published_at", sa.DateTime(timezone=True), nullable=True),
+        sa.Column("created_at", sa.DateTime(), nullable=False),
+        sa.Column("published_at", sa.DateTime(), nullable=True),
         sa.PrimaryKeyConstraint("id", name=op.f("pk_ontology_versions")),
         sa.UniqueConstraint("version", name=op.f("uq_ontology_versions_version")),
     )
@@ -143,7 +143,7 @@ def upgrade() -> None:
         sa.Column("self_consistency_runs", sa.Integer(), nullable=False),
         sa.Column("active", sa.Boolean(), nullable=False),
         sa.Column("created_by", sa.String(length=100), nullable=False),
-        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+        sa.Column("created_at", sa.DateTime(), nullable=False),
         sa.PrimaryKeyConstraint("id", name=op.f("pk_scoring_configs")),
     )
     op.create_table(
@@ -164,7 +164,7 @@ def upgrade() -> None:
             nullable=False,
         ),
         sa.Column("active", sa.Boolean(), nullable=False),
-        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+        sa.Column("created_at", sa.DateTime(), nullable=False),
         sa.PrimaryKeyConstraint("id", name=op.f("pk_users")),
         sa.UniqueConstraint("username", name=op.f("uq_users_username")),
     )
@@ -204,7 +204,7 @@ def upgrade() -> None:
             ),
             nullable=True,
         ),
-        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+        sa.Column("created_at", sa.DateTime(), nullable=False),
         sa.ForeignKeyConstraint(
             ["run_id"], ["ingestion_runs.id"], name=op.f("fk_candidates_run_id_ingestion_runs")
         ),
@@ -259,9 +259,9 @@ def upgrade() -> None:
             ),
             nullable=False,
         ),
-        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+        sa.Column("created_at", sa.DateTime(), nullable=False),
         sa.Column("decided_by", sa.String(length=100), nullable=True),
-        sa.Column("decided_at", sa.DateTime(timezone=True), nullable=True),
+        sa.Column("decided_at", sa.DateTime(), nullable=True),
         sa.ForeignKeyConstraint(
             ["source_run_id"],
             ["ingestion_runs.id"],
@@ -422,8 +422,8 @@ def upgrade() -> None:
         ),
         sa.Column("reviewer", sa.String(length=100), nullable=True),
         sa.Column("note", sa.Text(), nullable=True),
-        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
-        sa.Column("decided_at", sa.DateTime(timezone=True), nullable=True),
+        sa.Column("created_at", sa.DateTime(), nullable=False),
+        sa.Column("decided_at", sa.DateTime(), nullable=True),
         sa.ForeignKeyConstraint(
             ["candidate_id"],
             ["candidates.id"],

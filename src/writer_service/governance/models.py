@@ -22,7 +22,9 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
 )
+from sqlalchemy.engine import Dialect
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
+from sqlalchemy.types import TypeDecorator
 
 
 def utcnow() -> datetime:
@@ -65,11 +67,32 @@ class Base(DeclarativeBase):
     )
 
 
+class UTCDateTime(TypeDecorator[datetime]):
+    """Stores UTC as a naive DATETIME and returns timezone-aware UTC datetimes.
+
+    Neither SQLite nor MySQL DATETIME keeps a timezone, so without this values read back
+    would be naive and comparing them with ``utcnow()`` would raise ``TypeError``.
+    """
+
+    impl = DateTime
+    cache_ok = True
+
+    def process_bind_param(self, value: datetime | None, dialect: Dialect) -> datetime | None:
+        if value is None:
+            return None
+        if value.tzinfo is None:
+            raise ValueError("naive datetime; pass a timezone-aware value (e.g. utcnow())")
+        return value.astimezone(UTC).replace(tzinfo=None)
+
+    def process_result_value(self, value: datetime | None, dialect: Dialect) -> datetime | None:
+        return None if value is None else value.replace(tzinfo=UTC)
+
+
 def _ts(nullable: bool = False) -> Mapped[Any]:
-    """Timezone-aware timestamp column; non-nullable ones default to now (UTC)."""
+    """UTC timestamp column; non-nullable ones default to now."""
     if nullable:
-        return mapped_column(DateTime(timezone=True), nullable=True)
-    return mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+        return mapped_column(UTCDateTime(), nullable=True)
+    return mapped_column(UTCDateTime(), default=utcnow, nullable=False)
 
 
 # --------------------------------------------------------------------------- ontology
