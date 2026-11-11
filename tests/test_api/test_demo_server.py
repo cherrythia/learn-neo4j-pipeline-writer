@@ -20,6 +20,7 @@ def demo(tmp_path: Path) -> TestClient:
         admin_password="alice-password-123",
         reviewer_password="rita-password-123",
         admin_ui_dir=str(dist),
+        ingest_api_key="demo-ingest-key-0123456789",
     )
     return TestClient(app)
 
@@ -72,3 +73,23 @@ def test_generates_passwords_when_none_given(tmp_path: Path) -> None:
     _, state = create_demo_app(tmp_path)
     assert len(state.admin_password) >= 12 and len(state.reviewer_password) >= 12
     assert state.admin_password != state.reviewer_password
+
+
+def test_document_upload_runs_offline_with_scripted_extraction(demo: TestClient) -> None:
+    """Issue #17: the demo extracts the sample PDF without an API key (scripted answers)."""
+    pdf = Path(__file__).resolve().parents[2] / "samples/aurora_pacific_annual_report_2025.pdf"
+    r = demo.post(
+        "/ingest/documents",
+        files={"file": (pdf.name, pdf.read_bytes(), "application/pdf")},
+        headers={"X-API-Key": "demo-ingest-key-0123456789"},
+    )
+    assert r.status_code == 200, r.text
+    run = r.json()
+    assert run["status"] == "completed", run
+    assert run["counts"]["review"] >= 10  # unsure back-translation: a human decides
+    assert run["counts"]["reject"] == 0  # scripted answers are grounded in the PDF
+
+
+def test_ingest_requires_the_demo_key(demo: TestClient) -> None:
+    r = demo.post("/ingest/superset/1", headers={"X-API-Key": "wrong"})
+    assert r.status_code == 401

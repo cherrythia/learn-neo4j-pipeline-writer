@@ -5,13 +5,14 @@
 The real FastAPI app, with:
 - a temporary SQLite governance store (migrated, core ontology published),
 - an in-memory graph and graph schema instead of Neo4j,
-- a scripted ``FakeLLM`` instead of Claude,
+- a scripted ``FakeLLM`` instead of Claude (document extraction replays the golden-set stand-in
+  answers for the sample annual report, so uploading that PDF works offline),
 - the mock Superset API and the demo dataset rows (so mappings can be suggested and approved),
 - users ``alice`` (admin) and ``rita`` (reviewer),
 - a few ingested candidates waiting in the review queue (one of them a conflict).
 
-Passwords come from ``WRITER_DEMO_ADMIN_PASSWORD`` / ``WRITER_DEMO_REVIEWER_PASSWORD`` or
-are generated and printed on startup. Everything is thrown away when the process exits.
+Passwords come from ``WRITER_DEMO_ADMIN_PASSWORD`` / ``WRITER_DEMO_REVIEWER_PASSWORD`` and the
+ingestion key from ``WRITER_DEMO_INGEST_API_KEY``, or they are generated and printed on startup. Everything is thrown away when the process exits.
 """
 
 from __future__ import annotations
@@ -38,6 +39,8 @@ from writer_service.config import Settings
 from writer_service.governance.db import create_engine_for
 from writer_service.governance.migrate import upgrade
 from writer_service.governance.uow import UnitOfWork
+from writer_service.evaluation.scripted import RUNS as SCRIPTED_EXTRACTION
+from writer_service.ingestion.documents import EXTRACTION_PROMPT
 from writer_service.ingestion.superset import MAPPING_PROMPT, DatasetReader, SupersetClient
 from writer_service.llm.cache import InMemoryCache
 from writer_service.llm.fake import FakeLLM
@@ -62,6 +65,8 @@ _LLM_SCRIPTS: dict[str, Any] = {
     BACK_TRANSLATION_PROMPT.name: [
         {"agrees": True, "score": 0.5, "explanation": "plausible, not certain"}
     ],
+    # Three self-consistency runs: one invents a rule, one misses one, voting repairs both.
+    EXTRACTION_PROMPT.name: SCRIPTED_EXTRACTION,
     MAPPING_PROMPT.name: [
         {
             "entities": [
@@ -90,6 +95,7 @@ class DemoState:
     pipeline: WriterPipeline
     admin_password: str
     reviewer_password: str
+    ingest_api_key: str
 
 
 def _source_engine() -> Engine:
@@ -158,6 +164,7 @@ def create_demo_app(
     admin_password: str | None = None,
     reviewer_password: str | None = None,
     admin_ui_dir: str | None = None,
+    ingest_api_key: str | None = None,
 ) -> tuple[FastAPI, DemoState]:
     """Build the demo app. ``workdir`` holds the SQLite file (a new temp dir by default)."""
     workdir = workdir or Path(tempfile.mkdtemp(prefix="writer-demo-"))
@@ -168,6 +175,7 @@ def create_demo_app(
     OntologyService(engine, schema).bootstrap("demo")
     admin_password = admin_password or secrets.token_urlsafe(12)
     reviewer_password = reviewer_password or secrets.token_urlsafe(12)
+    ingest_api_key = ingest_api_key or secrets.token_urlsafe(32)
     with UnitOfWork(engine) as uow:
         create_user(uow, ADMIN, admin_password, "admin", actor="demo")
         create_user(uow, REVIEWER, reviewer_password, "reviewer", actor="demo")
@@ -180,7 +188,7 @@ def create_demo_app(
         _env_file=None,
         governance_db_url=url,
         llm_provider="fake",
-        ingest_api_key=secrets.token_urlsafe(32),
+        ingest_api_key=ingest_api_key,
         admin_ui_dir=admin_ui_dir,
     )
     app = create_app(settings)
@@ -195,7 +203,9 @@ def create_demo_app(
     app.dependency_overrides[get_graph_schema] = lambda: schema
     app.dependency_overrides[get_superset] = lambda: superset
     app.dependency_overrides[get_reader] = lambda: reader
-    state = DemoState(workdir, engine, graph, schema, pipeline, admin_password, reviewer_password)
+    state = DemoState(
+        workdir, engine, graph, schema, pipeline, admin_password, reviewer_password, ingest_api_key
+    )
     return app, state
 
 
@@ -208,11 +218,13 @@ def main() -> None:
         admin_password=os.environ.get("WRITER_DEMO_ADMIN_PASSWORD"),
         reviewer_password=os.environ.get("WRITER_DEMO_REVIEWER_PASSWORD"),
         admin_ui_dir=os.environ.get("WRITER_ADMIN_UI_DIR") or None,
+        ingest_api_key=os.environ.get("WRITER_DEMO_INGEST_API_KEY"),
     )
     print(
         f"\nwriter demo: http://{host}:{port}/admin/  (API docs: /docs)\n"
         f"  {ADMIN} (admin)    password: {state.admin_password}\n"
         f"  {REVIEWER} (reviewer) password: {state.reviewer_password}\n"
+        f"  X-API-Key for /ingest/*:  {state.ingest_api_key}\n"
         f"  governance store: {state.workdir / 'governance.sqlite'} (temporary)\n",
         flush=True,
     )
