@@ -117,9 +117,7 @@ def route(
         return Routing("conflict", [conflict])
     c, r = policy.commit_threshold, policy.review_threshold
     if value + EPSILON >= c:
-        return Routing("commit", [f"score {value:.4f} >= {c:.2f}: commit"])
+        return Routing("commit", [f"score {value:.4f} >= {c:g}: commit"])
     if value + EPSILON >= r:
-        return Routing(
-            "review", [f"score {value:.4f} is between {r:.2f} and {c:.2f}: needs review"]
-        )
-    return Routing("reject", [f"score {value:.4f} < {r:.2f}: reject"])
+        return Routing("review", [f"score {value:.4f} is between {r:g} and {c:g}: needs review"])
+    return Routing("reject", [f"score {value:.4f} < {r:g}: reject"])

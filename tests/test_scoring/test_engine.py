@@ -111,7 +111,7 @@ def test_gate_failure_beats_conflict() -> None:
 
 
 def test_reasons_explain_threshold_decisions() -> None:
-    assert route(0.7, POLICY).reasons == ["score 0.7000 is between 0.60 and 0.85: needs review"]
+    assert route(0.7, POLICY).reasons == ["score 0.7000 is between 0.6 and 0.85: needs review"]
 
 
 prob = st.floats(min_value=0, max_value=1, allow_nan=False)
@@ -179,3 +179,9 @@ def test_score_monotonic_in_source_reliability(policy: ScoringPolicy, lo: float,
         )
 
     assert score(signals(), with_pdf(hi)).value >= score(signals(), with_pdf(lo)).value - 1e-12
+
+
+def test_reasons_show_exact_thresholds() -> None:
+    policy = POLICY.model_validate({**POLICY.model_dump(), "commit_threshold": 0.875})
+    assert route(0.877, policy).reasons == ["score 0.8770 >= 0.875: commit"]
+    assert route(0.87, policy).reasons == ["score 0.8700 is between 0.6 and 0.875: needs review"]

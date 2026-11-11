@@ -30,7 +30,12 @@ def active_policy(uow: UnitOfWork) -> ScoringPolicy:
 
 
 def activate_policy(uow: UnitOfWork, policy: ScoringPolicy, *, actor: str) -> ScoringConfig:
-    """Store ``policy`` as a new active row (history is kept) and audit the change."""
+    """Store ``policy`` as a new active row (history is kept) and audit the change.
+
+    The policy is re-validated first: ``model_copy(update=...)`` skips pydantic validation,
+    and storing an invalid policy would make every later ``active_policy()`` call fail.
+    """
+    policy = ScoringPolicy.model_validate(policy.model_dump())
     uow.session.execute(update(ScoringConfig).values(active=False))
     row = ScoringConfig(
         weights=policy.weights.model_dump(),

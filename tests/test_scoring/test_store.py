@@ -105,3 +105,15 @@ def test_record_outcome_for_gate_rejection_has_no_score(engine: Engine) -> None:
         assert stored.decision == "reject" and stored.score is None
         assert stored.gate_failures == failures
         assert stored.breakdown == {"decision": "reject", "reasons": failures}
+
+
+def test_invalid_policy_from_model_copy_is_rejected_and_nothing_written(engine: Engine) -> None:
+    from pydantic import ValidationError
+
+    broken = default_policy().model_copy(update={"commit_threshold": 0.5})  # below review 0.60
+    with pytest.raises(ValidationError), UnitOfWork(engine) as uow:
+        activate_policy(uow, broken, actor="mallory")
+    with UnitOfWork(engine) as uow:
+        assert uow.session.scalars(select(ScoringConfig)).all() == []
+        assert uow.session.scalars(select(AuditLog)).all() == []
+        assert active_policy(uow) == default_policy()

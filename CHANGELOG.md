@@ -11,7 +11,8 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
     with the design defaults.
   - Pure `score()` with a full per-component breakdown, and `route()`: gates reject, conflicts
     go to review, then thresholds (inclusive, float-noise safe).
-  - Policy storage: `active_policy()` / `activate_policy()` (history kept, audited);
+  - `record_outcome()` stores the score breakdown, decision and reasons on each candidate.
+  - Policy storage: `active_policy()` / `activate_policy()` (re-validated, history kept, audited);
     migration `0002` adds `scoring_configs.source_reliability`.
   - Tests: table-driven routing boundaries, property-based range and monotonicity
     (hypothesis), worked example, storage round-trip. Docs: `docs/scoring.md`.

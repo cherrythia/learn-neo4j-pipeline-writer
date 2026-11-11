@@ -79,7 +79,8 @@ from writer_service.scoring.store import activate_policy, active_policy
 
 with UnitOfWork(engine) as uow:
     policy = active_policy(uow)  # design default if nothing stored
-    activate_policy(uow, policy.model_copy(update={"commit_threshold": 0.9}), actor="alice")
+    new = ScoringPolicy.model_validate({**policy.model_dump(), "commit_threshold": 0.9})
+    activate_policy(uow, new, actor="alice")  # re-validates anyway, before writing
 ```
 
 Validation rejects weights that don't sum to 1, values outside [0, 1], a review threshold
