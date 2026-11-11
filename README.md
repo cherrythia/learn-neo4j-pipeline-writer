@@ -110,10 +110,10 @@ property), register it in `llm/factory.py` and `LLMProvider` in `config.py`, and
 `WRITER_LLM_PROVIDER`. Prompts, JSON-schema validation, retries, caching and the pipeline
 don't change. See [`docs/llm.md`](docs/llm.md#switching-provider).
 
-## Status
+## What's in it
 
-Built issue by issue; see the [issues](https://github.com/cherrythia/learn-neo4j-pipeline-writer/issues).
-Currently in place:
+Built issue by issue (see the [issues](https://github.com/cherrythia/learn-neo4j-pipeline-writer/issues)),
+each with its own docs page:
 
 - service skeleton, settings, CI and the admin UI skeleton
 - local demo environment ([docs](docs/demo-environment.md))
@@ -135,42 +135,32 @@ Currently in place:
 - admin UI (React + Mantine) at `/admin/`: review queue with score breakdowns, ontology
   editor and graph, proposals, mappings, scoring, runs, audit, users ([docs](docs/admin-ui.md))
 
-## Quick start
+## Running the real service
 
-Requirements: [uv](https://docs.astral.sh/uv/), [Bun](https://bun.sh), Docker (for the demo
-infrastructure).
-
-Try the admin UI with no Docker and no API key (in-memory stores, scripted LLM, seeded review
-queue; it prints the `alice`/`rita` passwords):
+Requirements: [uv](https://docs.astral.sh/uv/), [Bun](https://bun.sh), Docker.
 
 ```sh
-uv sync && (cd admin-ui && bun install && bun run build)
-uv run writer-demo-server                         # http://127.0.0.1:8000/admin/
-```
-
-The full service:
-
-```sh
-cp .env.example .env              # fill in WRITER_ANTHROPIC_API_KEY to use Claude
+cp .env.example .env                 # set WRITER_ANTHROPIC_API_KEY (and change the dev secrets)
+docker compose up -d --wait          # Neo4j :7474/:7687, MySQL :3306, mock Superset :8088
 uv sync
-uv run uvicorn writer_service.app:create_app --factory --reload   # http://localhost:8000/health
-uv run writer-db upgrade                          # create governance tables
-uv run writer-ontology bootstrap                  # publish core ontology + Neo4j constraints
-uv run writer-users create alice --role admin      # first admin user
-uv run pytest
+uv run writer-db upgrade             # governance tables
+uv run writer-ontology bootstrap     # publish the core ontology + Neo4j constraints
+uv run writer-users create alice --role admin
+uv run writer-users create rita --role reviewer
+(cd admin-ui && bun install && bun run build)
+uv run uvicorn writer_service.app:create_app --factory   # http://localhost:8000/admin/
 
-cd admin-ui && bun install && bun run dev        # http://localhost:3000
+curl -F file=@samples/aurora_pacific_annual_report_2025.pdf \
+     -H "X-API-Key: $WRITER_INGEST_API_KEY" http://localhost:8000/ingest/documents
 ```
 
-## Demo environment
+The compose stack holds fictional compliance data, the sample PDF and Excel files, and an
+optional real Superset (`--profile superset`): [`docs/demo-environment.md`](docs/demo-environment.md).
+Use the MySQL governance URL from `.env.example` to keep governance data in MySQL rather
+than SQLite. For UI development, `cd admin-ui && bun run dev` (http://localhost:3000, proxies
+the API).
 
-```sh
-cp .env.example .env
-docker compose up -d --wait        # Neo4j :7474/:7687, MySQL :3306, mock Superset :8088
-```
-
-Fictional compliance data, sample PDF and Excel files, and an optional real Superset. See
-[`docs/demo-environment.md`](docs/demo-environment.md).
+Checks: `./scripts/check.sh` (lint, types, tests, UI). Accuracy: `uv run writer-eval`.
 
 ## Configuration
 
