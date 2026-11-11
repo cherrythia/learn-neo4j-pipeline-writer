@@ -30,7 +30,7 @@ Only drafts can be edited (409 otherwise). Removing things isn't offered: deprec
 |---|---|---|---|
 | GET | `/api/proposals?status=pending` | reviewer | |
 | POST | `/api/proposals` | reviewer | `{kind: class\|relation, payload, rationale}` (payload validated) |
-| POST | `/api/proposals/{id}/approve` | admin | added to the current draft (created if needed) in the `ext` namespace |
+| POST | `/api/proposals/{id}/approve` | admin | added to the current draft (created if needed) in the `ext` namespace, in one transaction: on any error (e.g. 422 unknown parent) no draft is left behind and the proposal stays pending |
 | POST | `/api/proposals/{id}/reject` | admin | |
 
 An approved proposal reaches the graph when the draft is published.

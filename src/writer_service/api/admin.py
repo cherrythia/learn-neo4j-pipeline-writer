@@ -43,7 +43,12 @@ from writer_service.ingestion.superset import (
     save_draft,
     suggest_mapping,
 )
-from writer_service.ontology.service import OntologyError, OntologyService, spec_of
+from writer_service.ontology.service import (
+    OntologyError,
+    OntologyService,
+    new_draft_in,
+    spec_of,
+)
 from writer_service.pipeline.orchestrator import PipelineError
 from writer_service.scoring.policy import ScoringPolicy
 from writer_service.scoring.store import activate_policy, active_policy
@@ -163,25 +168,27 @@ def create_draft(user: Admin, engine: EngineDep, graph: GraphSchemaDep) -> dict[
 @router.post("/ontology/versions/{version}/classes", status_code=201)
 def add_class(version: int, body: ClassIn, user: Admin, engine: EngineDep) -> dict[str, str]:
     with UnitOfWork(engine) as uow:
-        v = _draft(uow, version)
-        if any(c.name == body.name for c in v.classes):
-            raise HTTPException(409, f"class '{body.name}' already exists in v{version}")
-        parent = next((c for c in v.classes if c.name == body.parent), None)
-        if body.parent and parent is None:
-            raise HTTPException(422, f"unknown parent '{body.parent}'")
-        row = OntologyClass(
-            namespace=body.namespace,
-            name=body.name,
-            identity_key=body.identity_key,
-            description=body.description,
-            parent=parent,
-        )
-        row.properties = [PropertyDef(**p.model_dump()) for p in body.properties]
-        v.classes.append(row)
-        uow.audit(
-            user.username, "ontology.class.add", "ontology_version", str(version), body.model_dump()
-        )
+        _add_class(uow, version, body, user.username)
     return {"name": body.name}
+
+
+def _add_class(uow: UnitOfWork, version: int, body: ClassIn, actor: str) -> None:
+    v = _draft(uow, version)
+    if any(c.name == body.name for c in v.classes):
+        raise HTTPException(409, f"class '{body.name}' already exists in v{version}")
+    parent = next((c for c in v.classes if c.name == body.parent), None)
+    if body.parent and parent is None:
+        raise HTTPException(422, f"unknown parent '{body.parent}'")
+    row = OntologyClass(
+        namespace=body.namespace,
+        name=body.name,
+        identity_key=body.identity_key,
+        description=body.description,
+        parent=parent,
+    )
+    row.properties = [PropertyDef(**p.model_dump()) for p in body.properties]
+    v.classes.append(row)
+    uow.audit(actor, "ontology.class.add", "ontology_version", str(version), body.model_dump())
 
 
 @router.patch("/ontology/versions/{version}/classes/{name}")
@@ -215,27 +222,25 @@ def patch_class(
 @router.post("/ontology/versions/{version}/relations", status_code=201)
 def add_relation(version: int, body: RelationIn, user: Admin, engine: EngineDep) -> dict[str, str]:
     with UnitOfWork(engine) as uow:
-        v = _draft(uow, version)
-        if any(r.name == body.name for r in v.relation_types):
-            raise HTTPException(409, f"relation '{body.name}' already exists in v{version}")
-        v.relation_types.append(
-            RelationType(
-                namespace=body.namespace,
-                name=body.name,
-                domain_class=body.domain,
-                range_class=body.range,
-                cardinality=body.cardinality,
-                description=body.description,
-            )
-        )
-        uow.audit(
-            user.username,
-            "ontology.relation.add",
-            "ontology_version",
-            str(version),
-            body.model_dump(),
-        )
+        _add_relation(uow, version, body, user.username)
     return {"name": body.name}
+
+
+def _add_relation(uow: UnitOfWork, version: int, body: RelationIn, actor: str) -> None:
+    v = _draft(uow, version)
+    if any(r.name == body.name for r in v.relation_types):
+        raise HTTPException(409, f"relation '{body.name}' already exists in v{version}")
+    v.relation_types.append(
+        RelationType(
+            namespace=body.namespace,
+            name=body.name,
+            domain_class=body.domain,
+            range_class=body.range,
+            cardinality=body.cardinality,
+            description=body.description,
+        )
+    )
+    uow.audit(actor, "ontology.relation.add", "ontology_version", str(version), body.model_dump())
 
 
 @router.patch("/ontology/versions/{version}/relations/{name}")
@@ -325,26 +330,33 @@ def create_proposal(body: ProposalIn, user: Reviewer, engine: EngineDep) -> dict
 
 
 @router.post("/proposals/{proposal_id}/approve")
-def approve_proposal(
-    proposal_id: int, user: Admin, engine: EngineDep, graph: GraphSchemaDep
-) -> dict[str, int]:
+def approve_proposal(proposal_id: int, user: Admin, engine: EngineDep) -> dict[str, int]:
     """Adds the proposal to the current draft (creating one from the published version if
-    needed), in the ``ext`` namespace. It reaches the graph when the draft is published."""
+    needed), in the ``ext`` namespace. It reaches the graph when the draft is published.
+    One transaction: if any step fails, no draft is created and the proposal stays pending."""
     with UnitOfWork(engine) as uow:
         p = uow.session.get(ExtensionProposal, proposal_id)
         if p is None or p.status != "pending":
             raise HTTPException(409, f"proposal {proposal_id} is not pending")
+        payload = {**p.payload, "namespace": "ext"}
+        try:  # validate before touching any draft
+            body: ClassIn | RelationIn = (
+                ClassIn.model_validate(payload)
+                if p.kind == "class"
+                else RelationIn.model_validate(payload)
+            )
+        except ValidationError as exc:
+            raise HTTPException(422, f"proposal payload is invalid: {exc}") from exc
         draft = next((v for v in uow.ontology_versions.list() if v.status == "draft"), None)
-    version = draft.version if draft else _service(engine, graph).new_draft(user.username)
-    payload = {**p.payload, "namespace": "ext"}
-    if p.kind == "class":
-        add_class(version, ClassIn.model_validate(payload), user, engine)
-    else:
-        add_relation(version, RelationIn.model_validate(payload), user, engine)
-    with UnitOfWork(engine) as uow:
-        row = uow.session.get(ExtensionProposal, proposal_id)
-        assert row is not None
-        row.status, row.decided_by, row.decided_at = "approved", user.username, utcnow()
+        try:
+            version = draft.version if draft else new_draft_in(uow, user.username)
+        except OntologyError as exc:
+            raise HTTPException(409, str(exc)) from exc
+        if isinstance(body, ClassIn):
+            _add_class(uow, version, body, user.username)
+        else:
+            _add_relation(uow, version, body, user.username)
+        p.status, p.decided_by, p.decided_at = "approved", user.username, utcnow()
         uow.audit(
             user.username,
             "proposal.approve",
