@@ -110,14 +110,18 @@ def route(
     gate_failures: list[str] | None = None,
     conflict: str | None = None,
 ) -> Routing:
-    """Hard gates first (reject), then conflicts (always human review), then thresholds."""
+    """Hard gates first (reject), then conflicts (always human review), then thresholds.
+
+    Reasons print the score with 10 significant digits so rounding can never make the stored
+    explanation contradict the decision (e.g. 0.59996 is not shown as 0.6000).
+    """
     if gate_failures:
         return Routing("reject", list(gate_failures))
     if conflict:
         return Routing("conflict", [conflict])
     c, r = policy.commit_threshold, policy.review_threshold
     if value + EPSILON >= c:
-        return Routing("commit", [f"score {value:.4f} >= {c:g}: commit"])
+        return Routing("commit", [f"score {value:.10g} >= {c:g}: commit"])
     if value + EPSILON >= r:
-        return Routing("review", [f"score {value:.4f} is between {r:g} and {c:g}: needs review"])
-    return Routing("reject", [f"score {value:.4f} < {r:g}: reject"])
+        return Routing("review", [f"score {value:.10g} is between {r:g} and {c:g}: needs review"])
+    return Routing("reject", [f"score {value:.10g} < {r:g}: reject"])

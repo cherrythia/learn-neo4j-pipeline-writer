@@ -89,7 +89,7 @@ def test_record_outcome_stores_breakdown_and_decision(engine: Engine) -> None:
         assert stored.decision == "review"
         assert stored.score == pytest.approx(s.value)
         assert stored.breakdown["components"]["stability"]["weight"] == 0.15
-        assert stored.breakdown["reasons"][0].startswith("score 0.7750")
+        assert stored.breakdown["reasons"][0].startswith("score 0.775")
         assert stored.gate_failures == []
 
 
