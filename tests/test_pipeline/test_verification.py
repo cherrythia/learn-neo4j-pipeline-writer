@@ -55,7 +55,7 @@ def test_exact_quote_after_normalisation_scores_one() -> None:
 def test_near_quote_scores_high_but_below_one() -> None:
     # typo + abbreviated date, as OCR or a slightly paraphrasing extractor produces
     s = grounding_score("issued this anual report for the financial year ended 31 Dec 2025", PAGE1)
-    assert 0.8 <= s < 1.0
+    assert 0.3 <= s <= 0.5  # near-quote: partial support, never enough to auto-commit
 
 
 def test_elided_quote_is_not_grounded() -> None:
@@ -66,7 +66,7 @@ def test_elided_quote_is_not_grounded() -> None:
 
 def test_contiguous_partial_quote_scores_in_between() -> None:
     s = grounding_score("the annual reports for financial years ended", PAGE1)
-    assert 0.3 <= s < 0.9
+    assert 0.15 <= s <= 0.5
 
 
 def test_hallucinated_quote_scores_about_zero() -> None:
@@ -94,7 +94,7 @@ def test_abbreviated_names_are_not_treated_as_altered() -> None:
     from writer_service.pipeline.verification import ALTERED_CAP, _missing_critical
 
     assert _missing_critical("financial year ended 31 Dec 2025", PAGE1) == []
-    assert grounding_score("financial year ended 31 Dec 2025", PAGE1) > 2 * ALTERED_CAP
+    assert grounding_score("financial year ended 31 Dec 2025", PAGE1) > ALTERED_CAP
 
 
 def test_missing_source_text_scores_zero() -> None:
@@ -311,3 +311,51 @@ def test_curly_apostrophe_contractions_are_negations(quote: str, source: str) ->
 
 def test_quote_and_source_fold_case_the_same_way() -> None:
     assert grounding_score("Straße", "Haupt Straße 5") == 1.0
+
+
+@pytest.mark.parametrize(
+    "quote,source",
+    [
+        ("Class A shares were issued", "Class B shares were issued in 2025."),
+        ("as required by Part I", "as required by Part II of the rules."),
+        ("signed by Mr Tan", "signed by Mr Tang on behalf of the board."),
+        ("under rule 705(1)(a)", "under rule 705(1)(b) of the listing rules."),
+        ("the issuer is in compliance", "the issuer is in non-compliance with LR-705."),
+        ("revenue increased in 2025", "revenue decreased in 2025."),
+        ("declared a special dividend", "declared a final dividend."),
+        ("published its interim report", "published its annual report."),
+        ("appointed three directors", "appointed five directors."),
+        ("the resolution was approved", "the resolution was rejected."),
+    ],
+)
+def test_one_word_changes_never_reach_commit_level_grounding(quote: str, source: str) -> None:
+    assert grounding_score(quote, source) <= 0.5
+
+
+@pytest.mark.parametrize(
+    "quote,source",
+    [
+        ("comply with Listing Rule 705", "The issuer did not comply with Listing Rule 705."),
+        ("issue the annual report", "Aurora didn\u2019t issue the annual report."),
+    ],
+)
+def test_verbatim_quote_dropping_a_preceding_negation_is_capped(quote: str, source: str) -> None:
+    assert grounding_score(quote, source) <= 0.1
+
+
+@pytest.mark.parametrize(
+    "quote,source",
+    [
+        ("for 2024-2025", "Results for 2024\u20132025 were audited."),  # en dash
+        ("under LR-705", "under LR\u2011705 the issuer"),  # non-breaking hyphen
+        ("the financial year", "the \ufb01nancial year"),  # 'fi' ligature in source
+        ('the "annual report"', "the \u201cannual report\u201d was issued"),  # curly quotes
+        ("financial statements", "finan\u00adcial statements"),  # soft hyphen
+    ],
+)
+def test_pdf_typography_does_not_break_verbatim_quotes(quote: str, source: str) -> None:
+    assert grounding_score(quote, source) == 1.0
+
+
+def test_year_is_not_verbatim_inside_a_fiscal_range() -> None:
+    assert grounding_score("for 2025", "the results for 2025/26 were") <= 0.5

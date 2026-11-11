@@ -5,6 +5,7 @@ self-consistency. Each turns "the LLM said so" into a number the scoring engine 
 from __future__ import annotations
 
 import re
+import unicodedata
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 
@@ -26,12 +27,21 @@ AnyCandidate = CandidateEntity | CandidateRelation
 # ------------------------------------------------------------------------ grounding
 
 
-_APOSTROPHES = str.maketrans({"\u2019": "'", "\u2018": "'", "\u02bc": "'"})
+# PDF text is full of typographic variants of the same character; fold them so a correct
+# quote matches whatever the extractor or the PDF happened to use.
+_TYPOGRAPHY = str.maketrans(
+    {
+        **dict.fromkeys("\u2018\u2019\u02bc\u2032", "'"),
+        **dict.fromkeys("\u201c\u201d\u2033", '"'),
+        **dict.fromkeys("\u2010\u2011\u2012\u2013\u2014\u2015\u2212", "-"),
+        "\u00ad": None,  # soft hyphen
+    }
+)
 
 
 def _clean(text: str) -> str:
-    """Typographic apostrophes (common in PDF text) to ASCII, so "didn’t" tokenises."""
-    return text.translate(_APOSTROPHES)
+    """NFKC (ligatures such as 'ﬁ', full-width forms) plus typographic folding."""
+    return unicodedata.normalize("NFKC", text).translate(_TYPOGRAPHY)
 
 
 def _norm(text: str) -> str:
@@ -96,42 +106,50 @@ def _expand(text: str, start: int, end: int) -> str:
     return text[start:end]
 
 
-def grounding_score(quote: str, source_text: str | None) -> float:
-    """How well the source text supports ``quote``, in [0, 1].
+NEAR_QUOTE_CAP = 0.5  # a quote that isn't verbatim can never count as fully grounded
+_CLAUSE_BREAK = re.compile(r"[.;:,!?]")
 
-    1. Verbatim on word boundaries → 1.0 (surrounding words are context, not checked).
-       Otherwise find the best-matching passage with the fuzzy ``partial_ratio`` alignment.
-    2. Score: 1.0 for a verbatim match; otherwise the partial ratio rescaled above
-       ``GROUNDING_FLOOR`` (invented text ~0, typo-level differences ~0.7-0.99), max 0.99.
-    3. Cap at ``ALTERED_CAP`` if, *within that passage*, a critical token of the quote is
-       missing (a changed year, rule number, amount or name) or a negation differs ("did not"
-       vs "did", checked only inside the exactly matched span) - a different fact, however
-       similar the wording. A quote that elides words
-       from the middle of a sentence is also capped when the elision hides critical tokens:
-       quotes must be contiguous source text.
-    4. 0 when there is no source text to check.
+
+def _negated_before(source: str, start: int, quote: str) -> bool:
+    """A negation in the two words before a verbatim match ("did not | comply with …")
+    that the quote leaves out. Stops at clause punctuation, so "…none. The board approved"
+    is context, not negation."""
+    before = _CLAUSE_BREAK.split(source[:start])[-1]
+    preceding = _tokens(before)[-2:]
+    quoted = {t.lower() for t in _tokens(quote) if _is_negation(t)}
+    return any(_is_negation(t) and t.lower() not in quoted for t in preceding)
+
+
+def grounding_score(quote: str, source_text: str | None) -> float:
+    """How well the source text supports ``quote``, in [0, 1]. "It can miss, never invent":
+
+    * **1.0 only for a verbatim quote**: after Unicode/typography/whitespace/case
+      normalisation, on word *and number* boundaries ("LR-70" is not inside "LR-705",
+      "$1,200" not inside "$1,200,000", "2025" not inside "2025/26"), and not directly
+      preceded by a negation the quote drops ("did not | comply").
+    * **At most ``NEAR_QUOTE_CAP`` (0.5) for anything else**, however similar: the partial
+      ratio rescaled above ``GROUNDING_FLOOR``, times 0.5. A one-word change ("Class A" for
+      "Class B", "increased" for "decreased") can't be told from a typo by string similarity,
+      so near-quotes are never trusted enough to auto-commit; they go to human review.
+    * **At most ``ALTERED_CAP`` (0.1)** when the best-matching passage lacks a critical token
+      of the quote (digits, capitalised names, negations) or negates what the quote states.
+    * 0 when there is no source text.
     """
     if not source_text or not quote.strip():
         return 0.0
     q, s = _norm(quote), _norm(source_text)
-    # Word boundaries that also respect numbers: "$1,200" is not verbatim inside "$1,200,000",
-    # nor "LR-70" inside "LR-705".
-    verbatim = re.search(r"(?<![\w\-])(?<!\d[.,])" + re.escape(q) + r"(?![\w\-])(?![.,]\d)", s)
+    verbatim = re.search(r"(?<![\w\-])(?<!\d[.,/])" + re.escape(q) + r"(?![\w\-])(?![.,/]\d)", s)
     if verbatim:
-        # Exact words, and the boundaries above rule out a cut-short identifier or number.
-        # No negation check: words around a
-        # verbatim quote (", not earlier") are context, not part of the quoted fact.
-        return 1.0
+        return ALTERED_CAP if _negated_before(s, verbatim.start(), q) else 1.0
     aligned = fuzz.partial_ratio_alignment(q, s)
     if aligned is None:
         return 0.0
-    raw = aligned.score / 100.0
-    score = min(0.99, max(0.0, (raw - GROUNDING_FLOOR) / (1 - GROUNDING_FLOOR)))
-    span = s[aligned.dest_start : aligned.dest_end]  # exactly what the quote matched
-    if _missing_critical(quote, _expand(s, aligned.dest_start, aligned.dest_end)):
-        score = min(score, ALTERED_CAP)  # slack lets "Dec" find "December"
-    elif _dropped_negation(quote, span):
-        score = min(score, ALTERED_CAP)  # only negations *inside* the matched span count
+    rescaled = max(0.0, (aligned.score / 100.0 - GROUNDING_FLOOR) / (1 - GROUNDING_FLOOR))
+    score = NEAR_QUOTE_CAP * rescaled
+    span = s[aligned.dest_start : aligned.dest_end]
+    passage = _expand(s, aligned.dest_start, aligned.dest_end)
+    if _missing_critical(quote, passage) or _dropped_negation(quote, span):
+        score = min(score, ALTERED_CAP)
     return score
 
 

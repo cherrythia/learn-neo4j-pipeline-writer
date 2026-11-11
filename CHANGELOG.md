@@ -7,9 +7,9 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 - **#8 Verification signals** (`writer_service.pipeline.verification`)
-  - Evidence grounding: exact (normalised) match, else fuzzy partial match (`rapidfuzz`)
-    rescaled above a noise floor; capped at 0.1 when a number, name or negation in the quote
-    is absent from the source.
+  - Evidence grounding: only verbatim quotes (after Unicode/typography normalisation, on word
+    and number boundaries, without a dropped preceding negation) score 1.0; near-quotes are
+    capped at 0.5 (human review); altered numbers, names or negations at 0.1.
   - Back-translation: plain-language fact + quotes judged by an LLM (prompt v1, validated,
     cached); disagreement caps the score at 0.3.
   - Self-consistency: N extraction runs, strict-majority vote on `fact_hash`, merged evidence,

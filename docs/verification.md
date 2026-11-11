@@ -11,33 +11,33 @@ Code: `src/writer_service/pipeline/verification.py`. Design: [ADR-0005](adr/0005
 
 ## Evidence grounding
 
-`grounding_score(quote, source_text)`:
+`grounding_score(quote, source_text)`: *it can miss, never invent*.
 
-1. **Verbatim → 1.0.** The quote appears in the source on word *and number* boundaries
-   (so `LR-70` doesn't match inside `LR-705`, nor `$1,200` inside `$1,200,000`), ignoring
-   whitespace and case. Words around it are context, not part of the quoted fact.
-2. Otherwise find the best-matching passage with the fuzzy `partial_ratio` alignment and
-   **score** the ratio rescaled above a noise floor of 0.5 (max 0.99).
-3. **Cap at 0.1** when:
-   - a *critical token* of the quote is missing from the matched passage (plus about one word
-     of slack, so "Dec" can find "December"): anything with a digit (years, amounts,
-     `LR-705`), capitalised words (names, months), negations; or
-   - a negation inside the *exactly matched span* is absent from the quote (dropped "not").
-   Typographic apostrophes are normalised, so `didn’t` counts as a negation. Checking the
-   passage rather than the whole page means a year copied from elsewhere on the page doesn't
-   count. Quotes must be **contiguous** source text; elided quotes are treated as unsupported.
-4. **0** when there is no source text for that location.
+1. **Normalise both sides**: Unicode NFKC (ligatures such as "ﬁ"), typographic dashes, quotes
+   and apostrophes to ASCII, soft hyphens removed, whitespace collapsed, lower case.
+2. **Verbatim → 1.0.** The quote must appear on word *and number* boundaries (`LR-70` is not
+   inside `LR-705`, `$1,200` not inside `$1,200,000`, `2025` not inside `2025/26`) and must not
+   drop a negation in the two words right before it (*"did not | comply with …"* → 0.1).
+   Words further away, or across punctuation, are context.
+3. **Anything else is a near-quote, capped at 0.5**, however similar. String similarity can't
+   tell a typo from a one-word change of meaning ("Class A"/"Class B", "increased"/"decreased",
+   "approved"/"rejected"), so a near-quote is never trusted enough to auto-commit. With weight
+   0.25 it costs at least 0.125 of the overall score, which sends the fact to **human review**.
+   Within the cap the score is the fuzzy `partial_ratio` rescaled above a noise floor of 0.5.
+4. **Altered → at most 0.1** when the best-matching passage lacks a critical token of the quote
+   (digits, capitalised names with abbreviations allowed, negations including `didn’t`) or
+   negates what the quote states. A year copied from elsewhere on the page doesn't count.
+5. **0** when there is no source text for that location.
 
 `DictSourceText` maps `(source_ref, locator)` (for example `("report.pdf", "page 2")`) to the
 text of that page or row; a candidate's grounding is its **best** evidence.
 
 | Quote vs. source | Score |
 |---|---|
-| verbatim (spacing/case differences) | 1.0 |
-| typo-level difference ("anual", "31 Dec") | ~0.7 – 0.99 |
-| contiguous but loosely worded | ~0.3 – 0.9 |
-| a year, amount, rule number, issuer or negation changed (even if it appears elsewhere on the page) | ≤ 0.1 |
-| elided quote; invented sentence | ≤ 0.1 |
+| verbatim (after normalisation) | 1.0 |
+| typo, abbreviation, or one changed lower-case word | ≤ 0.5 → review |
+| a year, amount, rule number, name or negation changed; elided quote | ≤ 0.1 |
+| invented sentence | ~0 |
 
 This is the main defence against an LLM "quoting" text that isn't there.
 
