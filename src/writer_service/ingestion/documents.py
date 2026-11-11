@@ -86,6 +86,8 @@ def xlsx_chunks(source: Path | bytes, *, source_ref: str) -> list[SourceChunk]:
                             "excel", source_ref, f"sheet {ws.title} row {row_no}", "; ".join(cells)
                         )
                     )
+    except Exception as exc:  # read-only mode parses sheet XML lazily, during iteration
+        raise ValueError(f"{source_ref} is not a readable Excel workbook: {exc}") from exc
     finally:
         wb.close()
     return chunks

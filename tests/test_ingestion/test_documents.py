@@ -242,3 +242,20 @@ def test_randomly_corrupted_pdfs_never_escape_as_other_errors() -> None:
             broken[rng.randrange(len(broken))] = rng.randrange(256)
         with contextlib.suppress(ValueError):  # anything else fails the test
             pdf_chunks(bytes(broken), source_ref="fuzz.pdf")
+
+
+def test_truncated_sheet_xml_becomes_value_error(tmp_path: Path) -> None:
+    """Read-only workbooks parse sheet XML lazily; corruption there must still be a ValueError."""
+    import zipfile
+
+    src = zipfile.ZipFile(ROOT / XLSX_PATH)
+    broken = tmp_path / "broken.xlsx"
+    with zipfile.ZipFile(broken, "w") as dst:
+        for info in src.infolist():
+            data = src.read(info)
+            if info.filename == "xl/worksheets/sheet1.xml":
+                data = data[: len(data) // 2]  # cut the sheet XML mid-element
+            dst.writestr(info, data)
+    src.close()
+    with pytest.raises(ValueError, match="not a readable Excel workbook"):
+        xlsx_chunks(broken, source_ref="broken.xlsx")
