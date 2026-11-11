@@ -11,6 +11,7 @@ from fastapi import Depends, HTTPException, Request
 from writer_service.ingestion.superset import DatasetReader, SupersetClient
 from writer_service.llm.base import LLMConfigError
 from writer_service.llm.factory import build_structured_llm
+from writer_service.ontology.neo4j_schema import GraphSchema
 from writer_service.pipeline.orchestrator import WriterPipeline
 
 _PIPELINE_LOCK = threading.Lock()
@@ -73,3 +74,14 @@ def get_reader(request: Request) -> DatasetReader:
 
 SupersetDep = Annotated[SupersetClient, Depends(get_superset)]
 ReaderDep = Annotated[DatasetReader, Depends(get_reader)]
+
+
+def get_graph_schema(request: Request) -> GraphSchema:
+    """Neo4j constraint management for ontology publish/rollback (shares the app's driver)."""
+    from writer_service.ontology.neo4j_schema import Neo4jGraphSchema
+
+    get_pipeline(request)  # ensures the driver exists (and LLM config is validated)
+    return Neo4jGraphSchema(request.app.state.neo4j_driver)
+
+
+GraphSchemaDep = Annotated[GraphSchema, Depends(get_graph_schema)]
