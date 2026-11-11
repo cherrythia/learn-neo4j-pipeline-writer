@@ -64,3 +64,15 @@ def test_secrets_are_not_leaked_in_repr() -> None:
     s = make(anthropic_api_key="sk-secret-value", neo4j_password="pw-secret")
     assert "sk-secret-value" not in repr(s)
     assert "pw-secret" not in repr(s)
+
+
+def test_prod_requires_strong_jwt_secret_and_secure_cookie() -> None:
+    with pytest.raises(ValidationError, match="WRITER_ADMIN_JWT_SECRET"):
+        make(app_env="prod", cookie_secure=True)
+    with pytest.raises(ValidationError, match="at least 32"):
+        make(app_env="prod", cookie_secure=True, admin_jwt_secret="short")
+    with pytest.raises(ValidationError, match="WRITER_COOKIE_SECURE"):
+        make(app_env="prod", admin_jwt_secret="x" * 32)
+    ok = make(app_env="prod", cookie_secure=True, admin_jwt_secret="x" * 32)
+    assert ok.app_env == "prod"
+    assert "x" * 32 not in repr(ok)

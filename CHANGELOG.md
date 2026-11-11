@@ -6,6 +6,14 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Added
+- **#13 Authentication and roles** (`writer_service.auth`)
+  - `X-API-Key` dependency for ingestion (constant-time; refused with 503 when unset).
+  - Admin login: scrypt password hashes, JWT session in an httpOnly SameSite=Lax cookie,
+    `/api/auth/login|logout|me`; roles `admin` ⊇ `reviewer` via `require_role()`.
+  - CSRF header requirement on state-changing cookie requests; uniform login errors;
+    login/failed-login audit; deactivated users lose access immediately.
+  - `writer-users create` CLI; prod refuses weak JWT secrets and insecure cookies.
+  - Docs: `docs/auth.md`; ADR-0011 updated.
 - **#7 Scoring engine** (`writer_service.scoring`)
   - `ScoringPolicy` (weights that must sum to 1, ordered thresholds, per-source reliability, N)
     with the design defaults.
