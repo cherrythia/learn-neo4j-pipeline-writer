@@ -192,3 +192,22 @@ def test_role_comes_from_database_not_token(client: TestClient, settings: Settin
     with UnitOfWork(engine) as uow:
         uow.session.scalars(select(User).where(User.username == "alice")).one().role = "reviewer"
     assert client.post("/test/publish", headers=CSRF).status_code == 403
+
+
+def test_overlong_username_rejected_before_any_work(client: TestClient) -> None:
+    r = client.post(
+        "/api/auth/login", json={"username": "x" * 101, "password": "p" * 12}, headers=CSRF
+    )
+    assert r.status_code == 422
+    assert client.app.state.login_limiter.size() == 0  # type: ignore[attr-defined]
+
+
+def test_correct_password_succeeds_after_some_failures_and_releases_budget(
+    client: TestClient,
+) -> None:
+    bad = {"username": "alice", "password": "wrong-password-x"}
+    for _ in range(3):
+        assert client.post("/api/auth/login", json=bad, headers=CSRF).status_code == 401
+    login(client, "alice", "alice-password-123")
+    for _ in range(4):  # pair budget released on success
+        assert client.post("/api/auth/login", json=bad, headers=CSRF).status_code == 401

@@ -12,7 +12,12 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
     `/api/auth/login|logout|me`; roles `admin` ⊇ `reviewer` via `require_role()`.
   - CSRF header requirement on state-changing cookie requests; uniform login errors;
     login/failed-login audit; deactivated users lose access immediately.
-  - `writer-users create` CLI; prod refuses weak JWT secrets and insecure cookies.
+  - Login throttling: per username+client and per client budgets, reserved before the
+    password check (race-free), bounded memory → 429.
+  - Revocable sessions: `users.session_version` (migration `0003`) in every token; logout
+    ends all of a user's sessions; role and active flag always read from the database.
+  - `writer-users create` CLI; prod refuses weak JWT secrets, insecure cookies and weak or
+    example ingest keys.
   - Docs: `docs/auth.md`; ADR-0011 updated.
 - **#7 Scoring engine** (`writer_service.scoring`)
   - `ScoringPolicy` (weights that must sum to 1, ordered thresholds, per-source reliability, N)

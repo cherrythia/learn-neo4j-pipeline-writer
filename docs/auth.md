@@ -35,10 +35,22 @@ are read from the database rather than the token.
 
 ## Login throttling
 
-After 5 failed logins within 15 minutes for a username, or from one client address, further
-attempts get **429** for the rest of the window. The limiter is in memory and per process,
-which suits a single-instance admin service; behind several instances, replace it with a
-shared store such as Redis.
+| Budget | Default | Purpose |
+|---|---|---|
+| username + client | 5 failures / 15 min | guessing one account |
+| client | 20 attempts / 15 min | password spraying across usernames |
+
+Further attempts get **429**. Budgets are per username+client, so an attacker elsewhere can't
+lock the real admin out. Each attempt is reserved *before* the password check (under a lock),
+so parallel requests can't exceed the budget. A successful login releases its budget.
+Usernames are compared ignoring case and accents, like MySQL's default collation, so `ädmin`
+shares `admin`'s budget. Usernames are limited to 100 characters, and memory is bounded
+(at most 10,000 keys, empty ones pruned).
+
+The limiter is in memory and per process, which suits a single-instance admin service.
+Behind several instances, use a shared store such as Redis. **Behind a reverse proxy**, run
+uvicorn with `--proxy-headers --forwarded-allow-ips=<proxy address>`; otherwise every user
+appears to come from the proxy and shares one client budget.
 
 ## Passwords
 

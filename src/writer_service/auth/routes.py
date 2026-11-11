@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from writer_service.auth.deps import (
     SESSION_COOKIE,
@@ -21,8 +21,8 @@ router = APIRouter(prefix="/api/auth", tags=["auth"])
 
 
 class LoginRequest(BaseModel):
-    username: str
-    password: str
+    username: str = Field(min_length=1, max_length=100)
+    password: str = Field(min_length=1, max_length=1024)
 
 
 class Me(BaseModel):
@@ -40,8 +40,9 @@ def login(
 ) -> Me:
     limiter: LoginLimiter = request.app.state.login_limiter
     client = request.client.host if request.client else "unknown"
-    keys = (f"user:{body.username.casefold()}", f"ip:{client}")
-    if limiter.blocked(*keys):
+    pair_key, client_key = limiter.keys(body.username, client)
+    # Reserve the attempt before the slow password check, so parallel guesses can't overrun.
+    if not limiter.attempt(pair_key, client_key):
         raise HTTPException(429, "too many failed logins; try again later")
     with UnitOfWork(engine) as uow:
         user = authenticate(uow, body.username, body.password)
@@ -59,10 +60,9 @@ def login(
             uow.audit(user.username, "auth.login", "user", user.username, {"client": client})
             me = Me(username=user.username, role=user.role)
             session_version = user.session_version
-    if me is None:  # the audit row is committed before refusing
-        limiter.record_failure(*keys)
+    if me is None:  # the audit row is committed before refusing; the attempt stays counted
         raise HTTPException(401, "invalid username or password")
-    limiter.reset(keys[0])
+    limiter.release(pair_key)
     token = issue_token(
         me.username,
         me.role,
