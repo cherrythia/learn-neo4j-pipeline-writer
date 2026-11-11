@@ -169,3 +169,84 @@ def test_published_spec_none_before_bootstrap(svc: OntologyService, engine: Engi
     assert svc.published_spec() is None
     with UnitOfWork(engine) as uow:
         assert uow.session.scalars(select(OntologyVersion)).all() == []
+
+
+def deprecate_finding_add_esg(engine: Engine) -> None:
+    """Draft v2: deprecate Finding (and its relations), add an ext class."""
+    with UnitOfWork(engine) as uow:
+        v2 = uow.ontology_versions.get_by_number(2)
+        assert v2 is not None
+        for c in v2.classes:
+            if c.name == "Finding":
+                c.deprecated = True
+        for r in v2.relation_types:
+            if "Finding" in (r.domain_class, r.range_class):
+                r.deprecated = True
+    add_class(
+        engine,
+        2,
+        ClassSpec(
+            "ESGMetric", "metric_id", (PropertySpec("metric_id", "string", True),), namespace="ext"
+        ),
+    )
+
+
+def v1_constraints(svc: OntologyService) -> set[str]:
+    from writer_service.ontology.neo4j_schema import desired_constraints
+
+    spec = svc.published_spec()
+    assert spec is not None
+    return set(desired_constraints(spec))
+
+
+@pytest.mark.parametrize(
+    "fail_on",
+    ["CREATE CONSTRAINT wsc_ext_esgmetric", "DROP CONSTRAINT wsc_finding_finding_id"],
+)
+def test_partial_graph_failure_restores_published_constraints(
+    svc: OntologyService, engine: Engine, graph: InMemoryGraphSchema, fail_on: str
+) -> None:
+    svc.bootstrap("admin")
+    expected = v1_constraints(svc)
+    svc.new_draft("admin")
+    deprecate_finding_add_esg(engine)
+    graph.fail_on = fail_on
+    with pytest.raises(RuntimeError, match="neo4j down"):
+        svc.publish(2, "alice")
+    assert statuses(engine) == {1: "published", 2: "draft"}
+    managed = {n for n in graph.names if n.startswith("wsc_")}
+    assert managed == expected  # v1's constraints, nothing missing, nothing extra
+    svc.publish(2, "alice")  # a retry succeeds
+    assert "wsc_finding_finding_id" not in graph.names
+
+
+def test_sync_creates_before_dropping(
+    svc: OntologyService, engine: Engine, graph: InMemoryGraphSchema
+) -> None:
+    svc.bootstrap("admin")
+    svc.new_draft("admin")
+    deprecate_finding_add_esg(engine)
+    graph.executed.clear()
+    svc.publish(2, "alice")
+    verbs = [s.split()[0] for s in graph.executed]
+    assert verbs == sorted(verbs, key=lambda v: v != "CREATE")  # all CREATEs, then DROPs
+
+
+def test_lock_all_uses_select_for_update_on_mysql(engine: Engine) -> None:
+    from sqlalchemy.dialects import mysql
+    from sqlalchemy.orm import Session
+
+    with Session(engine) as s:
+        captured: list[str] = []
+        from writer_service.governance.repositories import OntologyVersionRepository
+
+        repo = OntologyVersionRepository(s)
+        real_scalars = s.scalars
+
+        def spy(stmt, *a, **kw):  # type: ignore[no-untyped-def]
+            captured.append(str(stmt.compile(dialect=mysql.dialect())))
+            return real_scalars(stmt, *a, **kw)
+
+        s.scalars = spy  # type: ignore[method-assign]
+        repo.lock_all()
+    assert "FOR UPDATE" in captured[0]

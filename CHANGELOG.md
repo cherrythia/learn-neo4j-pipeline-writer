@@ -10,7 +10,11 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   - Core ontology v1 (Issuer, Filing, Rule, Obligation, Finding, with Organisation and Document
     as taxonomy parents) and six typed relations.
   - Publish gate: identity keys, parents, relation endpoints, cycles, duplicates, safe Cypher
-    identifiers, and "deprecate, never delete" against the published version.
+    identifiers, constraint-name collisions, and "deprecate, never delete or redefine" (no
+    removed classes, relations or properties; no changed identity keys, namespaces or relation
+    endpoints).
+  - Neo4j sync creates before dropping and is compensated on failure; versions are row-locked
+    during publish, rollback and draft.
   - Lifecycle service: bootstrap, one draft at a time, publish (supersedes previous), rollback;
     all audited.
   - Neo4j uniqueness constraints generated per class plus provenance nodes; idempotent sync

@@ -108,3 +108,51 @@ def test_ext_namespace_allowed() -> None:
         properties=(PropertySpec("id", "string", True),),
     )
     assert errors(cls("A"), ext) == []
+
+
+def k(name: str, key: str = "k", namespace: str = "core") -> ClassSpec:
+    return ClassSpec(
+        name=name,
+        identity_key=key,
+        namespace=namespace,  # type: ignore[arg-type]
+        properties=(PropertySpec(key, "string", True),),
+    )
+
+
+def test_constraint_name_collision_case_only() -> None:
+    errs = errors(k("FooBar"), k("Foobar"))
+    assert any("collides" in e for e in errs)
+
+
+def test_constraint_name_collision_across_namespace_split() -> None:
+    errs = errors(k("Ext", key="foo_bar"), k("Foo", key="bar", namespace="ext"))
+    assert any("wsc_ext_foo_bar" in e for e in errs)
+
+
+def test_constraint_name_collision_with_provenance() -> None:
+    assert any("provenance Evidence" in e for e in errors(k("Evidence", key="id")))
+
+
+def test_published_class_cannot_change_identity_key_namespace_or_lose_properties() -> None:
+    old = ClassSpec("A", "id", (PropertySpec("id", "string", True), PropertySpec("x")))
+    previous = OntologySpec(classes=(old,), relations=())
+    rekeyed = ClassSpec(
+        "A", "x", (PropertySpec("id", "string", True), PropertySpec("x", required=True))
+    )
+    assert any("identity key changed" in e for e in errors(rekeyed, previous=previous))
+    moved = ClassSpec("A", "id", old.properties, namespace="ext")
+    assert any("namespace changed" in e for e in errors(moved, previous=previous))
+    trimmed = ClassSpec("A", "id", (PropertySpec("id", "string", True),))
+    assert any("property 'x' was removed" in e for e in errors(trimmed, previous=previous))
+    extended = ClassSpec("A", "id", (*old.properties, PropertySpec("y")))
+    assert errors(extended, previous=previous) == []  # adding is fine
+
+
+def test_published_relation_cannot_change_endpoints() -> None:
+    previous = OntologySpec(
+        classes=(cls("A"), cls("B")), relations=(RelationSpec("LINKS", "A", "B"),)
+    )
+    errs = errors(
+        cls("A"), cls("B"), relations=(RelationSpec("LINKS", "B", "A"),), previous=previous
+    )
+    assert any("endpoints changed" in e for e in errs)

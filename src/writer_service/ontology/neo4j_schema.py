@@ -23,7 +23,7 @@ def neo4j_label(cls: ClassSpec) -> str:
 
 
 def _constraint(label: str, key: str) -> tuple[str, str]:
-    name = f"{MANAGED_PREFIX}{label.lower()}_{key}"
+    name = constraint_name(label, key)
     return name, (
         f"CREATE CONSTRAINT {name} IF NOT EXISTS FOR (n:{label}) REQUIRE n.{key} IS UNIQUE"
     )
@@ -47,16 +47,26 @@ class SyncResult:
     dropped: list[str] = field(default_factory=list)
 
 
+def constraint_name(label: str, key: str) -> str:
+    return f"{MANAGED_PREFIX}{label.lower()}_{key}"
+
+
 def sync_constraints(graph: GraphSchema, desired: dict[str, str]) -> SyncResult:
+    """Make the managed constraints equal ``desired``.
+
+    CREATEs run before DROPs, so a failure part-way leaves a *superset* of constraints (never
+    removes one the current version still needs). Callers re-sync to the previous state on
+    error (see ``OntologyService``).
+    """
     existing = graph.constraint_names()
     result = SyncResult()
-    for name in sorted(n for n in existing if n.startswith(MANAGED_PREFIX) and n not in desired):
-        graph.execute(f"DROP CONSTRAINT {name} IF EXISTS")
-        result.dropped.append(name)
     for name, statement in desired.items():
         if name not in existing:
             graph.execute(statement)
             result.created.append(name)
+    for name in sorted(n for n in existing if n.startswith(MANAGED_PREFIX) and n not in desired):
+        graph.execute(f"DROP CONSTRAINT {name} IF EXISTS")
+        result.dropped.append(name)
     return result
 
 
@@ -66,14 +76,16 @@ class InMemoryGraphSchema:
     def __init__(self, names: set[str] | None = None) -> None:
         self.names: set[str] = set(names or ())
         self.executed: list[str] = []
-        self.fail_next = False
+        self.fail_next = False  # fail the next statement
+        self.fail_on: str | None = None  # fail the next statement containing this text
 
     def constraint_names(self) -> set[str]:
         return set(self.names)
 
     def execute(self, statement: str) -> None:
-        if self.fail_next:
+        if self.fail_next or (self.fail_on is not None and self.fail_on in statement):
             self.fail_next = False
+            self.fail_on = None
             raise RuntimeError("neo4j down")
         self.executed.append(statement)
         verb, _, name = statement.split()[:3]

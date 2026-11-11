@@ -1,8 +1,14 @@
 """Ontology lifecycle: bootstrap, draft, publish (through the gate) and rollback.
 
-Publish/rollback order: validate → sync Neo4j constraints → update version statuses → commit.
-If the Neo4j sync fails, the governance transaction rolls back and nothing changes. Constraint
-DDL is idempotent, so a crash after the sync but before the commit is fixed by retrying.
+Publish/rollback order: lock versions → validate → sync Neo4j constraints → update statuses →
+commit. Neo4j DDL can't join the SQL transaction, so if the sync fails part-way the service
+re-syncs Neo4j back to the still-published version's constraints and the SQL transaction rolls
+back. Sync creates before it drops, so even a failed restore only leaves *extra* constraints.
+Constraint DDL is idempotent, so a crash between sync and commit is fixed by retrying.
+
+Concurrency: publish, rollback and new_draft lock the ``ontology_versions`` rows
+(``SELECT ... FOR UPDATE`` on MySQL), so two admins cannot publish at the same time.
+SQLite has no row locks; use MySQL for anything multi-user.
 """
 
 from __future__ import annotations
@@ -18,7 +24,12 @@ from writer_service.governance.models import (
 )
 from writer_service.governance.uow import UnitOfWork
 from writer_service.ontology.core import CORE_CLASSES, CORE_RELATIONS
-from writer_service.ontology.neo4j_schema import GraphSchema, desired_constraints, sync_constraints
+from writer_service.ontology.neo4j_schema import (
+    GraphSchema,
+    SyncResult,
+    desired_constraints,
+    sync_constraints,
+)
 from writer_service.ontology.spec import ClassSpec, OntologySpec, PropertySpec, RelationSpec
 from writer_service.ontology.validation import validate
 
@@ -99,6 +110,18 @@ class OntologyService:
         self.engine = engine
         self.graph = graph
 
+    def _sync(self, target: OntologySpec, fallback: OntologySpec | None) -> SyncResult:
+        """Sync Neo4j to ``target``; on failure restore ``fallback`` (best effort) and re-raise."""
+        try:
+            return sync_constraints(self.graph, desired_constraints(target))
+        except Exception as exc:
+            if fallback is not None:
+                try:
+                    sync_constraints(self.graph, desired_constraints(fallback))
+                except Exception as restore_exc:  # keep both errors visible
+                    exc.add_note(f"restoring previous constraints also failed: {restore_exc}")
+            raise
+
     def published_spec(self) -> OntologySpec | None:
         with UnitOfWork(self.engine) as uow:
             pub = uow.ontology_versions.published()
@@ -123,7 +146,7 @@ class OntologyService:
     def new_draft(self, actor: str) -> int:
         """Start a new draft as a copy of the published version."""
         with UnitOfWork(self.engine) as uow:
-            versions = uow.ontology_versions.list()
+            versions = uow.ontology_versions.lock_all()
             draft = next((v for v in versions if v.status == "draft"), None)
             if draft is not None:
                 raise OntologyError(f"draft v{draft.version} already exists")
@@ -143,6 +166,7 @@ class OntologyService:
 
     def publish(self, number: int, actor: str) -> None:
         with UnitOfWork(self.engine) as uow:
+            uow.ontology_versions.lock_all()
             version = uow.ontology_versions.get_by_number(number)
             if version is None:
                 raise OntologyError(f"no version {number}")
@@ -153,7 +177,7 @@ class OntologyService:
             errors = validate(spec, previous=spec_of(previous) if previous else None)
             if errors:
                 raise OntologyError(f"v{number} failed validation: " + "; ".join(errors))
-            result = sync_constraints(self.graph, desired_constraints(spec))
+            result = self._sync(spec, spec_of(previous) if previous else None)
             if previous is not None:
                 previous.status = "superseded"
                 uow.session.flush()  # keep at most one published row at every point
@@ -174,18 +198,17 @@ class OntologyService:
     def rollback(self, actor: str) -> int:
         """Deprecate the published version and re-publish the most recent superseded one."""
         with UnitOfWork(self.engine) as uow:
+            versions = uow.ontology_versions.lock_all()
             current = uow.ontology_versions.published()
             if current is None:
                 raise OntologyError("nothing is published")
             candidates = [
-                v
-                for v in uow.ontology_versions.list()
-                if v.status == "superseded" and v.version < current.version
+                v for v in versions if v.status == "superseded" and v.version < current.version
             ]
             if not candidates:
                 raise OntologyError("nothing to roll back to")
             target = max(candidates, key=lambda v: v.version)
-            result = sync_constraints(self.graph, desired_constraints(spec_of(target)))
+            result = self._sync(spec_of(target), spec_of(current))
             current.status = "deprecated"
             uow.session.flush()
             target.status = "published"

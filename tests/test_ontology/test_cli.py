@@ -31,3 +31,19 @@ def test_show_without_versions(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) 
     monkeypatch.chdir(tmp_path)
     with pytest.raises(SystemExit, match="no such version"):
         main(["show"])
+
+
+def test_show_zero_is_not_the_published_version(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from writer_service.governance.db import create_engine_for
+    from writer_service.ontology.neo4j_schema import InMemoryGraphSchema
+    from writer_service.ontology.service import OntologyService
+
+    url = f"sqlite:///{tmp_path / 'g.sqlite'}"
+    upgrade(url)
+    OntologyService(create_engine_for(url), InMemoryGraphSchema()).bootstrap("t")
+    monkeypatch.setenv("WRITER_GOVERNANCE_DB_URL", url)
+    monkeypatch.chdir(tmp_path)
+    with pytest.raises(SystemExit, match="no such version"):
+        main(["show", "0"])

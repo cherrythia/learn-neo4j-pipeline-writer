@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import re
 
+from writer_service.ontology.neo4j_schema import PROVENANCE_KEYS, constraint_name, neo4j_label
 from writer_service.ontology.spec import OntologySpec
 
 CLASS_NAME = re.compile(r"^[A-Z][A-Za-z0-9]{0,63}$")
@@ -65,12 +66,48 @@ def validate(spec: OntologySpec, previous: OntologySpec | None = None) -> list[s
             elif target.deprecated:
                 errors.append(f"relation '{r.name}': {end} class '{cls_name}' is deprecated")
 
-    if previous is not None:  # deprecate, never delete
+    # Constraint names are lower-cased, so distinct classes can collide (FooBar vs Foobar).
+    owners: dict[str, str] = {
+        constraint_name(label, key): f"provenance {label}" for label, key in PROVENANCE_KEYS.items()
+    }
+    for c in spec.active_classes():
+        cname = constraint_name(neo4j_label(c), c.identity_key)
+        if cname in owners:
+            errors.append(
+                f"class '{c.name}': Neo4j constraint name {cname!r} collides with {owners[cname]}"
+            )
+        else:
+            owners[cname] = f"class '{c.name}'"
+
+    if previous is not None:  # deprecate, never delete or redefine what data relies on
         for old in previous.classes:
-            if old.name not in by_name:
+            new = by_name.get(old.name)
+            if new is None:
                 errors.append(
                     f"class '{old.name}' was removed from the published ontology; "
                     "deprecate it instead"
+                )
+                continue
+            if new.identity_key != old.identity_key:
+                errors.append(
+                    f"class '{old.name}': identity key changed from '{old.identity_key}' to "
+                    f"'{new.identity_key}' (existing nodes are keyed by the old one)"
+                )
+            if new.namespace != old.namespace:
+                errors.append(
+                    f"class '{old.name}': namespace changed from '{old.namespace}' to "
+                    f"'{new.namespace}' (it would change the Neo4j label)"
+                )
+            removed = {p.name for p in old.properties} - {p.name for p in new.properties}
+            for prop in sorted(removed):
+                errors.append(f"class '{old.name}': property '{prop}' was removed")
+        new_rels = {r.name: r for r in spec.relations}
+        for old_rel in previous.relations:
+            nr = new_rels.get(old_rel.name)
+            if nr is not None and (nr.domain, nr.range) != (old_rel.domain, old_rel.range):
+                errors.append(
+                    f"relation '{old_rel.name}': endpoints changed from "
+                    f"{old_rel.domain}->{old_rel.range} to {nr.domain}->{nr.range}"
                 )
         current_rels = set(rel_names)
         for old_rel in previous.relations:

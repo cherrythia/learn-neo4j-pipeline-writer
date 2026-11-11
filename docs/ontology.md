@@ -61,8 +61,11 @@ rollback  ──► v2 deprecated, v1 published again, constraints synced back
 - the taxonomy has a cycle, or a class or relation name is duplicated;
 - a name is not a safe identifier: classes are `CamelCase`, relations `UPPER_SNAKE`,
   properties `lower_snake`. Names go into Cypher, so this keeps generated Cypher injection-free;
-- a class or relation of the published version was **removed**. Deprecate it instead, never
-  delete it, so existing graph data keeps a valid definition.
+- two classes would get the same Neo4j constraint name (names are lower-cased, so `FooBar`
+  and `Foobar` collide), or a class collides with a provenance constraint;
+- a class or relation of the published version was **removed**, or a published class changed
+  its identity key or namespace or lost a property, or a published relation changed its
+  endpoints. Deprecate and add instead; existing graph data must keep a valid definition.
 
 **Neo4j constraints** (`ontology/neo4j_schema.py`): one uniqueness constraint per active
 class identity key (`wsc_issuer_ticker`), plus `Evidence.id`, `Source.id` and
@@ -70,10 +73,18 @@ class identity key (`wsc_issuer_ticker`), plus `Evidence.id`, `Source.id` and
 missing ones, drops stale ones and leaves everything else alone. Property-existence
 constraints need Neo4j Enterprise, so required properties are enforced by the pipeline's gates.
 
-**Atomicity.** Publish validates, then syncs Neo4j, then updates statuses and commits the
-governance transaction. If Neo4j fails, nothing changes in the governance store. If the commit
-fails after the sync, retrying is safe because constraint DDL is idempotent. Every publish,
-draft and rollback is in the audit log with the constraint changes it made.
+**Atomicity.** Publish locks the version rows, validates, syncs Neo4j, then updates statuses
+and commits the governance transaction. Neo4j DDL can't be part of that SQL transaction, so:
+- sync **creates before it drops**, so a failure part-way only ever leaves extra constraints;
+- if the sync fails, the service **re-syncs Neo4j back to the still-published version** and
+  the governance transaction rolls back (tested with failures on a CREATE and on a DROP);
+- if the commit fails after a successful sync, retrying is safe (constraint DDL is idempotent).
+
+**Concurrency.** Publish, rollback and new-draft take `SELECT … FOR UPDATE` locks on
+`ontology_versions` (MySQL), so two admins can't publish at once. SQLite has no row locks, so
+use MySQL for anything multi-user.
+
+Every publish, draft and rollback is in the audit log with the constraint changes it made.
 
 ## CLI
 

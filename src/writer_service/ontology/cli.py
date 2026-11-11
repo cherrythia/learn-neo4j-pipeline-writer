@@ -55,7 +55,7 @@ def main(argv: list[str] | None = None) -> None:
         with UnitOfWork(engine) as uow:
             v = (
                 uow.ontology_versions.get_by_number(args.version)
-                if args.version
+                if args.version is not None
                 else uow.ontology_versions.published()
             )
             if v is None:
