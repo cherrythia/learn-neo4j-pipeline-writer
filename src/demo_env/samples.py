@@ -7,18 +7,26 @@ from __future__ import annotations
 
 import re
 import zipfile
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from pathlib import Path
 
 from fpdf import FPDF
 from openpyxl import Workbook
 
-from demo_env.data import FILINGS, ISSUERS, RULES
+from demo_env.data import FILINGS, ISSUERS, filing_by_id, timing_rule_for
 
 PDF_PATH = Path("samples/aurora_pacific_annual_report_2025.pdf")
 XLSX_PATH = Path("samples/disclosure_checklist_2025.xlsx")
 # Fixed timestamp so regenerated files are byte-identical (no spurious git diffs).
 _FIXED_TS = datetime(2026, 1, 1, tzinfo=UTC)
+
+_APH_ANNUAL = filing_by_id("AR-2025-APH")
+_APH_ESG = filing_by_id("ESG-2025-APH")
+
+
+def _long_date(d: date) -> str:
+    return f"{d.day} {d.strftime('%B %Y')}"
+
 
 _PAGES = [
     (
@@ -27,7 +35,8 @@ _PAGES = [
             "Aurora Pacific Holdings (Demo) (ticker APH) is listed on the Mainboard and is "
             "incorporated in Singapore. This document is fictional and for demonstration only.",
             "Aurora Pacific Holdings (Demo) issued this annual report for the financial year "
-            "ended 31 December 2025 on 15 April 2026, in accordance with Listing Rule LR-705.",
+            f"ended 31 December 2025 on {_long_date(_APH_ANNUAL.filed_on)}, in accordance with "
+            "Listing Rule LR-705.",
             "The annual report includes the independent auditor's report and the directors' "
             "statement as required by Listing Rule LR-707.",
         ],
@@ -35,8 +44,8 @@ _PAGES = [
     (
         "Sustainability (ESG) Statement",
         [
-            "Aurora Pacific Holdings (Demo) published its ESG sustainability report for 2025 "
-            "under Listing Rule LR-711A.",
+            "Aurora Pacific Holdings (Demo) published its ESG sustainability report for 2025 on "
+            f"{_long_date(_APH_ESG.filed_on)} under Listing Rule LR-711A.",
             "Climate-related disclosures aligned with LR-711B are included, covering Scope 1 and "
             "Scope 2 emissions.",
             "The board identified one finding: Scope 3 emissions data was not yet assured.",
@@ -69,9 +78,9 @@ def build_xlsx(path: Path) -> None:
     ws.title = "Checklist"
     ws.append(["issuer", "rule_code", "requirement", "status"])
     names = {i.issuer_id: i.name for i in ISSUERS}
-    rules_by_type = {r.filing_type: r for r in RULES if r.rule_code.startswith("LR")}
     for f in FILINGS[:12]:
-        rule = rules_by_type[f.filing_type]
+        # Each row checks the filing against the *timing* rule for its issuer's board.
+        rule = timing_rule_for(f)
         status = "late" if f.filed_on > f.due_on else "filed on time"
         ws.append([names[f.issuer_id], rule.rule_code, rule.title, status])
     wb.properties.created = _FIXED_TS.replace(tzinfo=None)

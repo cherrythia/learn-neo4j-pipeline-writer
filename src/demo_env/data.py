@@ -125,11 +125,17 @@ OBLIGATIONS: list[Obligation] = [
 
 FISCAL_YEAR = 2025
 _YEAR_END = date(FISCAL_YEAR, 12, 31)
+# The timing rule that decides whether a filing is on time, per (board, filing type).
+TIMING_RULE: dict[tuple[Board, FilingType], str] = {
+    ("mainboard", "annual_report"): "LR-705",
+    ("mainboard", "esg_report"): "LR-711A",
+    ("catalist", "annual_report"): "CR-705",
+    ("catalist", "esg_report"): "CR-711A",
+}
+# Deadlines are derived from the obligations table, so there is one source for them.
 _DEADLINES: dict[tuple[Board, FilingType], int] = {
-    ("mainboard", "annual_report"): 120,
-    ("mainboard", "esg_report"): 120,
-    ("catalist", "annual_report"): 120,
-    ("catalist", "esg_report"): 150,
+    key: next(o.deadline_days for o in OBLIGATIONS if o.rule_code == code and o.board == key[0])
+    for key, code in TIMING_RULE.items()
 }
 # Issuer ids whose filing of that type is late (gives the pipeline real findings to discover).
 _LATE: set[tuple[int, FilingType]] = {(3, "esg_report"), (9, "annual_report"), (13, "esg_report")}
@@ -163,6 +169,16 @@ ROWS: dict[str, list[object]] = {
     "rules": list(RULES),
     "obligations": list(OBLIGATIONS),
 }
+
+
+def timing_rule_for(filing: Filing) -> Rule:
+    board = next(i.board for i in ISSUERS if i.issuer_id == filing.issuer_id)
+    code = TIMING_RULE[(board, filing.filing_type)]
+    return next(r for r in RULES if r.rule_code == code)
+
+
+def filing_by_id(filing_id: str) -> Filing:
+    return next(f for f in FILINGS if f.filing_id == filing_id)
 
 
 def columns_of(table: str) -> tuple[str, ...]:

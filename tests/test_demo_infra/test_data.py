@@ -48,3 +48,13 @@ def test_data_is_fictional_marker_present() -> None:
 def test_some_filings_are_late_for_interesting_findings() -> None:
     late = [f for f in data.FILINGS if f.filed_on > f.due_on]
     assert 1 <= len(late) < len(data.FILINGS)
+
+
+def test_deadlines_derive_from_obligations() -> None:
+    for f in data.FILINGS:
+        rule = data.timing_rule_for(f)
+        issuer = next(i for i in data.ISSUERS if i.issuer_id == f.issuer_id)
+        ob = next(
+            o for o in data.OBLIGATIONS if o.rule_code == rule.rule_code and o.board == issuer.board
+        )
+        assert (f.due_on - data.date(2025, 12, 31)).days == ob.deadline_days
