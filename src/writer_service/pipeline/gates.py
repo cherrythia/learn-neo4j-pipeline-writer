@@ -97,6 +97,9 @@ def _is_a(spec: OntologySpec, child: str, parent: str) -> bool:
     return parent in _ancestors(spec, child)
 
 
+is_a = _is_a  # public: ``child`` is ``parent`` or one of its subclasses
+
+
 def _class(spec: OntologySpec, name: str, failures: list[str]) -> ClassSpec | None:
     cls = next((c for c in spec.classes if c.name == name), None)
     if cls is None:

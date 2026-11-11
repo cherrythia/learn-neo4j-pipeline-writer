@@ -265,3 +265,127 @@ def test_save_approve_retire(tmp_path: Path) -> None:
         assert actions.count("mapping.approve") == 2
     with pytest.raises(MappingError, match="not a draft"), UnitOfWork(engine) as uow:
         approve_mapping(uow, second, SPEC, ISSUERS_DS, actor="alice")
+
+
+# ------------------------------------------------------------------ review round 1 (#34)
+
+
+def test_approve_rejects_a_dataset_that_is_not_the_mappings(tmp_path: Path) -> None:
+    url = f"sqlite:///{tmp_path / 'g.sqlite'}"
+    upgrade(url)
+    engine = create_engine_for(url)
+    other = DatasetInfo(7, "issuers_copy", None, None, "mysql", ISSUERS_DS.columns)
+    with UnitOfWork(engine) as uow:
+        approve_mapping(
+            uow,
+            save_draft(uow, other, ISSUERS, suggested_by="user", actor="a").id,
+            SPEC,
+            other,
+            actor="a",
+        )
+        draft = save_draft(uow, ISSUERS_DS, ISSUERS, suggested_by="user", actor="a").id
+    with pytest.raises(MappingError, match="belongs to dataset 1"), UnitOfWork(engine) as uow:
+        approve_mapping(uow, draft, SPEC, other, actor="a")
+    with UnitOfWork(engine) as uow:
+        assert approved_mapping(uow, 7) == ISSUERS  # dataset 7's mapping was not retired
+
+
+def test_reader_pages_deterministically_when_the_first_column_repeats(source: Engine) -> None:
+    ds = DatasetInfo(
+        9,
+        "filings_by_issuer",
+        None,
+        "SELECT issuer_id, filing_id FROM demo_compliance.filings",  # issuer_id repeats
+        "mysql",
+        ("issuer_id", "filing_id"),
+    )
+    statements: list[str] = []
+    event.listen(source, "before_cursor_execute", lambda *a: statements.append(a[2]))
+    rows = list(DatasetReader(source, page_size=3).rows(ds))
+    assert len(rows) == 40 and len({r["filing_id"] for r in rows}) == 40
+    # SQLite happens to be stable; MySQL is not, so every page must order by every column
+    assert all("ORDER BY ds.issuer_id, ds.filing_id" in q for q in statements), statements[:1]
+
+
+def test_count_supports_virtual_sql_datasets(source: Engine) -> None:
+    ds = DatasetInfo(
+        9,
+        "late_filings",
+        None,
+        "SELECT filing_id, issuer_id FROM demo_compliance.filings WHERE filed_on > due_on",
+        "mysql",
+        ("filing_id", "issuer_id"),
+    )
+    assert DatasetReader(source).count(ds) == 3
+
+
+def test_driver_values_are_normalised_to_candidate_scalars() -> None:
+    from datetime import date, datetime
+    from decimal import Decimal
+
+    ds = DatasetInfo(2, "filings", None, None, "mysql", ("filing_id", "filed_on", "fiscal_year"))
+    m = DatasetMapping(
+        entities=[
+            EntityMapping(
+                class_name="Filing",
+                columns={
+                    "filing_id": "filing_id",
+                    "filed_on": "filed_on",
+                    "fiscal_year": "fiscal_year",
+                },
+            )
+        ]
+    )
+    rows = [
+        {
+            "filing_id": "F1",
+            "filed_on": datetime(2026, 4, 28, 9, 30),
+            "fiscal_year": Decimal("2025"),
+        },
+        {"filing_id": "F2", "filed_on": datetime(2026, 4, 28), "fiscal_year": Decimal("2025.5")},
+    ]
+    (f1, f2), _ = rows_to_candidates(m, ds, rows)
+    assert isinstance(f1, CandidateEntity) and isinstance(f2, CandidateEntity)
+    assert (
+        f1.properties["filed_on"] == "2026-04-28T09:30:00" and f1.properties["fiscal_year"] == 2025
+    )
+    assert f2.properties["filed_on"] == date(2026, 4, 28) and f2.properties["fiscal_year"] == 2025.5
+
+
+def test_validate_mapping_checks_relation_domain_and_range() -> None:
+    ds = DatasetInfo(2, "filings", None, None, "mysql", ("filing_id", "issuer_id"))
+    backwards = DatasetMapping(
+        relations=[
+            RelationMapping(
+                relation="FILED_BY",
+                source=EndMapping(class_name="Issuer", key_column="issuer_id"),
+                target=EndMapping(class_name="Filing", key_column="filing_id"),
+            )
+        ]
+    )
+    errors = validate_mapping(backwards, SPEC, ds)
+    assert any("source must be a 'Filing'" in e for e in errors), errors
+    assert any("target must be a 'Issuer'" in e for e in errors), errors
+
+
+def test_transport_errors_become_superset_errors() -> None:
+    import httpx2
+
+    def boom(request: httpx2.Request) -> httpx2.Response:
+        raise httpx2.ConnectError("connection refused", request=request)
+
+    client = SupersetClient(
+        "http://x",
+        "a",
+        "b",
+        http=httpx2.Client(base_url="http://x", transport=httpx2.MockTransport(boom)),
+    )
+    with pytest.raises(SupersetError, match="unreachable"):
+        client.dataset(1)
+
+
+def test_missing_dataset_is_a_distinct_error() -> None:
+    from writer_service.ingestion.superset import DatasetNotFound
+
+    with pytest.raises(DatasetNotFound):
+        superset().dataset(999)

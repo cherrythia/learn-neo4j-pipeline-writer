@@ -11,7 +11,13 @@ from writer_service.api.deps import PipelineDep, ReaderDep, SupersetDep
 from writer_service.auth.deps import SettingsDep, require_api_key
 from writer_service.governance.uow import UnitOfWork
 from writer_service.ingestion.documents import DocumentExtractor, pdf_chunks, xlsx_chunks
-from writer_service.ingestion.superset import SupersetError, approved_mapping, rows_to_candidates
+from writer_service.ingestion.superset import (
+    DatasetNotFound,
+    SourceReadError,
+    SupersetError,
+    approved_mapping,
+    rows_to_candidates,
+)
 from writer_service.ontology.service import spec_of
 from writer_service.pipeline.orchestrator import RunSummary, SourceBatch, SourceText
 
@@ -88,10 +94,14 @@ def ingest_superset(
         raise HTTPException(409, f"dataset {dataset_id} has no approved column mapping")
     try:
         ds = superset.dataset(dataset_id)
+    except DatasetNotFound as exc:
+        raise HTTPException(404, str(exc)) from exc
     except SupersetError as exc:
-        status = 404 if "not found" in str(exc) else 502
-        raise HTTPException(status, str(exc)) from exc
-    rows = list(reader.rows(ds, limit=settings.max_rows_per_sync))
+        raise HTTPException(502, str(exc)) from exc
+    try:
+        rows = list(reader.rows(ds, limit=settings.max_rows_per_sync))
+    except SourceReadError as exc:  # message names the dataset only, never SQL or the driver
+        raise HTTPException(502, str(exc)) from exc
     candidates, texts = rows_to_candidates(mapping, ds, rows)
     batch = SourceBatch("superset", ds.ref, [SourceText(*t) for t in texts], candidates=candidates)
     summary = pipeline.ingest(batch, actor="superset-sync")
