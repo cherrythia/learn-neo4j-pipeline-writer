@@ -142,6 +142,14 @@ class EntityMatcher:
         self.margin = margin
         self.floor = floor
         self._batch: dict[str, list[tuple[str, str | None]]] = {}
+        self._names: dict[str, list[tuple[str, str]]] = {}  # per-label cache for one batch
+
+    def reset_batch(self) -> None:
+        """Forget batch-local entities and cached names. Call between batches (or create one
+        matcher per batch) so a later batch can't resolve to an earlier batch's unaccepted
+        entities, and so names are re-read after the graph changed."""
+        self._batch.clear()
+        self._names.clear()
 
     @staticmethod
     def _name_prop(cls: ClassSpec) -> str | None:
@@ -164,7 +172,10 @@ class EntityMatcher:
         name_prop = self._name_prop(cls)
         if name_prop is None:
             return []
-        pool = self.index.names(neo4j_label(cls), cls.identity_key, name_prop)
+        label = neo4j_label(cls)
+        if label not in self._names:  # one name scan per label per batch, not per reference
+            self._names[label] = self.index.names(label, cls.identity_key, name_prop)
+        pool = list(self._names[label])
         pool += [(k, n) for k, n in self._batch.get(cls.name, []) if n]
         best: dict[str, float] = {}
         for key, name in pool:
@@ -195,11 +206,14 @@ class EntityMatcher:
         return MatchResult("fuzzy", best_key, min(best, 0.99), ranked[:3])
 
     def match_entity(self, candidate: CandidateEntity) -> MatchResult:
-        """Entity candidates keep their own key; flag ones that look like an existing entity."""
+        """Match an entity candidate by its own key. ``exact`` returns the *stored* key (which may
+        differ in case: the writer must use it, because Neo4j keys are case-sensitive).
+        A new key whose name matches another entity is flagged ``possible_duplicate``."""
         cls = self.classes[candidate.class_name]
         key = str(candidate.properties.get(cls.identity_key, ""))
-        if self.index.find_key(neo4j_label(cls), cls.identity_key, key) is not None:
-            return MatchResult("exact", key, 1.0)
+        stored = self.index.find_key(neo4j_label(cls), cls.identity_key, key)
+        if stored is not None:
+            return MatchResult("exact", stored, 1.0)
         name_prop = self._name_prop(cls)
         name = candidate.properties.get(name_prop) if name_prop else None
         if name:
@@ -227,6 +241,10 @@ class EntityMatcher:
                     f"{side} {ref.class_name} {ref.key!r} resolved to {result.key!r} "
                     f"(similarity {result.confidence:.2f})"
                 )
+                ref = EntityRef(class_name=ref.class_name, key=result.key)
+            elif result.status == "exact" and result.key is not None and result.key != ref.key:
+                # same entity, different spelling of the key (e.g. case): use the stored key
+                notes.append(f"{side} {ref.class_name} {ref.key!r} normalised to {result.key!r}")
                 ref = EntityRef(class_name=ref.class_name, key=result.key)
             elif result.status == "ambiguous":
                 options = ", ".join(k for k, _ in result.alternatives)

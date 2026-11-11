@@ -13,7 +13,7 @@ identity key (`APH`), or propose an entity that duplicates an existing one under
 
 | Status | When | Effect | `entity_match` |
 |---|---|---|---|
-| `exact` | identity key exists (case-insensitive) | none | 1.0 |
+| `exact` | identity key exists (case-insensitive) | key **rewritten to the stored spelling** if it differs (Neo4j keys are case-sensitive) | 1.0 |
 | `fuzzy` | text matches one entity's name/title ≥ 0.90, clear of the runner-up by ≥ 0.05 | relation endpoint **rewritten** to that entity's key | the similarity (≤ 0.99) |
 | `ambiguous` | best match is only partial (0.75–0.90), or two entities are within 0.05 | nothing rewritten; listed alternatives | 0.3 (sends the fact to review) |
 | `new` | nothing ≥ 0.75 | none | None (neutral 0.5 in scoring) |
@@ -47,3 +47,13 @@ reviewer.
 
 Entities proposed earlier in the same batch are matchable too (`add_batch_entity`), so a PDF
 that introduces an issuer and then references it by name resolves correctly.
+
+## Lifecycle and performance
+
+Use **one matcher per batch**, or call `reset_batch()` between batches. Batch-local entities
+are proposals, not accepted facts, so a later batch must not resolve to them.
+
+Within a batch, the name list of each class is read **once** and cached. Each lookup of a key
+that isn't an exact match still costs one case-insensitive scan in Neo4j (the exact match uses
+the uniqueness index). That's fine at demo scale; for large graphs, a full-text index on names
+is the next step (issue #28).

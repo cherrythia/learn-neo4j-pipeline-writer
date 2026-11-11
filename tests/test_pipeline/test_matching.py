@@ -140,3 +140,52 @@ def test_floor_and_threshold_are_configurable(
 ) -> None:
     strict = EntityMatcher(index, spec, threshold=0.99, floor=0.98)
     assert strict.resolve("Issuer", "Aurora Pacific Holdings").status == "new"
+
+
+def test_case_only_key_difference_is_rewritten_to_stored_key(matcher: EntityMatcher) -> None:
+    rel = CandidateRelation(
+        relation="FILED_BY",
+        source=EntityRef(class_name="Filing", key="F9"),
+        target=EntityRef(class_name="Issuer", key="aph"),
+    )
+    resolved, confidence, notes = matcher.resolve_relation(rel)
+    assert resolved.target.key == "APH" and confidence == 1.0
+    assert any("normalised to 'APH'" in n for n in notes)
+
+
+def test_match_entity_returns_the_stored_key(matcher: EntityMatcher) -> None:
+    r = matcher.match_entity(
+        CandidateEntity(class_name="Issuer", properties={"ticker": "aph", "name": "x"})
+    )
+    assert (r.status, r.key) == ("exact", "APH")
+
+
+def test_reset_batch_forgets_previous_batch(matcher: EntityMatcher) -> None:
+    matcher.add_batch_entity(
+        CandidateEntity(class_name="Issuer", properties={"ticker": "ZBM", "name": "Zebra Mining"})
+    )
+    assert matcher.resolve("Issuer", "zbm").status == "exact"
+    matcher.reset_batch()
+    assert matcher.resolve("Issuer", "zbm").status == "new"
+
+
+class CountingIndex(InMemoryMatchIndex):
+    def __init__(self) -> None:
+        super().__init__()
+        self.name_scans = 0
+
+    def names(self, label: str, key_prop: str, name_prop: str) -> list[tuple[str, str]]:
+        self.name_scans += 1
+        return super().names(label, key_prop, name_prop)
+
+
+def test_names_are_read_once_per_label_per_batch(spec: OntologySpec) -> None:
+    idx = CountingIndex()
+    idx.add("Issuer", "ticker", "APH", name="Aurora Pacific Holdings (Demo)")
+    m = EntityMatcher(idx, spec)
+    for text in ("Aurora Pacific", "Banyan", "Zebra", "Aurora Pacific Holdings"):
+        m.resolve("Issuer", text)
+    assert idx.name_scans == 1
+    m.reset_batch()
+    m.resolve("Issuer", "Aurora Pacific")
+    assert idx.name_scans == 2
