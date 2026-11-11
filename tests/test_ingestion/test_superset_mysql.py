@@ -15,12 +15,12 @@ def test_reads_demo_dataset_from_mysql_via_superset_metadata() -> None:
     url = os.environ.get("WRITER_TEST_SOURCE_DB_URL")
     if not url:
         pytest.skip("WRITER_TEST_SOURCE_DB_URL not set")
-    superset = SupersetClient(
+    with SupersetClient(
         os.environ.get("WRITER_TEST_SUPERSET_URL", "http://127.0.0.1:8088"),
         os.environ.get("SUPERSET_ADMIN_USERNAME", "admin"),
         os.environ["SUPERSET_ADMIN_PASSWORD"],
-    )
-    ds = superset.dataset(2)
+    ) as superset:
+        ds = superset.dataset(2)
     engine = create_engine(url)
     try:
         rows = list(DatasetReader(engine, page_size=15).rows(ds))

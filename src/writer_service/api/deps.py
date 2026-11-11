@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from typing import Annotated
 
 from fastapi import Depends, HTTPException, Request
@@ -38,11 +39,13 @@ def get_pipeline(request: Request) -> WriterPipeline:
 PipelineDep = Annotated[WriterPipeline, Depends(get_pipeline)]
 
 
-def get_superset(request: Request) -> SupersetClient:
+def get_superset(request: Request) -> Iterator[SupersetClient]:
+    """One client per request, closed afterwards (no leaked connections)."""
     s = request.app.state.settings
-    return SupersetClient(
+    with SupersetClient(
         s.superset_url, s.superset_username, s.superset_password.get_secret_value()
-    )
+    ) as client:
+        yield client
 
 
 def get_reader(request: Request) -> DatasetReader:
