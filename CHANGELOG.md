@@ -6,6 +6,15 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Added
+- **#7 Scoring engine** (`writer_service.scoring`)
+  - `ScoringPolicy` (weights that must sum to 1, ordered thresholds, per-source reliability, N)
+    with the design defaults.
+  - Pure `score()` with a full per-component breakdown, and `route()`: gates reject, conflicts
+    go to review, then thresholds (inclusive, float-noise safe).
+  - Policy storage: `active_policy()` / `activate_policy()` (history kept, audited);
+    migration `0002` adds `scoring_configs.source_reliability`.
+  - Tests: table-driven routing boundaries, property-based range and monotonicity
+    (hypothesis), worked example, storage round-trip. Docs: `docs/scoring.md`.
 - **#5 LLM abstraction** (`writer_service.llm`)
   - Provider-neutral `LLMClient` protocol; `StructuredLLM.ask()` renders a versioned prompt,
     requests JSON matching a pydantic model, validates, retries with feedback, and caches.

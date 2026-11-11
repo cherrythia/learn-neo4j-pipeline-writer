@@ -204,6 +204,8 @@ class ScoringConfig(Base):
     commit_threshold: Mapped[float] = mapped_column(Float)
     review_threshold: Mapped[float] = mapped_column(Float)
     self_consistency_runs: Mapped[int] = mapped_column(Integer, default=3)
+    # per-source reliability, e.g. {"superset": 0.95, "excel": 0.85, "pdf": 0.75} (migration 0002)
+    source_reliability: Mapped[dict[str, Any] | None] = mapped_column(JSON)
     active: Mapped[bool] = mapped_column(default=False)
     created_by: Mapped[str] = mapped_column(String(100))
     created_at: Mapped[datetime] = _ts()

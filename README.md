@@ -18,7 +18,7 @@ sources ─► Ingest ─► Match ─► Compile (gates) ─► Test (score) �
 
 Built issue by issue; see the [issues](https://github.com/cherrythia/learn-neo4j-pipeline-writer/issues).
 Currently in place: service skeleton, settings, admin UI skeleton, CI, local demo environment,
-governance store ([docs](docs/governance-store.md)), LLM layer ([docs](docs/llm.md)).
+governance store ([docs](docs/governance-store.md)), LLM layer ([docs](docs/llm.md)), scoring engine ([docs](docs/scoring.md)).
 
 ## Quick start
 
