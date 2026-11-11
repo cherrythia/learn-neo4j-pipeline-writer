@@ -108,3 +108,8 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   - GitHub Actions CI: ruff, mypy (strict), pytest, plus UI typecheck, test and build.
   - Design spec (`docs/design.md`), ADRs 0001–0013 (`docs/adr/`), `CONTRIBUTING.md`,
     `.env.example`.
+
+### Changed
+- **#30 Review process**: up to 5 independent review rounds per PR (was 3) before escalating
+  (CONTRIBUTING, design §11, ADR-0001 amendment).
+
