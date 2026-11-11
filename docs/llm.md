@@ -57,9 +57,13 @@ An LLM is not bit-for-bit repeatable. Claude Sonnet 5.5 also **rejects** non-def
 - `output_config.effort` from `WRITER_LLM_EFFORT` (default `high`, Sonnet 5.5's default).
 - **Server-side fallback is on by default** (`WRITER_LLM_FALLBACKS=true`): if Claude declines a
   request on safety grounds, the API re-runs it on a suitable model in the same call. The
-  serving model is recorded with each answer (and is part of the cache entry). Set it to
+  adapter reads only the output after the last `fallback` content block, and records the
+  serving model from the `fallback_message` entry in `usage.iterations` (stored with each
+  cached answer). Set it to
   `false` to get a plain `LLMRefusalError` instead.
-- `stop_reason: refusal` → `LLMRefusalError`; `max_tokens` → `LLMOutputError`.
+- `stop_reason: refusal` → `LLMRefusalError` (not retried); `max_tokens` or non-JSON →
+  `LLMOutputError`, which `StructuredLLM` retries with the error fed back, like a schema
+  mismatch. `LLMReplayMissError` (replay mode) is never retried.
 
 ## Switching provider
 
@@ -71,7 +75,8 @@ Nothing else changes: prompts, caching, validation and the pipeline are provider
 
 ## Testing
 
-- Unit tests use `FakeLLM` or a stubbed SDK client; CI never calls a real model.
+- Unit tests use `FakeLLM`; the Claude adapter is tested through the real `anthropic` SDK
+  over a mocked HTTP transport (`httpx2.MockTransport`). CI never calls a real model.
 - Recorded fixtures: a `FileCache` directory can be committed and replayed with
   `ReplayOnlyLLM`.
 - Live check (optional, costs a few cents):

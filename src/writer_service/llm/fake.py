@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping, Sequence
 from typing import Any
 
-from writer_service.llm.base import LLMOutputError, LLMRequest, LLMResponse
+from writer_service.llm.base import LLMOutputError, LLMReplayMissError, LLMRequest, LLMResponse
 
 Script = Sequence[dict[str, Any]] | Callable[[LLMRequest], dict[str, Any]]
 
@@ -48,7 +48,7 @@ class ReplayOnlyLLM:
         return "replay"
 
     def complete_json(self, request: LLMRequest) -> LLMResponse:
-        raise LLMOutputError(
+        raise LLMReplayMissError(
             f"no recorded response for prompt {request.prompt_name!r} "
             f"v{request.prompt_version}; record it with a real provider first"
         )

@@ -79,15 +79,22 @@ class StructuredLLM:
         feedback = ""
         last_error: Exception | None = None
         for _ in range(self.max_attempts):
-            response = self.client.complete_json(
-                LLMRequest(
-                    system=system,
-                    user=user + feedback,
-                    schema=schema,
-                    prompt_name=prompt.name,
-                    prompt_version=prompt.version,
+            try:
+                response = self.client.complete_json(
+                    LLMRequest(
+                        system=system,
+                        user=user + feedback,
+                        schema=schema,
+                        prompt_name=prompt.name,
+                        prompt_version=prompt.version,
+                    )
                 )
-            )
+            except LLMOutputError as exc:
+                # Unusable output (not JSON, truncated): retry. Refusals, config errors and
+                # replay misses are other LLMError types and propagate immediately.
+                last_error = exc
+                feedback = f"\n\nYour previous answer was unusable ({exc}). Return valid JSON only."
+                continue
             try:
                 value = output.model_validate(response.data)
             except ValidationError as exc:

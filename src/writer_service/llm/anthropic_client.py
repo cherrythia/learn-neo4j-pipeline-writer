@@ -60,7 +60,7 @@ class AnthropicLLM:
             raise LLMRefusalError(f"{request.prompt_name}: model refused (category={category})")
         if message.stop_reason == "max_tokens":
             raise LLMOutputError(f"{request.prompt_name}: output truncated at max_tokens")
-        text = next((b.text for b in message.content if b.type == "text"), "")
+        text = _served_text(message.content)
         try:
             data = json.loads(text)
         except json.JSONDecodeError as exc:
@@ -72,5 +72,32 @@ class AnthropicLLM:
             "output_tokens": int(getattr(message.usage, "output_tokens", 0) or 0),
         }
         return LLMResponse(
-            data=data, model=message.model, stop_reason=message.stop_reason, usage=usage
+            data=data,
+            model=_serving_model(message, default=self._model),
+            stop_reason=message.stop_reason,
+            usage=usage,
         )
+
+
+def _served_text(content: Any) -> str:
+    """Text produced by the model that served the turn.
+
+    With server-side fallback, ``content`` can hold the declining model's partial text, then a
+    ``fallback`` block, then the fallback model's output. Only text after the last
+    ``fallback`` block is the answer.
+    """
+    parts: list[str] = []
+    for block in content:
+        if block.type == "fallback":
+            parts = []
+        elif block.type == "text":
+            parts.append(block.text)
+    return "".join(parts)
+
+
+def _serving_model(message: Any, *, default: str) -> str:
+    """The model that produced the answer: the last ``fallback_message`` usage iteration if a
+    fallback ran, otherwise the requested model."""
+    iterations = getattr(message.usage, "iterations", None) or []
+    served = [it.model for it in iterations if getattr(it, "type", None) == "fallback_message"]
+    return served[-1] if served else default

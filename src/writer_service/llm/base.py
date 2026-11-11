@@ -18,6 +18,10 @@ class LLMOutputError(LLMError):
     """The model returned something unusable (invalid JSON, schema mismatch, truncated)."""
 
 
+class LLMReplayMissError(LLMError):
+    """Replay-only mode found no recorded answer (never retried, never a live call)."""
+
+
 class LLMRefusalError(LLMError):
     """The model declined the request (``stop_reason == "refusal"``)."""
 

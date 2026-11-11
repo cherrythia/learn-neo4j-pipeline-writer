@@ -3,7 +3,13 @@ from typing import Any
 import pytest
 from pydantic import BaseModel
 
-from writer_service.llm.base import LLMOutputError, LLMRequest, LLMResponse
+from writer_service.llm.base import (
+    LLMOutputError,
+    LLMRefusalError,
+    LLMReplayMissError,
+    LLMRequest,
+    LLMResponse,
+)
 from writer_service.llm.cache import InMemoryCache
 from writer_service.llm.fake import FakeLLM, ReplayOnlyLLM
 from writer_service.llm.prompts import PromptTemplate
@@ -92,7 +98,7 @@ def test_gives_up_after_max_attempts_and_caches_nothing() -> None:
 
 def test_replay_only_raises_on_cache_miss() -> None:
     llm = StructuredLLM(ReplayOnlyLLM(), InMemoryCache())
-    with pytest.raises(LLMOutputError, match="no recorded response"):
+    with pytest.raises(LLMReplayMissError, match="no recorded response"):
         ask(llm)
 
 
@@ -114,3 +120,51 @@ def test_fake_unscripted_prompt_is_an_error() -> None:
 def test_response_type_is_plain_data() -> None:
     r = LLMResponse(data={"a": 1}, model="m", stop_reason="end_turn")
     assert r.data == {"a": 1}
+
+
+class Flaky:
+    """Client that raises a scripted sequence of errors before answering."""
+
+    def __init__(self, errors: list[Exception], answer: dict[str, Any] | None = GOOD) -> None:
+        self.errors = errors
+        self.answer = answer
+        self.calls = 0
+
+    @property
+    def model(self) -> str:
+        return "flaky"
+
+    def complete_json(self, request: LLMRequest) -> LLMResponse:
+        self.calls += 1
+        if self.errors:
+            raise self.errors.pop(0)
+        assert self.answer is not None
+        return LLMResponse(data=self.answer, model="flaky", stop_reason="end_turn")
+
+
+def test_non_json_output_is_retried_then_succeeds() -> None:
+    client = Flaky([LLMOutputError("response is not JSON")])
+    result = ask(StructuredLLM(client, InMemoryCache(), max_attempts=2))
+    assert client.calls == 2 and result.value.facts[0].subject == "Aurora"
+
+
+def test_always_non_json_raises_and_caches_nothing() -> None:
+    cache = InMemoryCache()
+    client = Flaky([LLMOutputError("not JSON")] * 3, answer=None)
+    with pytest.raises(LLMOutputError, match="invalid output after 3 attempts"):
+        ask(StructuredLLM(client, cache, max_attempts=3))
+    assert client.calls == 3 and cache.size() == 0
+
+
+def test_refusal_is_not_retried() -> None:
+    client = Flaky([LLMRefusalError("declined")])
+    with pytest.raises(LLMRefusalError):
+        ask(StructuredLLM(client, InMemoryCache(), max_attempts=3))
+    assert client.calls == 1
+
+
+def test_replay_miss_is_not_retried() -> None:
+    client = Flaky([LLMReplayMissError("miss")])
+    with pytest.raises(LLMReplayMissError):
+        ask(StructuredLLM(client, InMemoryCache(), max_attempts=3))
+    assert client.calls == 1

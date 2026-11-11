@@ -14,6 +14,8 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   - Cache keyed by model, prompt version, input, schema, ontology version and sample index;
     `InMemoryCache` and `FileCache` (usable as recorded fixtures with `ReplayOnlyLLM`).
   - `FakeLLM` for tests; factory fails fast when the Anthropic key is missing.
+  - Unusable output (non-JSON, truncated) is retried like schema mismatches; refusals and
+    replay misses are not. Fallback turns are parsed from the serving model only.
   - New settings: `WRITER_LLM_EFFORT`, `WRITER_LLM_FALLBACKS`, `WRITER_LLM_MAX_ATTEMPTS`,
     `WRITER_LLM_CACHE_DIR`. Docs: `docs/llm.md`; ADR-0003/0005 updated.
 - **#2 Local demo infrastructure**
