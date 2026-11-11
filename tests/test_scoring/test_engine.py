@@ -8,7 +8,7 @@ from writer_service.scoring.engine import (
     route,
     score,
 )
-from writer_service.scoring.policy import default_policy
+from writer_service.scoring.policy import ScoringPolicy, Weights, default_policy
 
 POLICY = default_policy()
 
@@ -81,8 +81,17 @@ def test_routing_boundaries(value: float, expected: str) -> None:
     assert route(value, POLICY).decision == expected
 
 
-def test_float_noise_at_threshold_still_commits() -> None:
-    assert route(0.1 + 0.2 + 0.55, POLICY).decision == "commit"  # 0.8500000000000001 / 0.849999...
+@pytest.mark.parametrize(
+    "value,expected",
+    [
+        (0.85 - 1e-12, "commit"),  # float noise below the threshold: epsilon absorbs it
+        (0.60 - 1e-12, "review"),
+        (0.85 - 1e-6, "review"),  # a real difference: epsilon must not swallow it
+        (0.60 - 1e-6, "reject"),
+    ],
+)
+def test_epsilon_absorbs_float_noise_only(value: float, expected: str) -> None:
+    assert route(value, POLICY).decision == expected
 
 
 def test_gate_failures_reject_regardless_of_score() -> None:
@@ -108,7 +117,23 @@ def test_reasons_explain_threshold_decisions() -> None:
 prob = st.floats(min_value=0, max_value=1, allow_nan=False)
 
 
+@st.composite
+def policies(draw: st.DrawFn) -> ScoringPolicy:
+    """Random valid policies: positive weights normalised to sum to 1, random reliabilities."""
+    raw = [draw(st.floats(min_value=0.01, max_value=1)) for _ in COMPONENTS]
+    total = sum(raw)
+    weights = Weights(**{n: w / total for n, w in zip(COMPONENTS, raw, strict=True)})
+    reliability = {s: draw(prob) for s in ("pdf", "excel", "superset")}
+    return default_policy().model_copy(
+        update={"weights": weights, "source_reliability": reliability}
+    )
+
+
+SIGNAL_FIELDS = ["grounding", "back_translation", "stability", "entity_match", "self_confidence"]
+
+
 @given(
+    policies(),
     prob,
     prob,
     prob,
@@ -116,10 +141,10 @@ prob = st.floats(min_value=0, max_value=1, allow_nan=False)
     prob,
     st.sampled_from(["pdf", "excel", "superset"]),
 )
-def test_score_always_in_unit_interval(
-    g: float, b: float, s: float, e: float | None, c: float, src: str
+def test_score_in_unit_interval_and_contributions_add_up(
+    policy: ScoringPolicy, g: float, b: float, s: float, e: float | None, c: float, src: str
 ) -> None:
-    v = score(
+    result = score(
         Signals(
             source=src,
             grounding=g,
@@ -128,23 +153,29 @@ def test_score_always_in_unit_interval(
             entity_match=e,
             self_confidence=c,
         ),
-        POLICY,
-    ).value
-    assert 0.0 <= v <= 1.0
+        policy,
+    )
+    assert 0.0 <= result.value <= 1.0 + 1e-12
+    assert sum(x.contribution for x in result.breakdown.values()) == pytest.approx(result.value)
 
 
-@given(
-    st.sampled_from(
-        ["grounding", "back_translation", "stability", "entity_match", "self_confidence"]
-    ),
-    prob,
-    prob,
-    prob,
-)
-def test_score_monotonic_in_each_component(
-    component: str, base: float, lo: float, hi: float
+@given(policies(), st.sampled_from(SIGNAL_FIELDS), prob, prob)
+def test_score_monotonic_in_each_signal(
+    policy: ScoringPolicy, component: str, lo: float, hi: float
 ) -> None:
     lo, hi = min(lo, hi), max(lo, hi)
-    low = score(signals(**{"grounding": base, component: lo}), POLICY).value
-    high = score(signals(**{"grounding": base, component: hi}), POLICY).value
+    low = score(signals(**{component: lo}), policy).value
+    high = score(signals(**{component: hi}), policy).value
     assert high >= low - 1e-12
+
+
+@given(policies(), prob, prob)
+def test_score_monotonic_in_source_reliability(policy: ScoringPolicy, lo: float, hi: float) -> None:
+    lo, hi = min(lo, hi), max(lo, hi)
+
+    def with_pdf(r: float) -> ScoringPolicy:
+        return policy.model_copy(
+            update={"source_reliability": {**policy.source_reliability, "pdf": r}}
+        )
+
+    assert score(signals(), with_pdf(hi)).value >= score(signals(), with_pdf(lo)).value - 1e-12

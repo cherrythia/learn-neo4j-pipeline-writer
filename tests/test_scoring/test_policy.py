@@ -68,7 +68,7 @@ def test_thresholds_must_be_ordered_and_in_range(commit: float, review: float) -
 
 def test_source_reliability_values_in_range() -> None:
     data = default_policy().model_dump()
-    data["source_reliability"] = {"pdf": 1.5}
+    data["source_reliability"] = {"pdf": 1.5, "excel": 0.8, "superset": 0.9}
     with pytest.raises(ValidationError):
         ScoringPolicy.model_validate(data)
 
@@ -77,4 +77,11 @@ def test_unknown_weight_key_rejected() -> None:
     data = default_policy().model_dump()
     data["weights"]["vibes"] = 0.0
     with pytest.raises(ValidationError):
+        ScoringPolicy.model_validate(data)
+
+
+def test_source_reliability_must_cover_every_source_type() -> None:
+    data = default_policy().model_dump()
+    data["source_reliability"] = {}
+    with pytest.raises(ValidationError, match="missing for: excel, pdf, superset"):
         ScoringPolicy.model_validate(data)

@@ -4,7 +4,8 @@ from __future__ import annotations
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-Probability = float  # documented alias; bounds enforced with Field(ge=0, le=1)
+# Every ingestion source must have a reliability, or scoring would fail for it.
+SOURCE_TYPES = frozenset({"pdf", "excel", "superset"})
 
 
 class Weights(BaseModel):
@@ -37,6 +38,9 @@ class ScoringPolicy(BaseModel):
     @field_validator("source_reliability")
     @classmethod
     def _reliability_in_range(cls, value: dict[str, float]) -> dict[str, float]:
+        missing = SOURCE_TYPES - set(value)
+        if missing:
+            raise ValueError(f"source reliability missing for: {', '.join(sorted(missing))}")
         for source, r in value.items():
             if not 0 <= r <= 1:
                 raise ValueError(f"source reliability for {source!r} must be in [0, 1]")

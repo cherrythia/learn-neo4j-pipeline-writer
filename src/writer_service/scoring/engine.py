@@ -85,13 +85,16 @@ def score(signals: Signals, policy: ScoringPolicy) -> Score:
         ),
         "self_confidence": signals.self_confidence,
     }
-    weights = policy.weights.model_dump()
+    raw = policy.weights.model_dump()
+    # Weights may sum to 1 ± 1e-6; normalising keeps the score in [0, 1] with no clamping,
+    # so the contributions always add up to the score exactly.
+    total_weight = sum(raw.values())
+    weights = {name: w / total_weight for name, w in raw.items()}
     breakdown = {
         name: Component(values[name], weights[name], values[name] * weights[name])
         for name in COMPONENTS
     }
-    total = sum(c.contribution for c in breakdown.values())
-    return Score(min(1.0, max(0.0, total)), breakdown)
+    return Score(sum(c.contribution for c in breakdown.values()), breakdown)
 
 
 @dataclass(frozen=True)

@@ -32,6 +32,12 @@ Each component is a number in [0, 1]:
 score = Σ weight_i × value_i        (weights sum to 1, so score ∈ [0, 1])
 ```
 
+Weights are validated to sum to 1 within 1e-6 and then normalised exactly, so the score never
+needs clamping and the contributions in the breakdown always add up to it.
+
+`record_outcome(candidate, routing, score)` stores the breakdown, decision and reasons on the
+`candidates` row; the writer pipeline (issue #10) calls it for every candidate.
+
 ## 3. Routing
 
 | Score | Decision |
@@ -76,11 +82,14 @@ with UnitOfWork(engine) as uow:
     activate_policy(uow, policy.model_copy(update={"commit_threshold": 0.9}), actor="alice")
 ```
 
-Validation rejects weights that don't sum to 1, values outside [0, 1], and a review threshold
-that isn't below the commit threshold. The admin page (issues #14–#15) edits this.
+Validation rejects weights that don't sum to 1, values outside [0, 1], a review threshold
+that isn't below the commit threshold, and a reliability table that doesn't cover every
+source (`pdf`, `excel`, `superset`). The admin page (issues #14–#15) edits this.
 
 ## 6. Guarantees (tested)
 
-- The score is always in [0, 1] (property-based test over random inputs).
-- The score never decreases when any component increases (monotonic; property-based).
+- The score is always in [0, 1] (property-based test over random inputs **and random valid
+  policies**).
+- The score never decreases when any component increases, including source reliability
+  (monotonic; property-based).
 - Contributions always add up to the score (the derivation is exact).
