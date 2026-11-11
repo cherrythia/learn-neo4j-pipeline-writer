@@ -101,7 +101,8 @@ reason). Weights, thresholds and N are editable in the admin page; weights must 
 
 An LLM is not bit-for-bit repeatable, even at minimum randomness. So:
 1. **Reduce**: pinned model, versioned prompts, structured JSON output, and a vocabulary
-   restricted to the published ontology.
+   restricted to the published ontology. (Sampling parameters are not available: Claude
+   Sonnet 5.5 rejects non-default `temperature`/`top_p`.)
 2. **Make repeatable**: canonicalize outputs; cache by `(input hash, prompt version, model,
    ontology version)`; idempotent `MERGE` writes.
 3. **Measure**: self-consistency with `WRITER_SELF_CONSISTENCY_RUNS` (default 3). A fact is kept only if

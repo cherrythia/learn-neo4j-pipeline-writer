@@ -6,6 +6,16 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Added
+- **#5 LLM abstraction** (`writer_service.llm`)
+  - Provider-neutral `LLMClient` protocol; `StructuredLLM.ask()` renders a versioned prompt,
+    requests JSON matching a pydantic model, validates, retries with feedback, and caches.
+  - Claude adapter (default `claude-sonnet-5-5`) using structured outputs, configurable effort,
+    and server-side refusal fallback (on by default).
+  - Cache keyed by model, prompt version, input, schema, ontology version and sample index;
+    `InMemoryCache` and `FileCache` (usable as recorded fixtures with `ReplayOnlyLLM`).
+  - `FakeLLM` for tests; factory fails fast when the Anthropic key is missing.
+  - New settings: `WRITER_LLM_EFFORT`, `WRITER_LLM_FALLBACKS`, `WRITER_LLM_MAX_ATTEMPTS`,
+    `WRITER_LLM_CACHE_DIR`. Docs: `docs/llm.md`; ADR-0003/0005 updated.
 - **#2 Local demo infrastructure**
   - `docker-compose.yml`: Neo4j 5, MySQL 8.4 and a mock Superset API, all bound to localhost;
     optional `--profile superset` runs real Apache Superset 4.1 plus a bootstrap job that
