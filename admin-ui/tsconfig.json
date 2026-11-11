@@ -7,8 +7,19 @@
     "strict": true,
     "noEmit": true,
     "skipLibCheck": true,
-    "types": ["bun"],
-    "lib": ["ESNext", "DOM", "DOM.Iterable"]
+    "types": [
+      "bun"
+    ],
+    "lib": [
+      "ESNext",
+      "DOM",
+      "DOM.Iterable"
+    ]
   },
-  "include": ["src", "test", "*.ts"]
+  "include": [
+    "src",
+    "test",
+    "e2e",
+    "*.ts"
+  ]
 }

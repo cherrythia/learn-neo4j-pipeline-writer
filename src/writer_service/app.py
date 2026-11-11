@@ -3,8 +3,11 @@
 import secrets
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI, Request, Response
+from fastapi.responses import RedirectResponse
+from fastapi.staticfiles import StaticFiles
 
 from writer_service import __version__
 from writer_service.api.admin import router as admin_router
@@ -13,6 +16,23 @@ from writer_service.auth.ratelimit import LoginLimiter
 from writer_service.auth.routes import router as auth_router
 from writer_service.config import Settings, get_settings
 from writer_service.governance.db import create_engine_for
+
+# `bun run build` output in a source checkout (src/writer_service/app.py -> repo root).
+ADMIN_UI_DIST = Path(__file__).resolve().parents[2] / "admin-ui" / "dist"
+
+
+def mount_admin_ui(app: FastAPI, dist: Path) -> bool:
+    """Serve the built admin UI at ``/admin/`` if it has been built. The UI uses hash routing,
+    so no server-side fallback is needed: every screen is ``/admin/#/...``."""
+    if not (dist / "index.html").is_file():
+        return False
+
+    @app.get("/admin", include_in_schema=False)
+    def admin_redirect() -> RedirectResponse:
+        return RedirectResponse("/admin/")
+
+    app.mount("/admin/", StaticFiles(directory=dist, html=True), name="admin-ui")
+    return True
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -53,4 +73,5 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     def health() -> dict[str, str]:
         return {"status": "ok"}
 
+    mount_admin_ui(app, Path(settings.admin_ui_dir) if settings.admin_ui_dir else ADMIN_UI_DIST)
     return app

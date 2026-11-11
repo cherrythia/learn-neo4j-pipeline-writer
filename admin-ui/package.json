@@ -6,18 +6,29 @@
     "dev": "bun --hot ./server.ts",
     "build": "bun build ./index.html --outdir ./dist --minify",
     "test": "bun test",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "gen:api": "bun x --bun openapi-typescript src/api/openapi.json -o src/api/schema.d.ts",
+    "e2e": "bun x playwright test"
   },
   "dependencies": {
+    "@mantine/core": "^9.8.0",
+    "@mantine/hooks": "^9.8.0",
+    "@mantine/notifications": "^9.8.0",
+    "@tanstack/react-query": "^5.107.1",
+    "@xyflow/react": "^12.12.1",
+    "openapi-fetch": "^0.17.0",
     "react": "^19.3.1",
-    "react-dom": "^19.3.1"
+    "react-dom": "^19.3.1",
+    "react-router": "^8.5.1"
   },
   "devDependencies": {
     "@happy-dom/global-registrator": "^21.0.4",
+    "@playwright/test": "^1.65.0",
     "@testing-library/react": "^16.3.3",
     "@types/bun": "^1.4.4",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
-    "typescript": "^7.0.2"
+    "openapi-typescript": "^7.13.0",
+    "typescript": "^5.9"
   }
 }

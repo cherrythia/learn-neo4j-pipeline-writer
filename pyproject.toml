@@ -26,6 +26,7 @@ writer-db = "writer_service.governance.migrate:main"
 writer-users = "writer_service.auth.cli:main"
 writer-openapi = "writer_service.api.openapi_export:main"
 writer-ontology = "writer_service.ontology.cli:main"
+writer-demo-server = "writer_service.demo_server:main"
 
 [dependency-groups]
 dev = [

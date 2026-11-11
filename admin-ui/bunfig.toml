@@ -1,2 +1,4 @@
 [test]
 preload = ["./test/setup.ts"]
+# Unit/component tests live in src/; e2e/ is Playwright (bunx playwright test).
+root = "./src"

@@ -36,6 +36,33 @@ jobs:
       - run: bun test
       - run: bun run build
 
+  e2e:
+    # Playwright smoke test: the built UI against `writer-demo-server` (in-memory, FakeLLM).
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - run: uv sync --locked
+      - name: Install admin UI and Chromium
+        working-directory: admin-ui
+        run: |
+          bun install --frozen-lockfile
+          bunx playwright install --with-deps chromium
+      - name: Playwright
+        working-directory: admin-ui
+        run: bunx playwright test
+      - if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: |
+            admin-ui/playwright-report
+            admin-ui/test-results
+          retention-days: 7
+
   demo-infra:
     runs-on: ubuntu-latest
     steps:

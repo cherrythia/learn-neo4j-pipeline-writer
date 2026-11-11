@@ -35,11 +35,23 @@ Currently in place:
   ([docs](docs/superset-ingestion.md))
 - admin JSON API for ontology, review queue, mappings, scoring, runs, audit and users
   ([docs](docs/admin-api.md))
+- admin UI (React + Mantine) at `/admin/`: review queue with score breakdowns, ontology
+  editor and graph, proposals, mappings, scoring, runs, audit, users ([docs](docs/admin-ui.md))
 
 ## Quick start
 
 Requirements: [uv](https://docs.astral.sh/uv/), [Bun](https://bun.sh), Docker (for the demo
 infrastructure).
+
+Try the admin UI with no Docker and no API key (in-memory stores, scripted LLM, seeded review
+queue; it prints the `alice`/`rita` passwords):
+
+```sh
+uv sync && (cd admin-ui && bun install && bun run build)
+uv run writer-demo-server                         # http://127.0.0.1:8000/admin/
+```
+
+The full service:
 
 ```sh
 cp .env.example .env              # fill in WRITER_ANTHROPIC_API_KEY to use Claude
@@ -86,6 +98,7 @@ All settings use the `WRITER_` prefix. See [`.env.example`](.env.example).
 | `WRITER_SESSION_TTL_MINUTES` | `480` | Admin session length |
 | `WRITER_COOKIE_SECURE` | `false` | Secure cookie flag; must be `true` in prod |
 | `WRITER_MAX_UPLOAD_MB` | `20` | Upload size limit for `/ingest/documents` |
+| `WRITER_ADMIN_UI_DIR` | `admin-ui/dist` | Built admin UI served at `/admin/` (not mounted if missing) |
 | `WRITER_GOVERNANCE_DB_URL` | `sqlite:///./governance.sqlite` | Governance store |
 
 Empty values in `.env` are treated as unset. Invalid values stop the service at startup.
