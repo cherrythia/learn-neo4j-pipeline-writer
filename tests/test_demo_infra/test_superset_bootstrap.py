@@ -32,6 +32,8 @@ def test_client_sends_session_cookie_back() -> None:
             self.wfile.write(b'{"result": "tok"}')
 
         def do_POST(self) -> None:
+            # Drain the body first, otherwise the client may see a connection reset.
+            self.rfile.read(int(self.headers.get("Content-Length", 0)))
             seen.append(self.headers.get("Cookie"))
             self.send_response(200)
             self.end_headers()

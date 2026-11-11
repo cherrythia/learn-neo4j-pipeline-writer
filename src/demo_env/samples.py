@@ -5,6 +5,8 @@ Regenerate:  ``uv run python -m demo_env.samples``
 
 from __future__ import annotations
 
+import re
+import zipfile
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -15,7 +17,7 @@ from demo_env.data import FILINGS, ISSUERS, RULES
 
 PDF_PATH = Path("samples/aurora_pacific_annual_report_2025.pdf")
 XLSX_PATH = Path("samples/disclosure_checklist_2025.xlsx")
-# Fixed timestamp so regenerated files do not change on every build.
+# Fixed timestamp so regenerated files are byte-identical (no spurious git diffs).
 _FIXED_TS = datetime(2026, 1, 1, tzinfo=UTC)
 
 _PAGES = [
@@ -73,9 +75,32 @@ def build_xlsx(path: Path) -> None:
         status = "late" if f.filed_on > f.due_on else "filed on time"
         ws.append([names[f.issuer_id], rule.rule_code, rule.title, status])
     wb.properties.created = _FIXED_TS.replace(tzinfo=None)
-    wb.properties.modified = _FIXED_TS.replace(tzinfo=None)
     path.parent.mkdir(parents=True, exist_ok=True)
     wb.save(path)
+    _pin_zip_timestamps(path)
+
+
+def _pin_zip_timestamps(path: Path) -> None:
+    """openpyxl stamps the zip entries and ``dcterms:modified`` with the current time at save,
+    ignoring ``wb.properties.modified``; rewrite both with a fixed timestamp."""
+    with zipfile.ZipFile(path) as src:
+        entries = [(info.filename, src.read(info)) for info in src.infolist()]
+    fixed = _FIXED_TS.strftime("%Y-%m-%dT%H:%M:%SZ").encode()
+    entries = [
+        (
+            name,
+            re.sub(rb"(<dcterms:modified[^>]*>)[^<]*(<)", rb"\g<1>" + fixed + rb"\g<2>", data)
+            if name == "docProps/core.xml"
+            else data,
+        )
+        for name, data in entries
+    ]
+    stamp = _FIXED_TS.timetuple()[:6]
+    with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as dst:
+        for name, data in entries:
+            info = zipfile.ZipInfo(name, date_time=stamp)
+            info.compress_type = zipfile.ZIP_DEFLATED
+            dst.writestr(info, data)
 
 
 def main() -> None:

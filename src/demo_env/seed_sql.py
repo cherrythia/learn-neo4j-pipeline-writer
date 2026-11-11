@@ -30,17 +30,20 @@ _DDL = {
 );""",
     "obligations": """CREATE TABLE obligations (
   obligation_id INT PRIMARY KEY,
-  rule_code VARCHAR(20) NOT NULL REFERENCES rules(rule_code),
+  rule_code VARCHAR(20) NOT NULL,
   board VARCHAR(20) NOT NULL,
-  deadline_days INT NOT NULL
+  deadline_days INT NOT NULL,
+  FOREIGN KEY (rule_code) REFERENCES rules(rule_code)
 );""",
     "filings": """CREATE TABLE filings (
   filing_id VARCHAR(40) PRIMARY KEY,
-  issuer_id INT NOT NULL REFERENCES issuers(issuer_id),
+  issuer_id INT NOT NULL,
   filing_type VARCHAR(30) NOT NULL,
   fiscal_year INT NOT NULL,
   due_on DATE NOT NULL,
-  filed_on DATE NOT NULL
+  filed_on DATE NOT NULL,
+  -- table-level form: MySQL silently ignores column-level REFERENCES
+  FOREIGN KEY (issuer_id) REFERENCES issuers(issuer_id)
 );""",
 }
 _ORDER = ["issuers", "rules", "obligations", "filings"]

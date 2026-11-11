@@ -12,10 +12,18 @@ counts=$(sql -ureader -p"$MYSQL_READER_PASSWORD" demo_compliance -e \
 [ "$counts" = "20 40 3 " ] || fail "unexpected demo row counts: $counts"
 echo "ok   demo data loaded (issuers filings late = $counts)"
 
-if sql -ureader -p"$MYSQL_READER_PASSWORD" demo_compliance -e "DELETE FROM rules"; then
-  fail "reader user can write"
-fi
+out=$(docker compose exec -T mysql mysql -ureader -p"$MYSQL_READER_PASSWORD" demo_compliance \
+  -e "DELETE FROM rules" 2>&1 || true)
+case "$out" in
+  *"ERROR 1142"*) ;;  # permission denied: exactly what we want
+  *) fail "reader write was not denied by privileges: $out" ;;
+esac
 echo "ok   reader is read-only"
+
+fks=$(sql -ureader -p"$MYSQL_READER_PASSWORD" -e \
+  "SELECT COUNT(*) FROM information_schema.REFERENTIAL_CONSTRAINTS WHERE CONSTRAINT_SCHEMA='demo_compliance'")
+[ "$fks" = "2" ] || fail "expected 2 foreign keys in demo_compliance, got $fks"
+echo "ok   foreign keys enforced"
 
 sql -uwriter -p"$MYSQL_WRITER_PASSWORD" governance -e "CREATE TABLE _smoke(x INT); DROP TABLE _smoke;" \
   || fail "writer cannot manage governance DB"

@@ -28,7 +28,9 @@ def test_no_passwords_hardcoded_in_init_scripts() -> None:
 def test_inserts_load_and_preserve_counts() -> None:
     # Inserts use portable SQL, so we can verify them on SQLite in CI.
     conn = sqlite3.connect(":memory:")
+    conn.execute("PRAGMA foreign_keys=ON")
     conn.executescript(render_demo_inserts())
+    assert conn.execute("PRAGMA foreign_key_check").fetchall() == []
     counts = {
         t: conn.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0]
         for t in ("issuers", "filings", "rules", "obligations")
@@ -46,3 +48,20 @@ def test_quotes_in_text_are_escaped() -> None:
     conn.executescript(render_demo_inserts())
     texts = [r[0] for r in conn.execute("SELECT text FROM rules")]
     assert any("'" in t for t in texts)  # a rule with an apostrophe survives round-trip
+
+
+def test_foreign_keys_declared_at_table_level() -> None:
+    # MySQL ignores column-level REFERENCES, so only table-level FOREIGN KEY counts.
+    sql = render_demo_inserts()
+    assert "FOREIGN KEY (issuer_id) REFERENCES issuers(issuer_id)" in sql
+    assert "FOREIGN KEY (rule_code) REFERENCES rules(rule_code)" in sql
+    conn = sqlite3.connect(":memory:")
+    conn.execute("PRAGMA foreign_keys=ON")
+    conn.executescript(render_demo_inserts())
+    try:
+        conn.execute(
+            "INSERT INTO filings VALUES ('X', 999, 'esg_report', 2025, '2026-01-01', '2026-01-01')"
+        )
+    except sqlite3.IntegrityError:
+        return
+    raise AssertionError("orphan filing accepted")

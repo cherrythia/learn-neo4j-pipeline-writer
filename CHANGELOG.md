@@ -15,7 +15,7 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   - MySQL users from env: `writer` (governance DB) and read-only `reader` (demo data).
   - Mock Superset (`demo_env.mock_superset`): login and dataset endpoints with Superset's
     response shapes.
-  - Sample PDF annual report and Excel disclosure checklist in `samples/`.
+  - Sample PDF annual report and Excel disclosure checklist in `samples/` (byte-reproducible).
   - `scripts/smoke_demo.sh` and CI job `demo-infra`: start the stack and check data, grants,
     mock Superset and Neo4j.
   - Docs: `docs/demo-environment.md`.

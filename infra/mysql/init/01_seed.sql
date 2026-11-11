@@ -53,9 +53,10 @@ INSERT INTO rules (rule_code, title, text, filing_type) VALUES
 
 CREATE TABLE obligations (
   obligation_id INT PRIMARY KEY,
-  rule_code VARCHAR(20) NOT NULL REFERENCES rules(rule_code),
+  rule_code VARCHAR(20) NOT NULL,
   board VARCHAR(20) NOT NULL,
-  deadline_days INT NOT NULL
+  deadline_days INT NOT NULL,
+  FOREIGN KEY (rule_code) REFERENCES rules(rule_code)
 );
 
 INSERT INTO obligations (obligation_id, rule_code, board, deadline_days) VALUES
@@ -68,11 +69,13 @@ INSERT INTO obligations (obligation_id, rule_code, board, deadline_days) VALUES
 
 CREATE TABLE filings (
   filing_id VARCHAR(40) PRIMARY KEY,
-  issuer_id INT NOT NULL REFERENCES issuers(issuer_id),
+  issuer_id INT NOT NULL,
   filing_type VARCHAR(30) NOT NULL,
   fiscal_year INT NOT NULL,
   due_on DATE NOT NULL,
-  filed_on DATE NOT NULL
+  filed_on DATE NOT NULL,
+  -- table-level form: MySQL silently ignores column-level REFERENCES
+  FOREIGN KEY (issuer_id) REFERENCES issuers(issuer_id)
 );
 
 INSERT INTO filings (filing_id, issuer_id, filing_type, fiscal_year, due_on, filed_on) VALUES

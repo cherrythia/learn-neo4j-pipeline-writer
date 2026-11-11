@@ -34,3 +34,12 @@ def test_builders_are_deterministic(tmp_path: Path) -> None:
     p = tmp_path / "s.pdf"
     build_pdf(p)
     assert PdfReader(p).pages[0].extract_text()
+
+
+def test_committed_samples_match_fresh_build(tmp_path: Path) -> None:
+    """Samples are byte-reproducible, so regenerating never creates a spurious diff."""
+    pdf, xlsx = tmp_path / "s.pdf", tmp_path / "s.xlsx"
+    build_pdf(pdf)
+    build_xlsx(xlsx)
+    assert pdf.read_bytes() == (ROOT / PDF_PATH).read_bytes()
+    assert xlsx.read_bytes() == (ROOT / XLSX_PATH).read_bytes()
