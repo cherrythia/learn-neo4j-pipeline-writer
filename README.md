@@ -17,8 +17,14 @@ sources ─► Ingest ─► Match ─► Compile (gates) ─► Test (score) �
 ## Status
 
 Built issue by issue; see the [issues](https://github.com/cherrythia/learn-neo4j-pipeline-writer/issues).
-Currently in place: service skeleton, settings, admin UI skeleton, CI, local demo environment,
-governance store ([docs](docs/governance-store.md)), LLM layer ([docs](docs/llm.md)), scoring engine ([docs](docs/scoring.md)).
+Currently in place:
+
+- service skeleton, settings, CI and the admin UI skeleton
+- local demo environment ([docs](docs/demo-environment.md))
+- governance store ([docs](docs/governance-store.md))
+- LLM layer ([docs](docs/llm.md))
+- core ontology and publish workflow ([docs](docs/ontology.md))
+- scoring engine ([docs](docs/scoring.md))
 
 ## Quick start
 
@@ -30,6 +36,7 @@ cp .env.example .env              # fill in WRITER_ANTHROPIC_API_KEY to use Clau
 uv sync
 uv run uvicorn writer_service.app:create_app --factory --reload   # http://localhost:8000/health
 uv run writer-db upgrade                          # create governance tables
+uv run writer-ontology bootstrap                  # publish core ontology + Neo4j constraints
 uv run pytest
 
 cd admin-ui && bun install && bun run dev        # http://localhost:3000

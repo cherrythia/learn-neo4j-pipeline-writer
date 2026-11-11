@@ -23,13 +23,27 @@ what was built and why.
 ## Local checks
 
 ```sh
-uv sync
-uv run ruff check . && uv run ruff format --check .
-uv run mypy
-uv run pytest
-
-cd admin-ui && bun install && bun run typecheck && bun test && bun run build
+uv sync && (cd admin-ui && bun install)
+./scripts/check.sh            # everything CI runs except the docker job; stops on first failure
+./scripts/check.sh backend    # Python only
 ```
+
+Don't pipe check commands into `tail`/`grep` without `set -o pipefail`: the pipe hides the
+exit code.
+
+Integration tests (need `docker compose up -d --wait`):
+
+```sh
+set -a; . ./.env; set +a
+WRITER_TEST_MYSQL_URL="mysql+pymysql://writer:$MYSQL_WRITER_PASSWORD@127.0.0.1:3306/governance_test" \
+WRITER_TEST_NEO4J_URI=bolt://127.0.0.1:7687 WRITER_TEST_NEO4J_PASSWORD="$WRITER_NEO4J_PASSWORD" \
+  uv run pytest -m integration
+```
+
+## Keeping a PR branch current
+
+Once a branch is pushed, bring in `main` with `git merge origin/main`, not rebase plus
+force-push. PRs are squash-merged, so merge commits never reach `main`.
 
 ## Rules
 - CI must never call a real LLM. Use `FakeLLM` or recorded fixtures.

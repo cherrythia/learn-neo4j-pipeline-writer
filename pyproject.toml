@@ -13,10 +13,12 @@ dependencies = [
     "sqlalchemy>=2.1.8",
     "alembic>=1.20.1",
     "pymysql>=1.2.4",
+    "neo4j>=6.4.1",
 ]
 
 [project.scripts]
 writer-db = "writer_service.governance.migrate:main"
+writer-ontology = "writer_service.ontology.cli:main"
 
 [dependency-groups]
 dev = [
