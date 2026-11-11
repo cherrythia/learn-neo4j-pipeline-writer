@@ -63,8 +63,9 @@ the run from those lists and:
 **Limitation:** `rollback(run_id)` does not restore property *values* a run overwrote on an
 entity another run also asserts, and it doesn't remove properties the run *added* to such an
 entity (there is no general property history). The governance store keeps every candidate,
-so a previous value can be found and re-applied. (A failed *approval* is different: its own
-overwrites are undone exactly; see below.)
+so a previous value can be found and re-applied. (A *failed* ingest or approval is different:
+when the governance commit fails after the graph write, its overwrites are undone exactly with
+`undo(changes)`; see below.)
 Rolling back a run also **closes its open review items** (`rejected`, note "run rolled back").
 
 ## Review decisions

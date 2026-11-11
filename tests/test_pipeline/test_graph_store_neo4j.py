@@ -323,6 +323,9 @@ def test_undo_restores_overwritten_properties_with_their_types(driver: Driver) -
     run1, run2 = f"test-{uuid.uuid4()}", f"test-{uuid.uuid4()}"
     issuer_fact, filed_fact = facts()
     graph.write_run(run1, 1, [issuer_fact, filed_fact])
+    node_at = driver.execute_query(
+        "MATCH (i:Issuer {ticker: $t}) RETURN i.ingested_at AS at", t=TICKER
+    ).records[0]["at"]
     renamed = CandidateEntity(
         class_name="Issuer",
         properties={"ticker": TICKER, "name": "Renamed Co"},
@@ -344,12 +347,14 @@ def test_undo_restores_overwritten_properties_with_their_types(driver: Driver) -
     records, _, _ = driver.execute_query(
         "MATCH (i:Issuer {ticker: $t}) "
         "OPTIONAL MATCH (:Filing {filing_id: $f})-[r:FILED_BY]->(i) "
-        "RETURN i.name AS name, i.run_id AS run, i._label AS label, r.ingested_at AS at",
+        "RETURN i.name AS name, i.run_id AS run, i._label AS label, r.ingested_at AS at, "
+        "i.score AS score, i.ingested_at AS node_at",
         t=TICKER,
         f=FILING,
     )
     r = records[0]
-    assert (r["name"], r["run"], r["label"]) == ("Test Co", run1, "Issuer")
+    assert (r["name"], r["run"], r["label"], r["score"]) == ("Test Co", run1, "Issuer", 0.9)
+    assert r["node_at"] == node_at  # entity timestamp restored too (review round 4)
     assert isinstance(r["at"], DateTime)  # restored edge keeps a temporal, not a string
     graph.rollback_run(run2)
     graph.rollback_run(run1)

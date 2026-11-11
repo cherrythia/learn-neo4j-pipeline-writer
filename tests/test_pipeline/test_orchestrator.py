@@ -525,3 +525,34 @@ def test_failed_approval_restores_overwritten_entity_properties(
     aph = graph.node_properties("Issuer", "ticker", "APH")
     assert aph is not None
     assert (aph["name"], aph["run_id"], aph["runs"]) == ("Aurora Old Name", "seed", ["seed"])
+
+
+def test_failed_ingest_restores_properties_it_overwrote(
+    engine: Engine, graph: InMemoryGraph, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Review round 4: a failed ingest must not leave its score/values on another run's entity."""
+    from sqlalchemy.orm import Session
+
+    old = APH.model_copy(update={"properties": {"ticker": "APH", "name": "Aurora Old Name"}})
+    graph.write_run("seed", 1, [to_fact(old, OntologySpec(CORE_CLASSES, CORE_RELATIONS), 0.4)])
+    real_commit = Session.commit
+    calls = {"n": 0}
+
+    def flaky(self: Session) -> None:
+        calls["n"] += 1
+        if calls["n"] == 2:  # 1st commit opens the run; 2nd is the run's results
+            raise RuntimeError("db down")
+        real_commit(self)
+
+    monkeypatch.setattr(Session, "commit", flaky)
+    summary = pipeline(engine, graph).ingest(doc([APH]), actor="bot")
+    monkeypatch.undo()
+    assert summary.status == "failed"
+    aph = graph.node_properties("Issuer", "ticker", "APH")
+    assert aph is not None
+    assert (aph["name"], aph["score"], aph["run_id"], aph["runs"]) == (
+        "Aurora Old Name",
+        0.4,
+        "seed",
+        ["seed"],
+    )

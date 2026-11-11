@@ -496,6 +496,8 @@ class Neo4jGraph(Neo4jGraphView, Neo4jMatchIndex):
                         before = {
                             k: old_p.get(k) for k, v in new_values.items() if old_p.get(k) != v
                         }
+                        if "ingested_at" in old_p:  # always overwritten with datetime()
+                            before["ingested_at"] = old_p["ingested_at"]
                         if before:
                             replaced.append(
                                 {

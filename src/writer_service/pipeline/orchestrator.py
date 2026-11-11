@@ -121,10 +121,11 @@ class WriterPipeline:
             uow.audit(actor, "run.start", "ingestion_run", run_id, {"source": batch.source_ref})
 
         graph_written = False
+        changes: list[dict[str, Any]] = []
         try:
             with UnitOfWork(self.engine) as uow:
                 counts, facts = self._process(uow, run_id, batch, spec, version, policy)
-                self.graph.write_run(run_id, version, facts)
+                changes = self.graph.write_run(run_id, version, facts)
                 graph_written = True
                 run_row = uow.session.get(IngestionRun, run_id)
                 assert run_row is not None
@@ -135,6 +136,8 @@ class WriterPipeline:
             if graph_written:  # SQL failed after the graph committed: undo the graph side
                 try:
                     self.graph.rollback_run(run_id)
+                    if changes:  # values it overwrote on entities other runs also assert
+                        self.graph.undo(changes)
                 except Exception as undo_exc:
                     exc.add_note(f"graph rollback also failed: {undo_exc}")
             with UnitOfWork(self.engine) as uow:
