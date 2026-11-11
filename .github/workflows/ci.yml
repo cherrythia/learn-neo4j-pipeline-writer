@@ -22,6 +22,8 @@ jobs:
         env:
           WRITER_LLM_PROVIDER: fake
         run: uv run pytest
+      - name: Accuracy (golden set, recorded answers)
+        run: uv run writer-eval --runs 3 --min-f1 0.95
 
   admin-ui:
     runs-on: ubuntu-latest

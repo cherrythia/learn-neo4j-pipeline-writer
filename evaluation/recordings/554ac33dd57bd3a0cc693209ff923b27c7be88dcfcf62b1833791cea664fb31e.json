@@ -1,0 +1,241 @@
+{
+  "data": {
+    "entities": [
+      {
+        "class_name": "Issuer",
+        "confidence": 0.9,
+        "evidence": [
+          {
+            "locator": "page 1",
+            "quote": "Aurora Pacific Holdings (Demo) (ticker APH) is listed on the Mainboard"
+          }
+        ],
+        "properties": [
+          {
+            "name": "ticker",
+            "value": "APH"
+          },
+          {
+            "name": "name",
+            "value": "Aurora Pacific Holdings (Demo)"
+          },
+          {
+            "name": "board",
+            "value": "mainboard"
+          },
+          {
+            "name": "country",
+            "value": "SG"
+          }
+        ]
+      },
+      {
+        "class_name": "Filing",
+        "confidence": 0.9,
+        "evidence": [
+          {
+            "locator": "page 1",
+            "quote": "(filing AR-2025-APH)"
+          }
+        ],
+        "properties": [
+          {
+            "name": "filing_id",
+            "value": "AR-2025-APH"
+          },
+          {
+            "name": "filing_type",
+            "value": "annual_report"
+          },
+          {
+            "name": "fiscal_year",
+            "value": "2025"
+          },
+          {
+            "name": "filed_on",
+            "value": "2026-04-28"
+          }
+        ]
+      },
+      {
+        "class_name": "Filing",
+        "confidence": 0.9,
+        "evidence": [
+          {
+            "locator": "page 2",
+            "quote": "(filing ESG-2025-APH)"
+          }
+        ],
+        "properties": [
+          {
+            "name": "filing_id",
+            "value": "ESG-2025-APH"
+          },
+          {
+            "name": "filing_type",
+            "value": "esg_report"
+          },
+          {
+            "name": "fiscal_year",
+            "value": "2025"
+          },
+          {
+            "name": "filed_on",
+            "value": "2026-04-28"
+          }
+        ]
+      },
+      {
+        "class_name": "Rule",
+        "confidence": 0.9,
+        "evidence": [
+          {
+            "locator": "page 1",
+            "quote": "Listing Rule LR-705"
+          }
+        ],
+        "properties": [
+          {
+            "name": "rule_code",
+            "value": "LR-705"
+          }
+        ]
+      },
+      {
+        "class_name": "Rule",
+        "confidence": 0.9,
+        "evidence": [
+          {
+            "locator": "page 1",
+            "quote": "Listing Rule LR-707"
+          }
+        ],
+        "properties": [
+          {
+            "name": "rule_code",
+            "value": "LR-707"
+          }
+        ]
+      },
+      {
+        "class_name": "Rule",
+        "confidence": 0.9,
+        "evidence": [
+          {
+            "locator": "page 2",
+            "quote": "Listing Rule LR-711A"
+          }
+        ],
+        "properties": [
+          {
+            "name": "rule_code",
+            "value": "LR-711A"
+          }
+        ]
+      },
+      {
+        "class_name": "Rule",
+        "confidence": 0.9,
+        "evidence": [
+          {
+            "locator": "page 2",
+            "quote": "LR-711B"
+          }
+        ],
+        "properties": [
+          {
+            "name": "rule_code",
+            "value": "LR-711B"
+          }
+        ]
+      }
+    ],
+    "relations": [
+      {
+        "confidence": 0.85,
+        "evidence": [
+          {
+            "locator": "page 1",
+            "quote": "(filing AR-2025-APH)"
+          }
+        ],
+        "relation": "FILED_BY",
+        "source_class": "Filing",
+        "source_key": "AR-2025-APH",
+        "target_class": "Issuer",
+        "target_key": "APH"
+      },
+      {
+        "confidence": 0.85,
+        "evidence": [
+          {
+            "locator": "page 2",
+            "quote": "(filing ESG-2025-APH)"
+          }
+        ],
+        "relation": "FILED_BY",
+        "source_class": "Filing",
+        "source_key": "ESG-2025-APH",
+        "target_class": "Issuer",
+        "target_key": "APH"
+      },
+      {
+        "confidence": 0.85,
+        "evidence": [
+          {
+            "locator": "page 1",
+            "quote": "Listing Rule LR-705"
+          }
+        ],
+        "relation": "CITES",
+        "source_class": "Filing",
+        "source_key": "AR-2025-APH",
+        "target_class": "Rule",
+        "target_key": "LR-705"
+      },
+      {
+        "confidence": 0.85,
+        "evidence": [
+          {
+            "locator": "page 1",
+            "quote": "Listing Rule LR-707"
+          }
+        ],
+        "relation": "CITES",
+        "source_class": "Filing",
+        "source_key": "AR-2025-APH",
+        "target_class": "Rule",
+        "target_key": "LR-707"
+      },
+      {
+        "confidence": 0.85,
+        "evidence": [
+          {
+            "locator": "page 2",
+            "quote": "Listing Rule LR-711A"
+          }
+        ],
+        "relation": "CITES",
+        "source_class": "Filing",
+        "source_key": "ESG-2025-APH",
+        "target_class": "Rule",
+        "target_key": "LR-711A"
+      },
+      {
+        "confidence": 0.85,
+        "evidence": [
+          {
+            "locator": "page 2",
+            "quote": "LR-711B"
+          }
+        ],
+        "relation": "CITES",
+        "source_class": "Filing",
+        "source_key": "ESG-2025-APH",
+        "target_class": "Rule",
+        "target_key": "LR-711B"
+      }
+    ]
+  },
+  "model": "claude-sonnet-5-5"
+}
