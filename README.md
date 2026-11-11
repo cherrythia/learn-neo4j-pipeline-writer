@@ -32,6 +32,8 @@ Currently in place:
 - entity matching ([docs](docs/matching.md))
 - document ingestion: PDF/Excel extraction ([docs](docs/document-ingestion.md))
 - the writer pipeline and Neo4j writer, `POST /ingest/documents` ([docs](docs/pipeline.md))
+- Superset/MySQL ingestion with approved column mappings, `POST /ingest/superset/{id}`
+  ([docs](docs/superset-ingestion.md))
 
 ## Quick start
 

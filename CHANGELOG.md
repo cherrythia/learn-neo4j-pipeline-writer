@@ -6,6 +6,15 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Added
+- **#12 Superset/MySQL connector and column mappings** (`writer_service.ingestion.superset`)
+  - `SupersetClient` (login, dataset metadata; identifiers validated), `DatasetReader`
+    (paged, read-only; physical and virtual SQL datasets).
+  - Column mappings: LLM-drafted with ontology/column enums or manual; validated against the
+    ontology and real columns; admin approval retires the previous mapping; audited.
+  - Deterministic rows → candidates with one verbatim evidence item per column.
+  - `POST /ingest/superset/{dataset_id}` (API key; 409 without an approved mapping).
+  - Tests against the mock Superset and the demo seed; MySQL integration test in CI.
+    Docs: `docs/superset-ingestion.md`.
 - **#16 Golden dataset and evaluation** (`writer_service.evaluation`, `writer-eval`)
   - Hand-labelled golden facts for the sample annual report; the sample PDF now states its
     filing references so they are extractable.

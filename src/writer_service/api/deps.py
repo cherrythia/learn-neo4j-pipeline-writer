@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import threading
+from collections.abc import Iterator
 from typing import Annotated
 
 from fastapi import Depends, HTTPException, Request
 
+from writer_service.ingestion.superset import DatasetReader, SupersetClient
 from writer_service.llm.base import LLMConfigError
 from writer_service.llm.factory import build_structured_llm
 from writer_service.pipeline.orchestrator import WriterPipeline
@@ -46,3 +48,28 @@ def _build_pipeline(request: Request) -> WriterPipeline:
 
 
 PipelineDep = Annotated[WriterPipeline, Depends(get_pipeline)]
+
+
+def get_superset(request: Request) -> Iterator[SupersetClient]:
+    """One client per request, closed afterwards (no leaked connections)."""
+    s = request.app.state.settings
+    with SupersetClient(
+        s.superset_url, s.superset_username, s.superset_password.get_secret_value()
+    ) as client:
+        yield client
+
+
+def get_reader(request: Request) -> DatasetReader:
+    reader: DatasetReader | None = getattr(request.app.state, "dataset_reader", None)
+    if reader is None:
+        from sqlalchemy import create_engine
+
+        reader = DatasetReader(
+            create_engine(request.app.state.settings.source_db_url, pool_pre_ping=True)
+        )
+        request.app.state.dataset_reader = reader
+    return reader
+
+
+SupersetDep = Annotated[SupersetClient, Depends(get_superset)]
+ReaderDep = Annotated[DatasetReader, Depends(get_reader)]

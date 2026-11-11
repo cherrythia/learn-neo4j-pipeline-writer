@@ -7,10 +7,17 @@ from pathlib import PurePath
 from fastapi import APIRouter, Depends, HTTPException, UploadFile
 from pydantic import BaseModel
 
-from writer_service.api.deps import PipelineDep
+from writer_service.api.deps import PipelineDep, ReaderDep, SupersetDep
 from writer_service.auth.deps import SettingsDep, require_api_key
 from writer_service.governance.uow import UnitOfWork
 from writer_service.ingestion.documents import DocumentExtractor, pdf_chunks, xlsx_chunks
+from writer_service.ingestion.superset import (
+    DatasetNotFound,
+    SourceReadError,
+    SupersetError,
+    approved_mapping,
+    rows_to_candidates,
+)
 from writer_service.ontology.service import spec_of
 from writer_service.pipeline.orchestrator import RunSummary, SourceBatch, SourceText
 
@@ -69,4 +76,33 @@ def ingest_document(file: UploadFile, pipeline: PipelineDep, settings: SettingsD
         extract=lambda sample: extractor.extract(chunks, sample),
     )
     summary = pipeline.ingest(batch, actor="ingest-api")
+    return _out(summary)
+
+
+@router.post("/superset/{dataset_id}", response_model=RunOut)
+def ingest_superset(
+    dataset_id: int,
+    pipeline: PipelineDep,
+    superset: SupersetDep,
+    reader: ReaderDep,
+    settings: SettingsDep,
+) -> RunOut:
+    """Sync a Superset dataset through its admin-approved column mapping."""
+    with UnitOfWork(pipeline.engine) as uow:
+        mapping = approved_mapping(uow, dataset_id)
+    if mapping is None:
+        raise HTTPException(409, f"dataset {dataset_id} has no approved column mapping")
+    try:
+        ds = superset.dataset(dataset_id)
+    except DatasetNotFound as exc:
+        raise HTTPException(404, str(exc)) from exc
+    except SupersetError as exc:
+        raise HTTPException(502, str(exc)) from exc
+    try:
+        rows = list(reader.rows(ds, limit=settings.max_rows_per_sync))
+    except SourceReadError as exc:  # message names the dataset only, never SQL or the driver
+        raise HTTPException(502, str(exc)) from exc
+    candidates, texts = rows_to_candidates(mapping, ds, rows)
+    batch = SourceBatch("superset", ds.ref, [SourceText(*t) for t in texts], candidates=candidates)
+    summary = pipeline.ingest(batch, actor="superset-sync")
     return _out(summary)

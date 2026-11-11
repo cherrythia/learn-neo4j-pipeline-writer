@@ -44,6 +44,13 @@ class Settings(BaseSettings):
     cookie_secure: bool = False  # True behind HTTPS (always in prod)
     max_upload_mb: int = Field(default=20, ge=1, le=200)
 
+    # Superset / source MySQL (read-only) for structured ingestion (issue #12)
+    superset_url: str = "http://127.0.0.1:8088"
+    superset_username: str = "admin"
+    superset_password: SecretStr = SecretStr("change-me")
+    source_db_url: str = "mysql+pymysql://reader:change-me@127.0.0.1:3306/demo_compliance"
+    max_rows_per_sync: int = Field(default=10_000, ge=1, le=1_000_000)
+
     @model_validator(mode="after")
     def _prod_needs_real_secrets(self) -> "Settings":
         if self.app_env == "prod":
