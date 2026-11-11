@@ -527,14 +527,40 @@ def test_failed_approval_restores_overwritten_entity_properties(
     assert (aph["name"], aph["run_id"], aph["runs"]) == ("Aurora Old Name", "seed", ["seed"])
 
 
+@pytest.mark.parametrize(
+    ("seed_props", "expected_name"),
+    [
+        (
+            {"ticker": "APH", "name": "Aurora Pacific Holdings (Demo)"},
+            "Aurora Pacific Holdings (Demo)",
+        ),
+        ({"ticker": "APH"}, None),  # the failed run added `name`: it must go again
+    ],
+    ids=["overwritten-score", "added-property"],
+)
 def test_failed_ingest_restores_properties_it_overwrote(
-    engine: Engine, graph: InMemoryGraph, monkeypatch: pytest.MonkeyPatch
+    engine: Engine,
+    graph: InMemoryGraph,
+    monkeypatch: pytest.MonkeyPatch,
+    seed_props: dict[str, str],
+    expected_name: str | None,
 ) -> None:
-    """Review round 4: a failed ingest must not leave its score/values on another run's entity."""
+    """Review rounds 4-5: a failed ingest must not leave its score or values on another run's
+    entity. The seed agrees with the ingested fact, so the gates pass and the run really
+    overwrites the entity before the governance commit fails."""
     from sqlalchemy.orm import Session
 
-    old = APH.model_copy(update={"properties": {"ticker": "APH", "name": "Aurora Old Name"}})
-    graph.write_run("seed", 1, [to_fact(old, OntologySpec(CORE_CLASSES, CORE_RELATIONS), 0.4)])
+    seed = APH.model_copy(update={"properties": seed_props})
+    graph.write_run("seed", 1, [to_fact(seed, OntologySpec(CORE_CLASSES, CORE_RELATIONS), 0.4)])
+    writes: list[list[dict[str, Any]]] = []
+    real_write = graph.write_run
+
+    def recording_write(*a: Any, **k: Any) -> list[dict[str, Any]]:
+        changes = real_write(*a, **k)
+        writes.append(changes)
+        return changes
+
+    monkeypatch.setattr(graph, "write_run", recording_write)
     real_commit = Session.commit
     calls = {"n": 0}
 
@@ -548,10 +574,12 @@ def test_failed_ingest_restores_properties_it_overwrote(
     summary = pipeline(engine, graph).ingest(doc([APH]), actor="bot")
     monkeypatch.undo()
     assert summary.status == "failed"
+    (changes,) = writes
+    assert any(c["kind"] == "properties" for c in changes)  # the run did overwrite the entity
     aph = graph.node_properties("Issuer", "ticker", "APH")
     assert aph is not None
-    assert (aph["name"], aph["score"], aph["run_id"], aph["runs"]) == (
-        "Aurora Old Name",
+    assert (aph.get("name"), aph["score"], aph["run_id"], aph["runs"]) == (
+        expected_name,
         0.4,
         "seed",
         ["seed"],
