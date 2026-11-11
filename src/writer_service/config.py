@@ -28,7 +28,7 @@ class Settings(BaseSettings):
     # Stores
     neo4j_uri: str = "bolt://localhost:7687"
     neo4j_user: str = "neo4j"
-    neo4j_password: SecretStr = SecretStr("change-me")
+    neo4j_password: SecretStr = SecretStr("change-me-neo4j")
     governance_db_url: str = "sqlite:///./governance.sqlite"
 
 

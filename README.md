@@ -17,12 +17,12 @@ sources ─► Ingest ─► Match ─► Compile (gates) ─► Test (score) �
 ## Status
 
 Built issue by issue; see the [issues](https://github.com/cherrythia/learn-neo4j-pipeline-writer/issues).
-Currently in place: service skeleton, settings, admin UI skeleton, CI.
+Currently in place: service skeleton, settings, admin UI skeleton, CI, local demo environment.
 
 ## Quick start
 
 Requirements: [uv](https://docs.astral.sh/uv/), [Bun](https://bun.sh), Docker (for the demo
-infrastructure, added in #2).
+infrastructure).
 
 ```sh
 cp .env.example .env              # fill in WRITER_ANTHROPIC_API_KEY to use Claude
@@ -32,6 +32,16 @@ uv run pytest
 
 cd admin-ui && bun install && bun run dev        # http://localhost:3000
 ```
+
+## Demo environment
+
+```sh
+cp .env.example .env
+docker compose up -d --wait        # Neo4j :7474/:7687, MySQL :3306, mock Superset :8088
+```
+
+Fictional compliance data, sample PDF and Excel files, and an optional real Superset. See
+[`docs/demo-environment.md`](docs/demo-environment.md).
 
 ## Configuration
 
@@ -46,7 +56,7 @@ All settings use the `WRITER_` prefix. See [`.env.example`](.env.example).
 | `WRITER_SELF_CONSISTENCY_RUNS` | `3` | Extraction runs per input (1 to 10) |
 | `WRITER_NEO4J_URI` | `bolt://localhost:7687` | Neo4j connection |
 | `WRITER_NEO4J_USER` | `neo4j` | Neo4j user |
-| `WRITER_NEO4J_PASSWORD` | `change-me` | **Secret.** Neo4j password |
+| `WRITER_NEO4J_PASSWORD` | `change-me-neo4j` | **Secret.** Neo4j password (min 8 chars) |
 | `WRITER_GOVERNANCE_DB_URL` | `sqlite:///./governance.sqlite` | Governance store |
 
 Empty values in `.env` are treated as unset. Invalid values stop the service at startup.

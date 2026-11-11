@@ -6,6 +6,19 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Added
+- **#2 Local demo infrastructure**
+  - `docker-compose.yml`: Neo4j 5, MySQL 8.4 and a mock Superset API, all bound to localhost;
+    optional `--profile superset` runs real Apache Superset 4.1 plus a bootstrap job that
+    registers the demo datasets.
+  - Fictional compliance data in `src/demo_env/data.py` (20 issuers, 6 rules, 6 obligations,
+    40 filings with 3 late), the single source for the generated MySQL seed and the samples.
+  - MySQL users from env: `writer` (governance DB) and read-only `reader` (demo data).
+  - Mock Superset (`demo_env.mock_superset`): login and dataset endpoints with Superset's
+    response shapes.
+  - Sample PDF annual report and Excel disclosure checklist in `samples/` (byte-reproducible).
+  - `scripts/smoke_demo.sh` and CI job `demo-infra`: start the stack and check data, grants,
+    mock Superset and Neo4j.
+  - Docs: `docs/demo-environment.md`.
 - **#1 Project scaffolding, CI and design spec**
   - Python 3.12 FastAPI service skeleton (`src/writer_service/`) with `GET /health` and a
     version header.

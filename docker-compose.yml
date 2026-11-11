@@ -1,0 +1,73 @@
+# Local demo environment. Copy .env.example to .env first.
+#   docker compose up -d                      # Neo4j + MySQL + mock Superset
+#   docker compose --profile superset up -d   # ...plus a real Apache Superset on :8089
+name: writer-demo
+
+services:
+  neo4j:
+    image: neo4j:5.26-community
+    ports: ["127.0.0.1:7474:7474", "127.0.0.1:7687:7687"]
+    environment:
+      NEO4J_AUTH: neo4j/${WRITER_NEO4J_PASSWORD:?set WRITER_NEO4J_PASSWORD in .env}
+    volumes: [neo4j-data:/data]
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:7474 >/dev/null || exit 1"]
+      interval: 5s
+      retries: 30
+
+  mysql:
+    image: mysql:8.4
+    ports: ["127.0.0.1:3306:3306"]
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?set MYSQL_ROOT_PASSWORD in .env}
+      MYSQL_WRITER_PASSWORD: ${MYSQL_WRITER_PASSWORD:?set MYSQL_WRITER_PASSWORD in .env}
+      MYSQL_READER_PASSWORD: ${MYSQL_READER_PASSWORD:?set MYSQL_READER_PASSWORD in .env}
+    volumes:
+      - mysql-data:/var/lib/mysql
+      - ./infra/mysql/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p$$MYSQL_ROOT_PASSWORD --silent"]
+      interval: 5s
+      retries: 30
+
+  mock-superset:
+    build: { context: ., dockerfile: infra/mock-superset.Dockerfile }
+    ports: ["127.0.0.1:8088:8088"]
+    environment:
+      MOCK_SUPERSET_USERNAME: ${SUPERSET_ADMIN_USERNAME:-admin}
+      MOCK_SUPERSET_PASSWORD: ${SUPERSET_ADMIN_PASSWORD:?set SUPERSET_ADMIN_PASSWORD in .env}
+
+  superset:
+    profiles: [superset]
+    build: { context: infra/superset }
+    entrypoint: ["/app/docker/init.sh"]
+    ports: ["127.0.0.1:8089:8088"]
+    environment:
+      SUPERSET_CONFIG_PATH: /app/docker/superset_config.py
+      SUPERSET_SECRET_KEY: ${SUPERSET_SECRET_KEY:?set SUPERSET_SECRET_KEY in .env}
+      SUPERSET_ADMIN_USERNAME: ${SUPERSET_ADMIN_USERNAME:-admin}
+      SUPERSET_ADMIN_PASSWORD: ${SUPERSET_ADMIN_PASSWORD}
+    volumes:
+      - ./infra/superset/init.sh:/app/docker/init.sh:ro
+      - ./infra/superset/superset_config.py:/app/docker/superset_config.py:ro
+      - superset-home:/app/superset_home
+    depends_on:
+      mysql: { condition: service_healthy }
+
+  superset-bootstrap:
+    profiles: [superset]
+    image: python:3.12-slim
+    working_dir: /app
+    command: ["python", "-m", "demo_env.superset_bootstrap"]
+    environment:
+      SUPERSET_URL: http://superset:8088
+      SUPERSET_ADMIN_USERNAME: ${SUPERSET_ADMIN_USERNAME:-admin}
+      SUPERSET_ADMIN_PASSWORD: ${SUPERSET_ADMIN_PASSWORD}
+      MYSQL_READER_PASSWORD: ${MYSQL_READER_PASSWORD}
+    volumes: ["./src/demo_env:/app/demo_env:ro"]
+    depends_on: [superset]
+
+volumes:
+  neo4j-data:
+  mysql-data:
+  superset-home:
