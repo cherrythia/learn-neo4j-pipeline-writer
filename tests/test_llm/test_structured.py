@@ -5,6 +5,7 @@ import pytest
 from pydantic import BaseModel
 
 from writer_service.llm.base import (
+    LLMConfigError,
     LLMOutputError,
     LLMRefusalError,
     LLMReplayMissError,
@@ -111,8 +112,8 @@ def test_fake_supports_callables() -> None:
     assert result.value.facts[0].subject == "TEXT: X"
 
 
-def test_fake_unscripted_prompt_is_an_error() -> None:
-    with pytest.raises(LLMOutputError, match="FakeLLM has no script"):
+def test_fake_unscripted_prompt_is_a_config_error() -> None:
+    with pytest.raises(LLMConfigError, match="FakeLLM has no script"):
         FakeLLM({}).complete_json(
             LLMRequest(system="s", user="u", schema={}, prompt_name="other", prompt_version=1)
         )
@@ -181,3 +182,10 @@ def test_record_then_replay_from_file_cache(tmp_path: Path) -> None:
     assert replayed.model == model
     with pytest.raises(LLMReplayMissError):  # a different model is a different key
         ask(StructuredLLM(ReplayOnlyLLM("claude-opus-5-5"), FileCache(tmp_path)))
+
+
+def test_unscripted_prompt_is_called_once_not_retried() -> None:
+    fake = FakeLLM({})
+    with pytest.raises(LLMConfigError):
+        ask(StructuredLLM(fake, InMemoryCache(), max_attempts=3))
+    assert len(fake.calls) == 1

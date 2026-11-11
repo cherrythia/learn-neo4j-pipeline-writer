@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping, Sequence
 from typing import Any
 
-from writer_service.llm.base import LLMOutputError, LLMReplayMissError, LLMRequest, LLMResponse
+from writer_service.llm.base import LLMConfigError, LLMReplayMissError, LLMRequest, LLMResponse
 
 Script = Sequence[dict[str, Any]] | Callable[[LLMRequest], dict[str, Any]]
 
@@ -31,7 +31,8 @@ class FakeLLM:
         self.calls.append(request)
         script = self._scripts.get(request.prompt_name)
         if script is None:
-            raise LLMOutputError(f"FakeLLM has no script for prompt {request.prompt_name!r}")
+            # A test-setup mistake, not bad model output: never retried.
+            raise LLMConfigError(f"FakeLLM has no script for prompt {request.prompt_name!r}")
         if callable(script):
             data = script(request)
         else:

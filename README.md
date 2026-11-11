@@ -52,7 +52,7 @@ All settings use the `WRITER_` prefix. See [`.env.example`](.env.example).
 | Variable | Default | Purpose |
 |---|---|---|
 | `WRITER_APP_ENV` | `dev` | `dev`, `test` or `prod` |
-| `WRITER_LLM_PROVIDER` | `anthropic` | `anthropic` or `fake` (tests) |
+| `WRITER_LLM_PROVIDER` | `anthropic` | `anthropic`, or `fake` to replay recorded answers offline |
 | `WRITER_LLM_MODEL` | `claude-sonnet-5-5` | Model id |
 | `WRITER_ANTHROPIC_API_KEY` | *(none)* | **Secret.** Required when provider is `anthropic` (the LLM factory fails fast without it) |
 | `WRITER_LLM_EFFORT` | `high` | Claude effort: `low` to `max` |
