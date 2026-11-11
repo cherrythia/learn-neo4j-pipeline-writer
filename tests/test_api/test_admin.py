@@ -208,10 +208,44 @@ def test_reviewer_can_reach_reviewer_routes(env: Env) -> None:
         assert r.status_code not in (401, 403), (method, path, r.status_code)
 
 
-def test_writes_need_the_csrf_header(env: Env) -> None:
-    c = env.client("alice")
-    assert c.post("/api/ontology/drafts").status_code == 403
+def test_every_write_needs_the_csrf_header(env: Env) -> None:
+    c = env.client("alice")  # admin: may call every route, so only CSRF can refuse
+    writes = [(m, p) for m, p, _ in admin_routes(env.app) if m != "GET"]
+    assert len(writes) >= 15
+    for method, path in writes:
+        r = c.request(method, concrete(path), json={})
+        assert r.status_code == 403, (method, path, r.status_code)
+        assert "X-Requested-With" in r.text, (method, path, r.text)
     assert c.post("/api/ontology/drafts", headers=CSRF).status_code == 201
+
+
+def test_ontology_admin_works_without_an_llm_key(env: Env) -> None:
+    """Review round 1: ontology routes need Neo4j, not the LLM (default provider, no key)."""
+    del env.app.dependency_overrides[get_graph_schema]
+    c = env.client("alice")
+    assert c.post("/api/ontology/drafts", headers=CSRF).status_code == 201
+    env.app.state.neo4j_driver.close()
+
+
+def test_failed_proposal_approval_leaves_no_draft_and_stays_pending(env: Env) -> None:
+    c = env.client("alice")
+    bad = {
+        "kind": "class",
+        "payload": {
+            "name": "Branch",
+            "identity_key": "code",
+            "parent": "NoSuchClass",
+            "properties": [{"name": "code", "required": True}],
+        },
+    }
+    r = c.post("/api/proposals", json=bad, headers=CSRF)
+    assert r.status_code in (200, 201), r.text
+    pid = r.json()["id"]
+    r = c.post(f"/api/proposals/{pid}/approve", headers=CSRF)
+    assert r.status_code == 422, r.text
+    assert all(v["status"] != "draft" for v in c.get("/api/ontology/versions").json())
+    (p,) = [p for p in c.get("/api/proposals").json() if p["id"] == pid]
+    assert p["status"] == "pending"
 
 
 # --------------------------------------------------------------------------- ontology

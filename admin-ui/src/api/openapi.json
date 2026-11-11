@@ -2083,7 +2083,7 @@
     },
     "/api/proposals/{proposal_id}/approve": {
       "post": {
-        "description": "Adds the proposal to the current draft (creating one from the published version if\nneeded), in the ``ext`` namespace. It reaches the graph when the draft is published.",
+        "description": "Adds the proposal to the current draft (creating one from the published version if\nneeded), in the ``ext`` namespace. It reaches the graph when the draft is published.\nOne transaction: if any step fails, no draft is created and the proposal stays pending.",
         "operationId": "approve_proposal_api_proposals__proposal_id__approve_post",
         "parameters": [
           {

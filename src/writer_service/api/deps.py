@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import threading
 from collections.abc import Iterator
-from typing import Annotated
+from typing import Annotated, Any
 
 from fastapi import Depends, HTTPException, Request
 
@@ -31,21 +31,36 @@ def get_pipeline(request: Request) -> WriterPipeline:
         return pipeline
 
 
-def _build_pipeline(request: Request) -> WriterPipeline:
-    from neo4j import GraphDatabase
+_DRIVER_LOCK = threading.Lock()
 
+
+def get_neo4j_driver(request: Request) -> Any:
+    """One Neo4j driver per app (lazy, race-free), shared by the pipeline and the ontology
+    schema manager; closed on shutdown (see ``app.lifespan``). Needs no LLM."""
+    driver = getattr(request.app.state, "neo4j_driver", None)
+    if driver is not None:
+        return driver
+    with _DRIVER_LOCK:
+        driver = getattr(request.app.state, "neo4j_driver", None)
+        if driver is None:
+            from neo4j import GraphDatabase
+
+            s = request.app.state.settings
+            driver = GraphDatabase.driver(
+                s.neo4j_uri, auth=(s.neo4j_user, s.neo4j_password.get_secret_value())
+            )
+            request.app.state.neo4j_driver = driver
+        return driver
+
+
+def _build_pipeline(request: Request) -> WriterPipeline:
     from writer_service.pipeline.graph_store import Neo4jGraph
 
-    settings = request.app.state.settings
     try:
-        llm = build_structured_llm(settings)
+        llm = build_structured_llm(request.app.state.settings)
     except LLMConfigError as exc:
         raise HTTPException(503, str(exc)) from exc
-    driver = GraphDatabase.driver(
-        settings.neo4j_uri, auth=(settings.neo4j_user, settings.neo4j_password.get_secret_value())
-    )
-    request.app.state.neo4j_driver = driver
-    return WriterPipeline(request.app.state.engine, Neo4jGraph(driver), llm)
+    return WriterPipeline(request.app.state.engine, Neo4jGraph(get_neo4j_driver(request)), llm)
 
 
 PipelineDep = Annotated[WriterPipeline, Depends(get_pipeline)]
@@ -80,8 +95,7 @@ def get_graph_schema(request: Request) -> GraphSchema:
     """Neo4j constraint management for ontology publish/rollback (shares the app's driver)."""
     from writer_service.ontology.neo4j_schema import Neo4jGraphSchema
 
-    get_pipeline(request)  # ensures the driver exists (and LLM config is validated)
-    return Neo4jGraphSchema(request.app.state.neo4j_driver)
+    return Neo4jGraphSchema(get_neo4j_driver(request))
 
 
 GraphSchemaDep = Annotated[GraphSchema, Depends(get_graph_schema)]
