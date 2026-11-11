@@ -29,13 +29,13 @@ def test_demo_script_runs_end_to_end() -> None:
     assert proc.returncode == 0, proc.stdout + proc.stderr
     out = proc.stdout
     for step in (
-        "1. upload",
+        "1. upload samples/",
         "2. review queue",
-        "3. approve",
+        "3. approve one fact",
         "4. superset mapping",
         "5. superset sync",
-        "6. rollback",
-        "7. audit",
+        "6. roll back the document run",
+        "7. audit log",
     ):
         assert step in out, out
     assert "demo complete" in out

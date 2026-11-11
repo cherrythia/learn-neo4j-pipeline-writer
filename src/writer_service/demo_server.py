@@ -12,7 +12,8 @@ The real FastAPI app, with:
 - a few ingested candidates waiting in the review queue (one of them a conflict).
 
 Passwords come from ``WRITER_DEMO_ADMIN_PASSWORD`` / ``WRITER_DEMO_REVIEWER_PASSWORD`` and the
-ingestion key from ``WRITER_DEMO_INGEST_API_KEY``, or they are generated and printed on startup. Everything is thrown away when the process exits.
+ingestion key from ``WRITER_DEMO_INGEST_API_KEY``, or they are generated and printed on
+startup. Everything is thrown away when the process exits.
 """
 
 from __future__ import annotations
@@ -36,10 +37,10 @@ from writer_service.api.deps import get_graph_schema, get_pipeline, get_reader, 
 from writer_service.app import create_app
 from writer_service.auth.users import create_user
 from writer_service.config import Settings
+from writer_service.evaluation.scripted import RUNS as SCRIPTED_EXTRACTION
 from writer_service.governance.db import create_engine_for
 from writer_service.governance.migrate import upgrade
 from writer_service.governance.uow import UnitOfWork
-from writer_service.evaluation.scripted import RUNS as SCRIPTED_EXTRACTION
 from writer_service.ingestion.documents import EXTRACTION_PROMPT
 from writer_service.ingestion.superset import MAPPING_PROMPT, DatasetReader, SupersetClient
 from writer_service.llm.cache import InMemoryCache
