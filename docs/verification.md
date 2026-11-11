@@ -13,14 +13,20 @@ Code: `src/writer_service/pipeline/verification.py`. Design: [ADR-0005](adr/0005
 
 `grounding_score(quote, source_text)`:
 
-- **1.0** if the quote appears in the source text, ignoring whitespace and case;
-- otherwise the best fuzzy *partial* match (`rapidfuzz.fuzz.partial_ratio`) **rescaled above
-  a noise floor of 0.5** (raw 0.5 → 0, raw 1.0 → 1), capped at 0.99;
-- **capped at 0.1** when a *critical token* of the quote is missing from the source: anything
-  with a digit (years, amounts, `LR-705`), a capitalised word (names, months; abbreviations such
-  as "Dec" for "December" are accepted), or a negation ("not", "never", …). Changing one of these
-  changes the fact, however similar the wording;
-- **0** when there is no source text for that location (nothing could be checked).
+1. **Find the passage** that best matches the quote: verbatim on word boundaries if possible
+   (so `LR-70` does not match inside `LR-705`), otherwise the fuzzy `partial_ratio` alignment.
+2. **Score** 1.0 for a verbatim match; otherwise the partial ratio rescaled above a noise floor
+   of 0.5 (raw 0.5 → 0, raw 1.0 → 1), max 0.99.
+3. **Cap at 0.1** when, *within that passage* (plus about one word of slack), a critical token
+   of the quote is missing or a negation differs:
+   - anything with a digit: years, amounts (`1,200` vs `1,200,000`), identifiers (`LR-705`);
+   - capitalised words: names, months (abbreviations such as "Dec" for "December" are fine);
+   - negations, including contractions (`not`, `never`, `didn't`, …), in either direction:
+     added by the quote, or dropped from the source.
+   Checking the passage rather than the whole page means a year copied from elsewhere on the
+   page doesn't count. Quotes must be **contiguous** source text: eliding words from the
+   middle of a sentence hides context and is treated as unsupported.
+4. **0** when there is no source text for that location.
 
 `DictSourceText` maps `(source_ref, locator)` (for example `("report.pdf", "page 2")`) to the
 text of that page or row; a candidate's grounding is its **best** evidence.
@@ -29,9 +35,9 @@ text of that page or row; a candidate's grounding is its **best** evidence.
 |---|---|
 | verbatim (spacing/case differences) | 1.0 |
 | typo-level difference ("anual", "31 Dec") | ~0.7 – 0.99 |
-| half a clause missing | ~0.3 – 0.6 |
-| a year, rule number, issuer or negation changed | ≤ 0.1 |
-| invented sentence | ~0 |
+| contiguous but loosely worded | ~0.3 – 0.9 |
+| a year, amount, rule number, issuer or negation changed (even if it appears elsewhere on the page) | ≤ 0.1 |
+| elided quote; invented sentence | ≤ 0.1 |
 
 This is the main defence against an LLM "quoting" text that isn't there.
 

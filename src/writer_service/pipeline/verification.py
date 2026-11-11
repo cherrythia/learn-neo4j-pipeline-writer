@@ -32,52 +32,87 @@ def _norm(text: str) -> str:
 
 GROUNDING_FLOOR = 0.5  # raw similarity at or below this is noise, not partial support
 ALTERED_CAP = 0.1  # a quote that changes a number, name or negation is not grounded
-_TOKEN = re.compile(r"[\w][\w\-./]*")
-_NEGATIONS = {"not", "no", "never", "without", "none", "neither", "nor", "n't"}
+# Words, numbers with separators (1,200,000 / 31.12.2025 / LR-705) and contractions (didn't).
+_TOKEN = re.compile(r"\w[\w\-./',]*")
+_NEGATIONS = {"not", "no", "never", "without", "none", "neither", "nor", "cannot"}
 
 
-def _critical_tokens(quote: str) -> list[str]:
-    """Tokens whose change alters the fact: numbers and identifiers (anything with a digit),
-    capitalised words (names, months, rule titles) and negations."""
-    out = []
-    for tok in _TOKEN.findall(quote):
-        if any(c.isdigit() for c in tok) or tok[0].isupper() or tok.lower() in _NEGATIONS:
-            out.append(tok.lower().rstrip("."))
-    return out
+def _tokens(text: str) -> list[str]:
+    return [tok.rstrip(".,'") for tok in _TOKEN.findall(text)]
 
 
-def _missing_critical(quote: str, source: str) -> list[str]:
-    source_tokens = {t.lower().rstrip(".") for t in _TOKEN.findall(source)}
+def _is_negation(token: str) -> bool:
+    t = token.lower()
+    return t in _NEGATIONS or t.endswith("n't")
+
+
+def _missing_critical(quote: str, passage: str) -> list[str]:
+    """Critical tokens of ``quote`` absent from ``passage`` (the matched source span).
+
+    Critical: anything with a digit (years, amounts, LR-705), capitalised words (names,
+    months; an abbreviation like "Dec" for "December" is accepted) and negations. Numbers,
+    identifiers and negations must match exactly.
+    """
+    window = {t.lower() for t in _tokens(passage)}
     missing = []
-    for tok in _critical_tokens(quote):
-        if tok in source_tokens:
+    for raw in _tokens(quote):
+        tok = raw.lower()
+        if not (any(c.isdigit() for c in tok) or raw[:1].isupper() or _is_negation(tok)):
             continue
-        if any(c.isdigit() for c in tok) or tok in _NEGATIONS:
-            missing.append(tok)  # numbers, identifiers and negations must match exactly
-        elif not any(s.startswith(tok) for s in source_tokens):
-            missing.append(tok)  # words may be abbreviated ("Dec" for "December")
+        if tok in window:
+            continue
+        exact_only = any(c.isdigit() for c in tok) or _is_negation(tok)
+        if exact_only or not any(w.startswith(tok) for w in window):
+            missing.append(tok)
     return missing
+
+
+def _dropped_negation(quote: str, passage: str) -> bool:
+    """The source passage negates something the quote states positively."""
+    quoted = {t.lower() for t in _tokens(quote) if _is_negation(t)}
+    return any(_is_negation(t) and t.lower() not in quoted for t in _tokens(passage))
+
+
+PASSAGE_SLACK = 8  # chars: lets an abbreviation ("Dec" vs "December") keep the next token
+
+
+def _expand(text: str, start: int, end: int) -> str:
+    """Widen [start, end) by ``PASSAGE_SLACK`` and then to whole words. Kept small on purpose:
+    a wider window would accept a year or name copied from elsewhere on the page."""
+    start, end = max(0, start - PASSAGE_SLACK), min(len(text), end + PASSAGE_SLACK)
+    while start > 0 and not text[start - 1].isspace():
+        start -= 1
+    while end < len(text) and not text[end].isspace():
+        end += 1
+    return text[start:end]
 
 
 def grounding_score(quote: str, source_text: str | None) -> float:
     """How well the source text supports ``quote``, in [0, 1].
 
-    * 1.0: the quote appears verbatim (ignoring whitespace and case).
-    * Otherwise the fuzzy partial-match ratio is rescaled above ``GROUNDING_FLOOR`` (so an
-      invented sentence scores ~0, a typo-level difference ~0.8-0.99), capped at 0.99.
-    * Capped at ``ALTERED_CAP`` when a critical token (number/identifier, capitalised name,
-      negation) is absent from the source: "2024" for "2025", "LR-707" for "LR-705", another
-      issuer, or "did not" - a different fact, however similar the wording.
-    * 0 when there is no source text to check.
+    1. Find the passage of the source that best matches the quote (verbatim on word
+       boundaries if possible, else the fuzzy ``partial_ratio`` alignment).
+    2. Score: 1.0 for a verbatim match; otherwise the partial ratio rescaled above
+       ``GROUNDING_FLOOR`` (invented text ~0, typo-level differences ~0.7-0.99), max 0.99.
+    3. Cap at ``ALTERED_CAP`` if, *within that passage*, a critical token of the quote is
+       missing (a changed year, rule number, amount or name) or a negation differs ("did not"
+       vs "did") - a different fact, however similar the wording. A quote that elides words
+       from the middle of a sentence is also capped when the elision hides critical tokens:
+       quotes must be contiguous source text.
+    4. 0 when there is no source text to check.
     """
     if not source_text or not quote.strip():
         return 0.0
     q, s = _norm(quote), _norm(source_text)
-    if q in s:
-        return 1.0
-    raw = fuzz.partial_ratio(q, s) / 100.0
-    score = min(0.99, max(0.0, (raw - GROUNDING_FLOOR) / (1 - GROUNDING_FLOOR)))
-    if _missing_critical(quote, source_text):
+    verbatim = re.search(r"(?<![\w\-])" + re.escape(q) + r"(?![\w\-])", s)
+    if verbatim:
+        score, passage = 1.0, _expand(s, verbatim.start(), verbatim.end())
+    else:
+        aligned = fuzz.partial_ratio_alignment(q, s)
+        raw = (aligned.score if aligned else 0.0) / 100.0
+        score = min(0.99, max(0.0, (raw - GROUNDING_FLOOR) / (1 - GROUNDING_FLOOR)))
+        passage = _expand(s, aligned.dest_start, aligned.dest_end) if aligned else ""
+    if _missing_critical(quote, passage) or _dropped_negation(quote, passage):
         score = min(score, ALTERED_CAP)
     return score
 

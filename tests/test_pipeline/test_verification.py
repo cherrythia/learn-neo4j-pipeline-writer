@@ -58,10 +58,15 @@ def test_near_quote_scores_high_but_below_one() -> None:
     assert 0.8 <= s < 1.0
 
 
-def test_partial_quote_scores_in_between() -> None:
-    # half the clause is missing: clearly related, but not a faithful quote
-    s = grounding_score("issued the annual report on 28 April 2026", PAGE1)
-    assert 0.3 <= s < 0.6
+def test_elided_quote_is_not_grounded() -> None:
+    # words cut from the middle ("...for the financial year ended 31 December 2025...") hide
+    # the context the date belongs to: quotes must be contiguous source text
+    assert grounding_score("issued the annual report on 28 April 2026", PAGE1) <= 0.1
+
+
+def test_contiguous_partial_quote_scores_in_between() -> None:
+    s = grounding_score("the annual reports for financial years ended", PAGE1)
+    assert 0.3 <= s < 0.9
 
 
 def test_hallucinated_quote_scores_about_zero() -> None:
@@ -75,6 +80,10 @@ def test_hallucinated_quote_scores_about_zero() -> None:
         "in accordance with Listing Rule LR-707",  # rule number
         "Banyan Logistics (Demo) issued this annual report",  # other issuer
         "Aurora Pacific Holdings (Demo) did not issue this annual report",  # negation
+        "Aurora Pacific Holdings (Demo) didn't issue this annual report",  # contraction
+        "for the financial year ended 31 December 2026",  # 2026 is elsewhere on the page
+        "issued this annual report on 28 April 2025",  # 2025 is elsewhere on the page
+        "in accordance with Listing Rule LR-70",  # prefix of the real identifier
     ],
 )
 def test_altered_critical_detail_is_capped(quote: str) -> None:
@@ -248,3 +257,20 @@ def test_self_consistency_through_structured_llm_3_2_1_agreement() -> None:
     assert [(v.candidate.properties["ticker"], v.votes) for v in replay] == [
         (v.candidate.properties["ticker"], v.votes) for v in voted
     ]
+
+
+def test_negation_dropped_from_the_source_is_caught() -> None:
+    source = "Banyan Logistics (Demo) did not issue a sustainability report for 2025."
+    assert (
+        grounding_score("Banyan Logistics (Demo) did issue a sustainability report", source) <= 0.1
+    )
+    assert (
+        grounding_score("Banyan Logistics (Demo) did not issue a sustainability report", source)
+        == 1.0
+    )
+
+
+def test_amount_prefix_is_not_verbatim() -> None:
+    source = "The fine was $1,200,000 under the rule."
+    assert grounding_score("The fine was $1,200", source) <= 0.1
+    assert grounding_score("The fine was $1,200,000", source) == 1.0
