@@ -5,6 +5,8 @@ from typing import Literal
 from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+EXAMPLE_INGEST_KEY = "dev-ingest-key-change-me"  # the value shipped in .env.example
+
 LLMProvider = Literal["anthropic", "fake"]
 
 
@@ -49,6 +51,13 @@ class Settings(BaseSettings):
                 raise ValueError("WRITER_ADMIN_JWT_SECRET must be at least 32 characters in prod")
             if not self.cookie_secure:
                 raise ValueError("WRITER_COOKIE_SECURE must be true in prod")
+            if self.ingest_api_key is not None:
+                key = self.ingest_api_key.get_secret_value()
+                if len(key) < 32 or key == EXAMPLE_INGEST_KEY:
+                    raise ValueError(
+                        "WRITER_INGEST_API_KEY must be at least 32 characters (and not the "
+                        "example value) in prod"
+                    )
         return self
 
 

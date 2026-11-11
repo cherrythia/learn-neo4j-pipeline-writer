@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 
 from writer_service.app import create_app
 from writer_service.auth.deps import CurrentUser, require_api_key, require_role
+from writer_service.auth.deps import UserDep as CurrentUserDep
 from writer_service.auth.users import create_user
 from writer_service.config import Settings
 from writer_service.governance.db import create_engine_for
@@ -47,6 +48,10 @@ def protected_app(settings: Settings) -> FastAPI:
 
     @app.post("/test/publish")
     def publish(user: admin) -> dict[str, str]:
+        return {"user": user.username}
+
+    @app.post("/test/any-user")
+    def any_user(user: CurrentUserDep) -> dict[str, str]:  # login only, no role check
         return {"user": user.username}
 
     return app

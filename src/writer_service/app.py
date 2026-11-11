@@ -6,6 +6,7 @@ from collections.abc import Awaitable, Callable
 from fastapi import FastAPI, Request, Response
 
 from writer_service import __version__
+from writer_service.auth.ratelimit import LoginLimiter
 from writer_service.auth.routes import router as auth_router
 from writer_service.config import Settings, get_settings
 from writer_service.governance.db import create_engine_for
@@ -23,6 +24,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if settings.admin_jwt_secret
         else secrets.token_urlsafe(48)
     )
+    app.state.login_limiter = LoginLimiter()
     app.include_router(auth_router)
 
     @app.middleware("http")

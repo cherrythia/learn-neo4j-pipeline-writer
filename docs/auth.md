@@ -26,22 +26,37 @@
 Routes declare what they need with `Depends(require_role("admin"))`. Every decision records
 the user in the audit log.
 
+## Sessions
+
+Each user has a `session_version` (migration `0003`) embedded in their token. **Logout bumps
+it**, which revokes every session of that user, including copied tokens and other browsers.
+Deactivating a user or changing their role takes effect on the next request, because both
+are read from the database rather than the token.
+
+## Login throttling
+
+After 5 failed logins within 15 minutes for a username, or from one client address, further
+attempts get **429** for the rest of the window. The limiter is in memory and per process,
+which suits a single-instance admin service; behind several instances, replace it with a
+shared store such as Redis.
+
 ## Passwords
 
 `scrypt` (stdlib, memory-hard) with a random salt per password; at least 12 characters. Login
 errors are identical for "unknown user" and "wrong password", and both cost one hash
-computation, so responses don't reveal which usernames exist. Every login and failed login is
-audited (`auth.login`, `auth.login_failed`).
+computation, so responses don't reveal which usernames exist. Every login, failed login and
+logout is audited. Failed logins are recorded with actor `anonymous`; the attempted username
+goes in the detail, never in the actor column.
 
 ## CSRF
 
 The session is a cookie, so a malicious site could try to make your browser send a request.
 Two layers stop that:
 1. `SameSite=Lax`: browsers don't attach the cookie to cross-site POSTs.
-2. Every state-changing request (and login/logout) must send
-   `X-Requested-With: writer-admin`. Other sites can't add custom headers to cross-site
-   requests without CORS approval, which the service never grants. The admin UI sends it
-   automatically.
+2. Every state-changing request that uses the session (and login itself) must send
+   `X-Requested-With: writer-admin`; this is enforced in `current_user`, so no route can
+   forget it. Other sites can't add custom headers to cross-site requests without CORS
+   approval, which the service never grants. The admin UI (issue #15) sets it on every request.
 
 ## Setup
 
@@ -55,14 +70,19 @@ uv run writer-users create alice --role admin      # prompts for the password tw
 ```
 
 In production (`WRITER_APP_ENV=prod`) the service refuses to start without a 32+ character
-JWT secret and with `WRITER_COOKIE_SECURE=false`.
+JWT secret, with `WRITER_COOKIE_SECURE=false`, or with an ingest key shorter than 32
+characters or equal to the `.env.example` value.
+
+**Scope note:** this issue provides the building blocks. The real admin routes (ontology
+publish, review queue, …) attach `require_role(...)` in issue #14, whose acceptance criteria
+include a 401/403 test for every route and "a reviewer cannot publish".
 
 ## Endpoints
 
 | Method | Path | Notes |
 |---|---|---|
 | POST | `/api/auth/login` | `{username, password}` → sets the cookie, returns `{username, role}` |
-| POST | `/api/auth/logout` | clears the cookie |
+| POST | `/api/auth/logout` | ends all of the user's sessions and clears the cookie |
 | GET | `/api/auth/me` | current user, or 401 |
 
 Out of scope for now: SSO (Azure AD/Keycloak). It would replace `/api/auth/login` and

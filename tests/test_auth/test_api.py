@@ -67,7 +67,7 @@ def test_logins_are_audited(client: TestClient, settings: Settings) -> None:
             for a in uow.session.scalars(select(AuditLog))
             if a.action.startswith("auth.")
         ]
-    assert ("alice", "auth.login") in actions and ("alice", "auth.login_failed") in actions
+    assert ("alice", "auth.login") in actions and ("anonymous", "auth.login_failed") in actions
 
 
 def test_me_requires_session(client: TestClient) -> None:
@@ -110,3 +110,85 @@ def test_cookie_writes_require_csrf_header(client: TestClient) -> None:
 
 def test_role_routes_require_login(client: TestClient) -> None:
     assert client.post("/test/review", headers=CSRF).status_code == 401
+
+
+# ------------------------------------------------------------------- round-1 review fixes
+
+
+def test_csrf_enforced_for_any_cookie_authenticated_write(client: TestClient) -> None:
+    login(client, "alice", "alice-password-123")
+    assert client.post("/test/any-user").status_code == 403
+    assert client.post("/test/any-user", headers=CSRF).status_code == 200
+
+
+def test_login_without_csrf_header_is_refused(client: TestClient) -> None:
+    r = client.post("/api/auth/login", json={"username": "alice", "password": "alice-password-123"})
+    assert r.status_code == 403
+
+
+def test_non_ascii_api_key_is_401_not_500(client: TestClient) -> None:
+    # raw latin-1 bytes, as a real client could send; the server sees a non-ASCII str
+    r = client.post("/test/ingest", headers={"X-API-Key": "kéy".encode("latin-1")})  # type: ignore[dict-item]
+    assert r.status_code == 401
+
+
+def test_failed_login_audit_actor_is_anonymous(client: TestClient, settings: Settings) -> None:
+    client.post("/api/auth/login", json={"username": "system", "password": "x" * 12}, headers=CSRF)
+    engine = create_engine_for(settings.governance_db_url)
+    with UnitOfWork(engine) as uow:
+        row = next(
+            a for a in uow.session.scalars(select(AuditLog)) if a.action == "auth.login_failed"
+        )
+    assert row.actor == "anonymous" and row.detail["username"] == "system"
+
+
+def test_repeated_failures_are_throttled(client: TestClient) -> None:
+    bad = {"username": "alice", "password": "wrong-password-x"}
+    codes = [client.post("/api/auth/login", json=bad, headers=CSRF).status_code for _ in range(6)]
+    assert codes == [401] * 5 + [429]
+    good = {"username": "alice", "password": "alice-password-123"}
+    assert client.post("/api/auth/login", json=good, headers=CSRF).status_code == 429
+
+
+def test_logout_revokes_copied_tokens(client: TestClient) -> None:
+    login(client, "alice", "alice-password-123")
+    stolen = client.cookies.get(SESSION_COOKIE)
+    assert client.post("/api/auth/logout", headers=CSRF).status_code == 204
+    client.cookies.set(SESSION_COOKIE, stolen)  # type: ignore[arg-type]
+    r = client.get("/api/auth/me")
+    assert r.status_code == 401 and r.json()["detail"] == "session revoked"
+
+
+def test_secure_cookie_flag(settings: Settings) -> None:
+    from writer_service.auth.users import create_user
+    from writer_service.governance.uow import UnitOfWork as U
+
+    engine = create_engine_for(settings.governance_db_url)
+    with U(engine) as uow:
+        create_user(uow, "sam", "sam-password-1234", "reviewer", actor="t")
+    with TestClient(protected_app(settings.model_copy(update={"cookie_secure": True}))) as c:
+        r = c.post(
+            "/api/auth/login",
+            json={"username": "sam", "password": "sam-password-1234"},
+            headers=CSRF,
+        )
+    assert "Secure" in r.headers["set-cookie"]
+
+
+def test_inactive_user_cannot_log_in(client: TestClient, settings: Settings) -> None:
+    engine = create_engine_for(settings.governance_db_url)
+    with UnitOfWork(engine) as uow:
+        uow.session.scalars(select(User).where(User.username == "rita")).one().active = False
+    r = client.post(
+        "/api/auth/login", json={"username": "rita", "password": "rita-password-123"}, headers=CSRF
+    )
+    assert r.status_code == 401
+
+
+def test_role_comes_from_database_not_token(client: TestClient, settings: Settings) -> None:
+    login(client, "alice", "alice-password-123")
+    assert client.post("/test/publish", headers=CSRF).status_code == 200
+    engine = create_engine_for(settings.governance_db_url)
+    with UnitOfWork(engine) as uow:
+        uow.session.scalars(select(User).where(User.username == "alice")).one().role = "reviewer"
+    assert client.post("/test/publish", headers=CSRF).status_code == 403

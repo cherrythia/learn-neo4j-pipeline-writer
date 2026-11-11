@@ -47,8 +47,9 @@ def require_api_key(
 ) -> None:
     if settings.ingest_api_key is None:
         raise HTTPException(503, "ingestion disabled: set WRITER_INGEST_API_KEY")
-    expected = settings.ingest_api_key.get_secret_value()
-    if x_api_key is None or not secrets.compare_digest(x_api_key, expected):
+    expected = settings.ingest_api_key.get_secret_value().encode()
+    # bytes, not str: compare_digest raises TypeError on non-ASCII strings
+    if x_api_key is None or not secrets.compare_digest(x_api_key.encode(), expected):
         raise HTTPException(401, "missing or invalid X-API-Key")
 
 
@@ -64,6 +65,9 @@ class CurrentUser:
 
 
 def current_user(request: Request, engine: EngineDep) -> CurrentUser:
+    """The logged-in user. Any state-changing request authenticated by the cookie must also
+    carry the CSRF header, whichever dependency it uses."""
+    require_csrf_header(request)
     token = request.cookies.get(SESSION_COOKIE)
     if not token:
         raise HTTPException(401, "not logged in")
@@ -75,7 +79,9 @@ def current_user(request: Request, engine: EngineDep) -> CurrentUser:
         user = get_user(uow, claims.username)
         if user is None or not user.active:
             raise HTTPException(401, "account disabled")
-        return CurrentUser(user.username, user.role)
+        if claims.session_version != user.session_version:
+            raise HTTPException(401, "session revoked")
+        return CurrentUser(user.username, user.role)  # role from the DB, not the token
 
 
 UserDep = Annotated[CurrentUser, Depends(current_user)]
@@ -84,8 +90,7 @@ UserDep = Annotated[CurrentUser, Depends(current_user)]
 def require_role(role: str) -> Callable[..., CurrentUser]:
     needed = ROLE_RANK[role]
 
-    def dependency(request: Request, user: UserDep) -> CurrentUser:
-        require_csrf_header(request)
+    def dependency(user: UserDep) -> CurrentUser:
         if ROLE_RANK.get(user.role, 0) < needed:
             raise HTTPException(403, f"requires role {role}")
         return user

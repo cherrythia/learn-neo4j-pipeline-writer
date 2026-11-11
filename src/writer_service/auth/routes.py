@@ -12,8 +12,9 @@ from writer_service.auth.deps import (
     UserDep,
     require_csrf_header,
 )
+from writer_service.auth.ratelimit import LoginLimiter
 from writer_service.auth.tokens import issue_token
-from writer_service.auth.users import authenticate
+from writer_service.auth.users import authenticate, get_user
 from writer_service.governance.uow import UnitOfWork
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
@@ -37,19 +38,37 @@ def login(
     settings: SettingsDep,
     engine: EngineDep,
 ) -> Me:
+    limiter: LoginLimiter = request.app.state.login_limiter
+    client = request.client.host if request.client else "unknown"
+    keys = (f"user:{body.username.casefold()}", f"ip:{client}")
+    if limiter.blocked(*keys):
+        raise HTTPException(429, "too many failed logins; try again later")
     with UnitOfWork(engine) as uow:
         user = authenticate(uow, body.username, body.password)
         if user is None:
-            uow.audit(body.username[:100], "auth.login_failed", "user", body.username[:64])
-            failed = True
+            # Never put attacker-supplied text in the actor column.
+            uow.audit(
+                "anonymous",
+                "auth.login_failed",
+                "user",
+                body.username[:64],
+                {"username": body.username[:200], "client": client},
+            )
+            me = None
         else:
-            uow.audit(user.username, "auth.login", "user", user.username)
-            failed = False
+            uow.audit(user.username, "auth.login", "user", user.username, {"client": client})
             me = Me(username=user.username, role=user.role)
-    if failed:  # audit row committed above, then refuse
+            session_version = user.session_version
+    if me is None:  # the audit row is committed before refusing
+        limiter.record_failure(*keys)
         raise HTTPException(401, "invalid username or password")
+    limiter.reset(keys[0])
     token = issue_token(
-        me.username, me.role, request.app.state.jwt_secret, settings.session_ttl_minutes
+        me.username,
+        me.role,
+        request.app.state.jwt_secret,
+        settings.session_ttl_minutes,
+        session_version,
     )
     response.set_cookie(
         SESSION_COOKIE,
@@ -63,8 +82,14 @@ def login(
     return me
 
 
-@router.post("/logout", status_code=204, dependencies=[Depends(require_csrf_header)])
-def logout(response: Response) -> None:
+@router.post("/logout", status_code=204)
+def logout(response: Response, user: UserDep, engine: EngineDep) -> None:
+    """Ends *every* session of this user (bumps the session version), then clears the cookie."""
+    with UnitOfWork(engine) as uow:
+        row = get_user(uow, user.username)
+        if row is not None:
+            row.session_version += 1
+            uow.audit(user.username, "auth.logout", "user", user.username)
     response.delete_cookie(SESSION_COOKIE, path="/")
 
 

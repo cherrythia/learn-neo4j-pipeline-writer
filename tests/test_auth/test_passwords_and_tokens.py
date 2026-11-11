@@ -1,5 +1,3 @@
-import time
-
 import pytest
 
 from writer_service.auth.passwords import hash_password, verify_password
@@ -44,4 +42,12 @@ def test_expired_token_rejected() -> None:
     token = issue_token("alice", "admin", SECRET, ttl_minutes=-1)
     with pytest.raises(TokenError, match="expired"):
         decode_token(token, SECRET)
-    assert time.time()  # keep import used
+
+
+def test_session_version_roundtrips() -> None:
+    assert (
+        decode_token(
+            issue_token("a", "admin", SECRET, 5, session_version=7), SECRET
+        ).session_version
+        == 7
+    )

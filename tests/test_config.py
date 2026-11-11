@@ -76,3 +76,9 @@ def test_prod_requires_strong_jwt_secret_and_secure_cookie() -> None:
     ok = make(app_env="prod", cookie_secure=True, admin_jwt_secret="x" * 32)
     assert ok.app_env == "prod"
     assert "x" * 32 not in repr(ok)
+
+
+@pytest.mark.parametrize("key", ["short", "dev-ingest-key-change-me"])
+def test_prod_rejects_weak_ingest_key(key: str) -> None:
+    with pytest.raises(ValidationError, match="WRITER_INGEST_API_KEY"):
+        make(app_env="prod", cookie_secure=True, admin_jwt_secret="x" * 32, ingest_api_key=key)
