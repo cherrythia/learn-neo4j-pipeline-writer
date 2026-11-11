@@ -56,15 +56,15 @@ The extractor proposes `(AR-2025-APH)-[:FILED_BY]->(APH)`:
 
 | Component | Value | Why | × Weight | = |
 |---|---|---|---|---|
-| grounding | 0.90 | quote found with a small whitespace difference | 0.25 | 0.225 |
+| grounding | 1.00 | quote found verbatim (whitespace and case don't matter) | 0.25 | 0.250 |
 | back_translation | 0.80 | judge agrees, with a minor wording caveat | 0.20 | 0.160 |
 | stability | 0.667 | found in 2 of 3 runs | 0.15 | 0.100 |
 | source_reliability | 0.75 | PDF | 0.20 | 0.150 |
 | entity_match | 0.50 | APH not in the graph yet (new entity) | 0.10 | 0.050 |
 | self_confidence | 0.90 | extractor's own estimate | 0.10 | 0.090 |
-| **score** | | | | **0.775** |
+| **score** | | | | **0.800** |
 
-0.775 is between 0.60 and 0.85, so the fact goes to the **review queue**. The reviewer sees
+0.800 is between 0.60 and 0.85, so the fact goes to the **review queue**. The reviewer sees
 this exact table (the `breakdown` stored with the candidate), the evidence span and the page.
 The same fact from the Superset `filings` table would score higher: source 0.95, grounding
 1.0 (the value is in the row) and stability 1.0 (deterministic mapping), so it commits.
