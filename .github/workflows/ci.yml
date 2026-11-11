@@ -43,5 +43,14 @@ jobs:
       - run: cp .env.example .env
       - run: docker compose up -d --build --wait --wait-timeout 240
       - run: ./scripts/smoke_demo.sh
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - run: uv sync --locked
+      - name: Integration tests (MySQL)
+        run: |
+          set -a; . ./.env; set +a
+          export WRITER_TEST_MYSQL_URL="mysql+pymysql://writer:${MYSQL_WRITER_PASSWORD}@127.0.0.1:3306/governance_test"
+          uv run pytest -m integration
       - if: failure()
         run: docker compose logs --tail 100

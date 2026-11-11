@@ -10,7 +10,13 @@ dependencies = [
     "pydantic>=2.9",
     "pydantic-settings>=2.6",
     "anthropic>=2.8.0",
+    "sqlalchemy>=2.1.8",
+    "alembic>=1.20.1",
+    "pymysql>=1.2.4",
 ]
+
+[project.scripts]
+writer-db = "writer_service.governance.migrate:main"
 
 [dependency-groups]
 dev = [
