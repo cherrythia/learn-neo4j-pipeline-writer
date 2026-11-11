@@ -6,6 +6,16 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Added
+- **#7 Scoring engine** (`writer_service.scoring`)
+  - `ScoringPolicy` (weights that must sum to 1, ordered thresholds, per-source reliability, N)
+    with the design defaults.
+  - Pure `score()` with a full per-component breakdown, and `route()`: gates reject, conflicts
+    go to review, then thresholds (inclusive, float-noise safe).
+  - `record_outcome()` stores the score breakdown, decision and reasons on each candidate.
+  - Policy storage: `active_policy()` / `activate_policy()` (re-validated, history kept, audited);
+    migration `0002` adds `scoring_configs.source_reliability`.
+  - Tests: table-driven routing boundaries, property-based range and monotonicity
+    (hypothesis), worked example, storage round-trip. Docs: `docs/scoring.md`.
 - **#4 Core ontology, versioning and Neo4j constraints** (`writer_service.ontology`)
   - Core ontology v1 (Issuer, Filing, Rule, Obligation, Finding, with Organisation and Document
     as taxonomy parents) and six typed relations.

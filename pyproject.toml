@@ -30,6 +30,7 @@ dev = [
     "pypdf>=7.0.1",
     "fpdf2>=2.9.0",
     "types-openpyxl>=3.1.5.20261017",
+    "hypothesis>=6.170.15",
 ]
 
 [build-system]
