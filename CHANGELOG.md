@@ -6,6 +6,12 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Added
+- **#11 Document ingestion library** (`writer_service.ingestion.documents`)
+  - PDF → one chunk per page (`page N`); Excel → one chunk per row (`sheet S row N`), from
+    paths or uploaded bytes; windowing without splitting chunks.
+  - LLM extraction whose structured-output schema enumerates the published ontology's class,
+    relation and property names; evidence anchored to existing locators only.
+  - `pypdf` and `openpyxl` are now runtime dependencies. Docs: `docs/document-ingestion.md`.
 - **#6 Candidate facts and hard gates** (`writer_service.pipeline`)
   - Pydantic candidate models (entity / relation, discriminated) with `Evidence`;
     `fact_hash` (whitespace/case/order-insensitive, evidence-free) and `identity_hash`.
