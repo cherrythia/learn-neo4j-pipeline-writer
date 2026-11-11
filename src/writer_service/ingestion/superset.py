@@ -64,6 +64,15 @@ class SupersetClient:
         self.username, self.password = username, password
         self._token: str | None = None
 
+    def close(self) -> None:
+        self.http.close()
+
+    def __enter__(self) -> SupersetClient:
+        return self
+
+    def __exit__(self, *_: object) -> None:
+        self.close()
+
     def _auth(self) -> dict[str, str]:
         if self._token is None:
             r = self.http.post(
