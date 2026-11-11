@@ -22,6 +22,15 @@ jobs:
         env:
           WRITER_LLM_PROVIDER: fake
         run: uv run pytest
+      # Scripted stand-in answers: this checks the evaluation harness (scoring, voting,
+      # threshold), not the model's accuracy. See docs/evaluation.md.
+      - name: Evaluation harness self-test (scripted recordings)
+        run: uv run writer-eval --runs 3 --min-f1 0.95
+      # Real model answers, once someone commits a live run (replay misses fail the step, so a
+      # prompt/ontology change forces a fresh live recording).
+      - name: Accuracy (golden set, committed live recordings)
+        if: hashFiles('evaluation/recordings-live/*.json') != ''
+        run: uv run writer-eval --runs 3 --min-f1 0.95 --recordings evaluation/recordings-live
 
   admin-ui:
     runs-on: ubuntu-latest

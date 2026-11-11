@@ -38,6 +38,17 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   - `POST /ingest/superset/{dataset_id}` (API key; 409 without an approved mapping).
   - Tests against the mock Superset and the demo seed; MySQL integration test in CI.
     Docs: `docs/superset-ingestion.md`.
+- **#16 Golden dataset and evaluation** (`writer_service.evaluation`, `writer-eval`)
+  - Hand-labelled golden facts for the sample annual report; the sample PDF now states its
+    filing references so they are extractable.
+  - Precision / recall / F1 on fact identity, attribute accuracy, run-to-run agreement; per-run
+    and self-consistency-voted results; `--min-f1` gate. Relations are matched including their
+    endpoint classes.
+  - Replay mode over recordings and live mode (which refuses a non-empty recordings folder, so
+    it can't report cached answers as live). The committed recordings are **scripted
+    stand-ins**: CI's step with them is a self-test of the harness, not an accuracy gate on
+    the model. Committed live recordings (`evaluation/recordings-live/`) are replayed and gated
+    in CI when present. Docs: `docs/evaluation.md`.
 - **#10 Writer pipeline and atomic Neo4j writer** (`writer_service.pipeline.orchestrator`,
   `graph_store`)
   - One run per source: N-run extraction with voting (documents), matching, gates, signals,
@@ -48,7 +59,8 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   - Run ownership (`runs` on every node, relationship and evidence): rollback deletes only
     what no other run owns and repairs provenance; it also closes the run's open review items.
   - Approvals as their own graph runs, re-gated (schema + constraint), cardinality-aware
-    conflict replacement recorded in the audit log, compensated on commit failure.
+    conflict replacement recorded in the audit log; on commit failure the approval is
+    compensated (removed edges and overwritten properties restored via `undo`).
   - Failure handling for both stores; generic client errors; driver closed on shutdown.
   - `POST /ingest/documents` (API key; PDF/XLSX; size limit) runs the pipeline.
   - In-memory graph for tests/demo; Neo4j integration tests. Docs: `docs/pipeline.md`.

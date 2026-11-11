@@ -42,7 +42,7 @@ from writer_service.pipeline.candidates import (
     fact_hash,
 )
 from writer_service.pipeline.gates import check_batch, schema_gate
-from writer_service.pipeline.graph_store import GraphWriter, to_fact
+from writer_service.pipeline.graph_store import GraphWriter, audit_view, to_fact
 from writer_service.pipeline.graph_view import GraphView
 from writer_service.pipeline.matching import EntityMatcher, MatchIndex
 from writer_service.pipeline.verification import (
@@ -121,10 +121,11 @@ class WriterPipeline:
             uow.audit(actor, "run.start", "ingestion_run", run_id, {"source": batch.source_ref})
 
         graph_written = False
+        changes: list[dict[str, Any]] = []
         try:
             with UnitOfWork(self.engine) as uow:
                 counts, facts = self._process(uow, run_id, batch, spec, version, policy)
-                self.graph.write_run(run_id, version, facts)
+                changes = self.graph.write_run(run_id, version, facts)
                 graph_written = True
                 run_row = uow.session.get(IngestionRun, run_id)
                 assert run_row is not None
@@ -135,6 +136,8 @@ class WriterPipeline:
             if graph_written:  # SQL failed after the graph committed: undo the graph side
                 try:
                     self.graph.rollback_run(run_id)
+                    if changes:  # values it overwrote on entities other runs also assert
+                        self.graph.undo(changes)
                 except Exception as undo_exc:
                     exc.add_note(f"graph rollback also failed: {undo_exc}")
             with UnitOfWork(self.engine) as uow:
@@ -297,6 +300,7 @@ class WriterPipeline:
         reconflict: str | None = None
         approval_run = self.approval_run_id(item_id)
         graph_written = False
+        replaced: list[dict[str, Any]] = []
         try:
             with UnitOfWork(self.engine) as uow:
                 item = self._open_item(uow, item_id)
@@ -346,13 +350,15 @@ class WriterPipeline:
                     replaced = self.graph.write_run(approval_run, published.version, [fact])
                     graph_written = True
                     if replaced:
-                        entry.detail = {**entry.detail, "replaced": replaced}
+                        entry.detail = {**entry.detail, "replaced": audit_view(replaced)}
         except Exception as exc:
-            if graph_written:
+            if graph_written:  # undo the approval *and* put back what it replaced
                 try:
                     self.graph.rollback_run(approval_run)
+                    if replaced:
+                        self.graph.undo(replaced)
                 except Exception as undo_exc:
-                    exc.add_note(f"graph rollback also failed: {undo_exc}")
+                    exc.add_note(f"graph compensation also failed: {undo_exc}")
             raise
         if reconflict is not None:
             raise PipelineError(

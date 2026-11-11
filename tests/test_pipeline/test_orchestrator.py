@@ -14,15 +14,17 @@ from writer_service.governance.uow import UnitOfWork
 from writer_service.llm.cache import InMemoryCache
 from writer_service.llm.fake import FakeLLM
 from writer_service.llm.structured import StructuredLLM
+from writer_service.ontology.core import CORE_CLASSES, CORE_RELATIONS
 from writer_service.ontology.neo4j_schema import InMemoryGraphSchema
 from writer_service.ontology.service import OntologyService
+from writer_service.ontology.spec import OntologySpec
 from writer_service.pipeline.candidates import (
     CandidateEntity,
     CandidateRelation,
     EntityRef,
     Evidence,
 )
-from writer_service.pipeline.graph_store import InMemoryGraph
+from writer_service.pipeline.graph_store import InMemoryGraph, to_fact
 from writer_service.pipeline.orchestrator import SourceBatch, SourceText, WriterPipeline
 from writer_service.pipeline.verification import BACK_TRANSLATION_PROMPT
 
@@ -470,6 +472,115 @@ def test_conflict_approval_records_replaced_edges(engine: Engine, graph: InMemor
     (item,) = rows(engine, ReviewItem)
     pipe.approve(item.id, reviewer="alice")
     entry = next(a for a in rows(engine, AuditLog) if a.action == "review.approve")
-    assert entry.detail["replaced"] == [
-        {"relation": "FILED_BY", "source": "AR-2025-APH", "target": "BYL"}
-    ]
+    (rep,) = entry.detail["replaced"]
+    assert (rep["relation"], rep["source"]["key"], rep["target"]["key"]) == (
+        "FILED_BY",
+        "AR-2025-APH",
+        "BYL",
+    )
+
+
+def test_failed_conflict_approval_restores_the_replaced_edge(
+    engine: Engine, graph: InMemoryGraph, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from sqlalchemy.orm import Session
+
+    graph.add_edge("FILED_BY", ("Filing", "filing_id", "AR-2025-APH"), ("Issuer", "ticker", "BYL"))
+    graph.edge_meta.append({"runs": ["seed"], "evidence_ids": [], "run_id": "seed"})
+    pipe = pipeline(engine, graph)
+    pipe.ingest(doc([FILED]), actor="bot")
+    (item,) = rows(engine, ReviewItem)
+
+    def fail(self: Session) -> None:
+        raise RuntimeError("db down")
+
+    monkeypatch.setattr(Session, "commit", fail)
+    with pytest.raises(RuntimeError, match="db down"):
+        pipe.approve(item.id, reviewer="alice")
+    monkeypatch.undo()
+    assert graph.targets(
+        "FILED_BY", ("Filing", "filing_id", "AR-2025-APH"), {"Issuer": "ticker"}
+    ) == [{"Issuer": "BYL"}]
+
+
+def test_failed_approval_restores_overwritten_entity_properties(
+    engine: Engine, graph: InMemoryGraph, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Review round 3: compensation must undo property overwrites, not only edge removals."""
+    from sqlalchemy.orm import Session
+
+    old = APH.model_copy(update={"properties": {"ticker": "APH", "name": "Aurora Old Name"}})
+    graph.write_run("seed", 1, [to_fact(old, OntologySpec(CORE_CLASSES, CORE_RELATIONS), 0.9)])
+    pipe = pipeline(engine, graph, judge(0.5))
+    pipe.ingest(doc([APH]), actor="bot")
+    (item,) = rows(engine, ReviewItem)
+
+    def fail(self: Session) -> None:
+        raise RuntimeError("db down")
+
+    monkeypatch.setattr(Session, "commit", fail)
+    with pytest.raises(RuntimeError, match="db down"):
+        pipe.approve(item.id, reviewer="rita")
+    monkeypatch.undo()
+    aph = graph.node_properties("Issuer", "ticker", "APH")
+    assert aph is not None
+    assert (aph["name"], aph["run_id"], aph["runs"]) == ("Aurora Old Name", "seed", ["seed"])
+
+
+@pytest.mark.parametrize(
+    ("seed_props", "expected_name"),
+    [
+        (
+            {"ticker": "APH", "name": "Aurora Pacific Holdings (Demo)"},
+            "Aurora Pacific Holdings (Demo)",
+        ),
+        ({"ticker": "APH"}, None),  # the failed run added `name`: it must go again
+    ],
+    ids=["overwritten-score", "added-property"],
+)
+def test_failed_ingest_restores_properties_it_overwrote(
+    engine: Engine,
+    graph: InMemoryGraph,
+    monkeypatch: pytest.MonkeyPatch,
+    seed_props: dict[str, str],
+    expected_name: str | None,
+) -> None:
+    """Review rounds 4-5: a failed ingest must not leave its score or values on another run's
+    entity. The seed agrees with the ingested fact, so the gates pass and the run really
+    overwrites the entity before the governance commit fails."""
+    from sqlalchemy.orm import Session
+
+    seed = APH.model_copy(update={"properties": seed_props})
+    graph.write_run("seed", 1, [to_fact(seed, OntologySpec(CORE_CLASSES, CORE_RELATIONS), 0.4)])
+    writes: list[list[dict[str, Any]]] = []
+    real_write = graph.write_run
+
+    def recording_write(*a: Any, **k: Any) -> list[dict[str, Any]]:
+        changes = real_write(*a, **k)
+        writes.append(changes)
+        return changes
+
+    monkeypatch.setattr(graph, "write_run", recording_write)
+    real_commit = Session.commit
+    calls = {"n": 0}
+
+    def flaky(self: Session) -> None:
+        calls["n"] += 1
+        if calls["n"] == 2:  # 1st commit opens the run; 2nd is the run's results
+            raise RuntimeError("db down")
+        real_commit(self)
+
+    monkeypatch.setattr(Session, "commit", flaky)
+    summary = pipeline(engine, graph).ingest(doc([APH]), actor="bot")
+    monkeypatch.undo()
+    assert summary.status == "failed"
+    (changes,) = writes
+    assert any(c["kind"] == "properties" for c in changes)  # the run did overwrite the entity
+    aph = graph.node_properties("Issuer", "ticker", "APH")
+    assert aph is not None
+    assert (aph.get("name"), aph["score"], aph["run_id"], aph["runs"]) == (
+        expected_name,
+        0.4,
+        "seed",
+        ["seed"],
+    )
