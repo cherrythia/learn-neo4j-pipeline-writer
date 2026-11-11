@@ -136,3 +136,83 @@ def test_replace_existing_swaps_the_target(driver: Driver) -> None:
     )
     assert [r["t"] for r in records] == [OTHER]
     graph.rollback_run(run)
+
+
+def test_rollback_keeps_what_another_run_owns(driver: Driver) -> None:
+    graph = Neo4jGraph(driver)
+    run1, run2 = f"test-{uuid.uuid4()}", f"test-{uuid.uuid4()}"
+    issuer_fact, filed_fact = facts()
+    graph.write_run(run1, 1, [filed_fact])  # Issuer T exists only as a stub endpoint
+    graph.write_run(run2, 1, [issuer_fact])  # a later run states the full entity
+    graph.rollback_run(run1)
+    records, _, _ = driver.execute_query(
+        "MATCH (n:Issuer {ticker: $t}) RETURN n.name AS name, n.runs AS runs, n.run_id AS run",
+        t=TICKER,
+    )
+    assert records and records[0]["name"] == "Test Co"
+    assert records[0]["runs"] == [run2] and records[0]["run"] == run2
+    assert (
+        count(
+            driver,
+            "MATCH (:Filing {filing_id: $f})-[r:FILED_BY]->() RETURN count(r) AS c",
+            f=FILING,
+        )
+        == 0
+    )
+    assert (
+        count(
+            driver,
+            "MATCH (:Issuer {ticker: $t})-[:SUPPORTED_BY]->(x:Evidence) RETURN count(x) AS c",
+            t=TICKER,
+        )
+        == 1
+    )
+    graph.rollback_run(run2)
+    assert count(driver, "MATCH (n:Issuer {ticker: $t}) RETURN count(n) AS c", t=TICKER) == 0
+
+
+def test_rollback_repairs_relationship_provenance(driver: Driver) -> None:
+    graph = Neo4jGraph(driver)
+    run1, run2 = f"test-{uuid.uuid4()}", f"test-{uuid.uuid4()}"
+    _, filed_fact = facts()
+    graph.write_run(run1, 1, [filed_fact])
+    again = CandidateRelation(
+        relation="FILED_BY",
+        source=EntityRef(class_name="Filing", key=FILING),
+        target=EntityRef(class_name="Issuer", key=TICKER),
+        evidence=[ev("__T_ second quote")],
+    )
+    graph.write_run(run2, 1, [to_fact(again, SPEC, 0.7)])
+    graph.rollback_run(run2)
+    records, _, _ = driver.execute_query(
+        "MATCH (:Filing {filing_id: $f})-[r:FILED_BY]->() "
+        "RETURN r.run_id AS run, r.runs AS runs, size(r.evidence_ids) AS n",
+        f=FILING,
+    )
+    assert (records[0]["run"], records[0]["runs"], records[0]["n"]) == (run1, [run1], 1)
+    graph.rollback_run(run1)
+
+
+def test_one_to_many_replacement_clears_the_targets_other_sources(driver: Driver) -> None:
+    from writer_service.ontology.spec import RelationSpec
+
+    spec = OntologySpec(
+        CORE_CLASSES, (*CORE_RELATIONS, RelationSpec("ZZ_LINK", "Issuer", "Filing", "one_to_many"))
+    )
+    graph, run = Neo4jGraph(driver), f"test-{uuid.uuid4()}"
+
+    def link(src: str) -> CandidateRelation:
+        return CandidateRelation(
+            relation="ZZ_LINK",
+            source=EntityRef(class_name="Issuer", key=src),
+            target=EntityRef(class_name="Filing", key=FILING),
+        )
+
+    graph.write_run(run, 1, [to_fact(link(TICKER), spec, 1.0)])
+    replaced = graph.write_run(run, 1, [to_fact(link(OTHER), spec, 1.0, replace_existing=True)])
+    records, _, _ = driver.execute_query(
+        "MATCH (i:Issuer)-[:ZZ_LINK]->(:Filing {filing_id: $f}) RETURN i.ticker AS t", f=FILING
+    )
+    assert [r["t"] for r in records] == [OTHER]
+    assert len(replaced) == 1 and replaced[0]["source"]["ticker"] == TICKER
+    graph.rollback_run(run)

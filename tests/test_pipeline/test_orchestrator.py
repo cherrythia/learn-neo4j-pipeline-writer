@@ -352,3 +352,124 @@ def test_near_quote_never_commits_even_from_a_reliable_source(
     (cand,) = rows(engine, Candidate)
     assert cand.score is not None and cand.score >= 0.85  # the score alone would have committed
     assert any("not verbatim" in r for r in cand.breakdown["reasons"])
+
+
+# ---------------------------------------------------------------- review round 1 (PR #32)
+
+
+def test_rollback_keeps_facts_another_run_also_owns(engine: Engine, graph: InMemoryGraph) -> None:
+    pipe = pipeline(engine, graph)
+    run1 = pipe.ingest(doc([FILED]), actor="bot").run_id  # creates APH as a stub endpoint
+    pipe.ingest(doc([APH]), actor="bot")  # a later run states the full entity
+    pipe.rollback(run1, actor="admin")
+    aph = graph.node_properties("Issuer", "ticker", "APH")
+    assert aph is not None and aph["name"] == "Aurora Pacific Holdings (Demo)"
+    assert aph["runs"] == [aph["run_id"]] and aph["run_id"] != run1
+    assert graph.edges == []  # run1's own edge is gone
+    assert any(
+        v["quote"].startswith("Aurora Pacific Holdings (Demo) (ticker")
+        for v in graph.evidence.values()
+    )
+
+
+def test_rollback_of_a_repeat_run_changes_nothing_shared(
+    engine: Engine, graph: InMemoryGraph
+) -> None:
+    pipe = pipeline(engine, graph)
+    first = pipe.ingest(doc([APH, FILING, FILED]), actor="bot").run_id
+    second = pipe.ingest(doc([APH, FILING, FILED]), actor="bot").run_id
+    before = (graph.node_count(), len(graph.edges), len(graph.evidence))
+    pipe.rollback(second, actor="admin")
+    assert (graph.node_count(), len(graph.edges), len(graph.evidence)) == before
+    assert graph.edge_meta[0]["run_id"] == first  # provenance falls back to the remaining run
+
+
+def test_rollback_prunes_relationship_evidence_of_the_run(
+    engine: Engine, graph: InMemoryGraph
+) -> None:
+    pipe = pipeline(engine, graph)
+    pipe.ingest(doc([FILED]), actor="bot")
+    other_quote = FILED.model_copy(update={"evidence": [ev("annual report AR-2025-APH")]})
+    run2 = pipe.ingest(doc([other_quote]), actor="bot").run_id
+    assert len(graph.edge_meta[0]["evidence_ids"]) == 2
+    pipe.rollback(run2, actor="admin")
+    (meta,) = graph.edge_meta
+    assert len(meta["evidence_ids"]) == 1 and all(e in graph.evidence for e in meta["evidence_ids"])
+
+
+def test_approve_regates_against_a_changed_graph(engine: Engine, graph: InMemoryGraph) -> None:
+    from writer_service.pipeline.orchestrator import PipelineError
+
+    pipe = pipeline(engine, graph, judge(0.5))
+    pipe.ingest(doc([FILED]), actor="bot")  # score → review item
+    graph.add_edge("FILED_BY", ("Filing", "filing_id", "AR-2025-APH"), ("Issuer", "ticker", "BYL"))
+    graph.edge_meta.append({"runs": ["seed"], "evidence_ids": [], "run_id": "seed"})
+    (item,) = rows(engine, ReviewItem)
+    with pytest.raises(PipelineError, match="now a conflict"):
+        pipe.approve(item.id, reviewer="rita")
+    (item,) = rows(engine, ReviewItem)
+    assert item.reason == "conflict" and item.status == "open"
+    assert graph.targets(
+        "FILED_BY", ("Filing", "filing_id", "AR-2025-APH"), {"Issuer": "ticker"}
+    ) == [{"Issuer": "BYL"}]
+
+
+def test_rollback_closes_open_items_and_blocks_their_approval(
+    engine: Engine, graph: InMemoryGraph
+) -> None:
+    from writer_service.pipeline.orchestrator import PipelineError
+
+    pipe = pipeline(engine, graph, judge(0.5))
+    run = pipe.ingest(doc([APH]), actor="bot").run_id
+    (item,) = rows(engine, ReviewItem)
+    assert pipe.rollback(run, actor="admin")["review_items_closed"] == 1
+    (closed,) = rows(engine, ReviewItem)
+    assert closed.status == "rejected" and closed.note == "run rolled back"
+    with pytest.raises(PipelineError, match="not open"):
+        pipe.approve(item.id, reviewer="rita")
+
+
+def test_approved_facts_survive_a_rollback_of_their_run(
+    engine: Engine, graph: InMemoryGraph
+) -> None:
+    pipe = pipeline(engine, graph, judge(0.5))
+    run = pipe.ingest(doc([APH]), actor="bot").run_id
+    (item,) = rows(engine, ReviewItem)
+    pipe.approve(item.id, reviewer="rita")
+    pipe.rollback(run, actor="admin")
+    aph = graph.node_properties("Issuer", "ticker", "APH")
+    assert aph is not None and aph["runs"] == [WriterPipeline.approval_run_id(item.id)]
+
+
+def test_approve_commit_failure_undoes_the_graph_write(
+    engine: Engine, graph: InMemoryGraph, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from sqlalchemy.orm import Session
+
+    pipe = pipeline(engine, graph, judge(0.5))
+    pipe.ingest(doc([APH]), actor="bot")
+    (item,) = rows(engine, ReviewItem)
+
+    def fail(self: Session) -> None:
+        raise RuntimeError("db down")
+
+    monkeypatch.setattr(Session, "commit", fail)
+    with pytest.raises(RuntimeError, match="db down"):
+        pipe.approve(item.id, reviewer="rita")
+    monkeypatch.undo()
+    assert graph.node_count() == 0
+    (item,) = rows(engine, ReviewItem)
+    assert item.status == "open"
+
+
+def test_conflict_approval_records_replaced_edges(engine: Engine, graph: InMemoryGraph) -> None:
+    graph.add_edge("FILED_BY", ("Filing", "filing_id", "AR-2025-APH"), ("Issuer", "ticker", "BYL"))
+    graph.edge_meta.append({"runs": ["seed"], "evidence_ids": [], "run_id": "seed"})
+    pipe = pipeline(engine, graph)
+    pipe.ingest(doc([FILED]), actor="bot")
+    (item,) = rows(engine, ReviewItem)
+    pipe.approve(item.id, reviewer="alice")
+    entry = next(a for a in rows(engine, AuditLog) if a.action == "review.approve")
+    assert entry.detail["replaced"] == [
+        {"relation": "FILED_BY", "source": "AR-2025-APH", "target": "BYL"}
+    ]

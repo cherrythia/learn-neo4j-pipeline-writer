@@ -1,7 +1,8 @@
 """FastAPI application factory."""
 
 import secrets
-from collections.abc import Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request, Response
 
@@ -16,7 +17,16 @@ from writer_service.governance.db import create_engine_for
 def create_app(settings: Settings | None = None) -> FastAPI:
     """Build the app. Settings are validated here so bad config fails at startup."""
     settings = settings or get_settings()
-    app = FastAPI(title="Writer Service", version=__version__)
+
+    @asynccontextmanager
+    async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+        yield
+        driver = getattr(app.state, "neo4j_driver", None)
+        if driver is not None:
+            driver.close()
+        app.state.engine.dispose()
+
+    app = FastAPI(title="Writer Service", version=__version__, lifespan=lifespan)
     app.state.settings = settings
     app.state.engine = create_engine_for(settings.governance_db_url)
     # In dev an unset secret gets a random one: sessions simply end on restart.

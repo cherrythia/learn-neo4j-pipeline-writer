@@ -13,7 +13,7 @@ from writer_service.governance.uow import UnitOfWork
 from writer_service.ingestion.documents import DocumentExtractor, pdf_chunks, xlsx_chunks
 from writer_service.ingestion.superset import SupersetError, approved_mapping, rows_to_candidates
 from writer_service.ontology.service import spec_of
-from writer_service.pipeline.orchestrator import SourceBatch, SourceText
+from writer_service.pipeline.orchestrator import RunSummary, SourceBatch, SourceText
 
 router = APIRouter(prefix="/ingest", tags=["ingest"], dependencies=[Depends(require_api_key)])
 
@@ -25,6 +25,16 @@ class RunOut(BaseModel):
     status: str
     counts: dict[str, int]
     error: str | None = None
+
+
+def _out(summary: RunSummary) -> RunOut:
+    # Internal error text (driver messages, SQL) stays in the run record, not the response.
+    error = (
+        f"run failed; details are stored with run {summary.run_id}"
+        if summary.status == "failed"
+        else None
+    )
+    return RunOut(run_id=summary.run_id, status=summary.status, counts=summary.counts, error=error)
 
 
 @router.post("/documents", response_model=RunOut)
@@ -60,9 +70,7 @@ def ingest_document(file: UploadFile, pipeline: PipelineDep, settings: SettingsD
         extract=lambda sample: extractor.extract(chunks, sample),
     )
     summary = pipeline.ingest(batch, actor="ingest-api")
-    return RunOut(
-        run_id=summary.run_id, status=summary.status, counts=summary.counts, error=summary.error
-    )
+    return _out(summary)
 
 
 @router.post("/superset/{dataset_id}", response_model=RunOut)
@@ -87,6 +95,4 @@ def ingest_superset(
     candidates, texts = rows_to_candidates(mapping, ds, rows)
     batch = SourceBatch("superset", ds.ref, [SourceText(*t) for t in texts], candidates=candidates)
     summary = pipeline.ingest(batch, actor="superset-sync")
-    return RunOut(
-        run_id=summary.run_id, status=summary.status, counts=summary.counts, error=summary.error
-    )
+    return _out(summary)

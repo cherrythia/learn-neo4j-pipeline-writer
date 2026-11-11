@@ -22,8 +22,11 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   - Non-verbatim quotes (grounding < 1.0) are never auto-committed.
   - Neo4j writes in one transaction: MERGE on identity keys, taxonomy labels, provenance
     (`:Evidence`, `:Source`, `:IngestionRun`, score/run/version on every fact); idempotent.
-  - Failure handling for both stores; run rollback; approve (incl. conflict replacement and
-    edited, re-gated approvals) and reject review items; all audited.
+  - Run ownership (`runs` on every node, relationship and evidence): rollback deletes only
+    what no other run owns and repairs provenance; it also closes the run's open review items.
+  - Approvals as their own graph runs, re-gated (schema + constraint), cardinality-aware
+    conflict replacement recorded in the audit log, compensated on commit failure.
+  - Failure handling for both stores; generic client errors; driver closed on shutdown.
   - `POST /ingest/documents` (API key; PDF/XLSX; size limit) runs the pipeline.
   - In-memory graph for tests/demo; Neo4j integration tests. Docs: `docs/pipeline.md`.
 - **#11 Document ingestion library** (`writer_service.ingestion.documents`)

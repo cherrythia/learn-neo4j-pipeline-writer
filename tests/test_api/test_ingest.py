@@ -131,3 +131,44 @@ def test_too_large(tmp_path: Path) -> None:
 def test_no_published_ontology(tmp_path: Path) -> None:
     with make_client(tmp_path, bootstrap=False) as c:
         assert upload(c, ROOT / PDF_PATH).status_code == 409
+
+
+def test_llm_not_configured_is_503(tmp_path: Path) -> None:
+    url = f"sqlite:///{tmp_path / 'g.sqlite'}"
+    upgrade(url)
+    s = Settings(_env_file=None, governance_db_url=url, ingest_api_key=KEY)  # type: ignore[call-arg]
+    with TestClient(create_app(s)) as c:  # real get_pipeline: anthropic provider, no key
+        r = upload(c, ROOT / PDF_PATH)
+    assert r.status_code == 503 and "WRITER_ANTHROPIC_API_KEY" in r.json()["detail"]
+
+
+def test_failed_run_does_not_leak_internal_errors(tmp_path: Path) -> None:
+    with make_client(tmp_path) as c:
+        c.app.state.test_graph.fail_next_write = True  # type: ignore[attr-defined]
+        body = upload(c, ROOT / PDF_PATH).json()
+    assert body["status"] == "failed"
+    assert body["error"] == f"run failed; details are stored with run {body['run_id']}"
+
+
+def test_neo4j_driver_closed_on_shutdown(tmp_path: Path) -> None:
+    from unittest.mock import MagicMock
+
+    url = f"sqlite:///{tmp_path / 'g.sqlite'}"
+    upgrade(url)
+    app = create_app(Settings(_env_file=None, governance_db_url=url))  # type: ignore[call-arg]
+    driver = MagicMock()
+    with TestClient(app):
+        app.state.neo4j_driver = driver
+    driver.close.assert_called_once()
+
+
+def test_pipeline_is_built_once(tmp_path: Path) -> None:
+    from unittest.mock import MagicMock
+
+    url = f"sqlite:///{tmp_path / 'g.sqlite'}"
+    upgrade(url)
+    app = create_app(Settings(_env_file=None, governance_db_url=url))  # type: ignore[call-arg]
+    sentinel = object()
+    app.state.pipeline = sentinel
+    request = MagicMock(app=app)
+    assert get_pipeline(request) is sentinel
