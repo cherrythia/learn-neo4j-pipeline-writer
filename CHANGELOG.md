@@ -19,6 +19,15 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   - `writer-users create` CLI; prod refuses weak JWT secrets, insecure cookies and weak or
     example ingest keys.
   - Docs: `docs/auth.md`; ADR-0011 updated.
+- **#6 Candidate facts and hard gates** (`writer_service.pipeline`)
+  - Pydantic candidate models (entity / relation, discriminated) with `Evidence`;
+    `fact_hash` (whitespace/case/order-insensitive, evidence-free) and `identity_hash`.
+  - Schema gate: classes, relations, deprecation, undeclared/required properties, strict
+    datatype coercion, taxonomy-aware domain/range. Failure → reject.
+  - Constraint gate: property contradictions and cardinality breaches against the graph and
+    within the batch. Failure → conflict (human review, never overwritten).
+  - `GraphView` port with in-memory and Neo4j implementations (Neo4j integration test in CI).
+  - Docs: `docs/gates.md`.
 - **#7 Scoring engine** (`writer_service.scoring`)
   - `ScoringPolicy` (weights that must sum to 1, ordered thresholds, per-source reliability, N)
     with the design defaults.

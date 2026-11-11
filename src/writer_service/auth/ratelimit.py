@@ -4,8 +4,8 @@ Two budgets per attempt (both must have room):
 
 * ``pair:<username>|<client>`` – guesses at one account from one client (default 5 / 15 min).
   Keyed per client so an attacker elsewhere can't lock the real admin out.
-* ``client:<client>`` – all guesses from one client, across usernames (default 20 / 15 min),
-  against password spraying.
+* ``client:<client>`` – failed guesses from one client, across usernames (default 20 /
+  15 min), against password spraying. Successful logins are refunded.
 
 ``attempt()`` reserves a slot *before* the slow password check, under a lock, so parallel
 requests can't exceed the budget; a successful login releases its pair budget.
@@ -83,8 +83,19 @@ class LoginLimiter:
             return True
 
     def release(self, key: str) -> None:
+        """Forget every attempt on ``key`` (a successful login clears its pair budget)."""
         with self._lock:
             self._hits.pop(key, None)
+
+    def refund(self, key: str) -> None:
+        """Give back the most recent attempt on ``key`` (a success shouldn't use up the client
+        budget, which is meant to count failures)."""
+        with self._lock:
+            q = self._hits.get(key)
+            if q:
+                q.pop()
+                if not q:
+                    del self._hits[key]
 
     def size(self) -> int:
         return len(self._hits)

@@ -38,11 +38,12 @@ are read from the database rather than the token.
 | Budget | Default | Purpose |
 |---|---|---|
 | username + client | 5 failures / 15 min | guessing one account |
-| client | 20 attempts / 15 min | password spraying across usernames |
+| client | 20 failures / 15 min | password spraying across usernames |
 
 Further attempts get **429**. Budgets are per username+client, so an attacker elsewhere can't
 lock the real admin out. Each attempt is reserved *before* the password check (under a lock),
-so parallel requests can't exceed the budget. A successful login releases its budget.
+so parallel requests can't exceed the budget. A successful login clears that account's
+failures for the client and gives back its client slot, so only failures count.
 Usernames are compared ignoring case and accents, like MySQL's default collation, so `ädmin`
 shares `admin`'s budget. Usernames are limited to 100 characters, and memory is bounded
 (at most 10,000 keys, empty ones pruned).

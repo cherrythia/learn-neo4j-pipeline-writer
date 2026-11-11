@@ -75,3 +75,11 @@ def test_username_key_folds_case_and_accents_like_mysql() -> None:
     assert username_key("ÄDMIN") == username_key("ádmin") == username_key("admin")
     lim = LoginLimiter(max_per_pair=2)
     assert lim.keys("ÄDMIN", "c") == lim.keys("admin", "c")
+
+
+def test_refund_returns_one_slot() -> None:
+    lim = LoginLimiter(max_per_pair=10, max_per_client=2)
+    _, client = lim.keys("u", "c")
+    assert lim.attempt(client) and lim.attempt(client) and not lim.attempt(client)
+    lim.refund(client)
+    assert lim.attempt(client)

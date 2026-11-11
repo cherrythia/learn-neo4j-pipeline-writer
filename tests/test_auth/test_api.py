@@ -211,3 +211,8 @@ def test_correct_password_succeeds_after_some_failures_and_releases_budget(
     login(client, "alice", "alice-password-123")
     for _ in range(4):  # pair budget released on success
         assert client.post("/api/auth/login", json=bad, headers=CSRF).status_code == 401
+
+
+def test_successful_logins_do_not_use_up_the_client_budget(client: TestClient) -> None:
+    for _ in range(25):  # more than the 20-per-client budget
+        login(client, "alice", "alice-password-123")

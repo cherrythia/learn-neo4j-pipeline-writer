@@ -62,7 +62,8 @@ def login(
             session_version = user.session_version
     if me is None:  # the audit row is committed before refusing; the attempt stays counted
         raise HTTPException(401, "invalid username or password")
-    limiter.release(pair_key)
+    limiter.release(pair_key)  # this account's failures are forgiven
+    limiter.refund(client_key)  # and a success doesn't count against the client
     token = issue_token(
         me.username,
         me.role,
