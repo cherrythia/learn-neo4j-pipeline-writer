@@ -357,6 +357,38 @@ def test_mapping_suggest_and_approve(env: Env) -> None:
     assert m["status"] == "approved" and m["approved_by"] == "alice"
 
 
+def test_mapping_routes_translate_superset_and_source_errors(env: Env) -> None:
+    """404 for an unknown dataset, 502 when Superset or the source DB fails, no SQL leaked."""
+    import httpx2
+    from sqlalchemy.exc import OperationalError
+
+    c = env.client("alice")
+    assert c.post("/api/mappings/suggest/999", headers=CSRF).status_code == 404
+
+    class Down(DatasetReader):
+        def _rows(self, *_: Any, **__: Any) -> Any:
+            raise OperationalError("SELECT secret_stuff", {}, Exception("refused"))
+
+    down = Down(env.source)
+    env.app.dependency_overrides[get_reader] = lambda: down
+    r = c.post("/api/mappings/suggest/1", headers=CSRF)
+    assert r.status_code == 502 and "secret_stuff" not in r.text
+
+    def refuse(request: httpx2.Request) -> httpx2.Response:
+        raise httpx2.ConnectError("refused", request=request)
+
+    dead = SupersetClient(
+        "http://x",
+        "a",
+        "b",
+        http=httpx2.Client(base_url="http://x", transport=httpx2.MockTransport(refuse)),
+    )
+    env.app.dependency_overrides[get_superset] = lambda: dead
+    body = {"dataset_id": 1, "mapping": {"entities": [], "relations": []}}
+    r = c.post("/api/mappings", json=body, headers=CSRF)
+    assert r.status_code == 502 and "unreachable" in r.json()["detail"]
+
+
 def test_invalid_manual_mapping_cannot_be_approved(env: Env) -> None:
     c = env.client("alice")
     mid = c.post(
