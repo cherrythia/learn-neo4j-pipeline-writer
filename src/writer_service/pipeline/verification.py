@@ -26,8 +26,17 @@ AnyCandidate = CandidateEntity | CandidateRelation
 # ------------------------------------------------------------------------ grounding
 
 
+_APOSTROPHES = str.maketrans({"\u2019": "'", "\u2018": "'", "\u02bc": "'"})
+
+
+def _clean(text: str) -> str:
+    """Typographic apostrophes (common in PDF text) to ASCII, so "didn’t" tokenises."""
+    return text.translate(_APOSTROPHES)
+
+
 def _norm(text: str) -> str:
-    return canonical_text(text).casefold()
+    # lower(), not casefold(): quote tokens and source tokens must use the same folding.
+    return canonical_text(_clean(text)).lower()
 
 
 GROUNDING_FLOOR = 0.5  # raw similarity at or below this is noise, not partial support
@@ -38,7 +47,7 @@ _NEGATIONS = {"not", "no", "never", "without", "none", "neither", "nor", "cannot
 
 
 def _tokens(text: str) -> list[str]:
-    return [tok.rstrip(".,'") for tok in _TOKEN.findall(text)]
+    return [tok.rstrip(".,'") for tok in _TOKEN.findall(_clean(text))]
 
 
 def _is_negation(token: str) -> bool:
@@ -90,13 +99,14 @@ def _expand(text: str, start: int, end: int) -> str:
 def grounding_score(quote: str, source_text: str | None) -> float:
     """How well the source text supports ``quote``, in [0, 1].
 
-    1. Find the passage of the source that best matches the quote (verbatim on word
-       boundaries if possible, else the fuzzy ``partial_ratio`` alignment).
+    1. Verbatim on word boundaries → 1.0 (surrounding words are context, not checked).
+       Otherwise find the best-matching passage with the fuzzy ``partial_ratio`` alignment.
     2. Score: 1.0 for a verbatim match; otherwise the partial ratio rescaled above
        ``GROUNDING_FLOOR`` (invented text ~0, typo-level differences ~0.7-0.99), max 0.99.
     3. Cap at ``ALTERED_CAP`` if, *within that passage*, a critical token of the quote is
        missing (a changed year, rule number, amount or name) or a negation differs ("did not"
-       vs "did") - a different fact, however similar the wording. A quote that elides words
+       vs "did", checked only inside the exactly matched span) - a different fact, however
+       similar the wording. A quote that elides words
        from the middle of a sentence is also capped when the elision hides critical tokens:
        quotes must be contiguous source text.
     4. 0 when there is no source text to check.
@@ -104,16 +114,24 @@ def grounding_score(quote: str, source_text: str | None) -> float:
     if not source_text or not quote.strip():
         return 0.0
     q, s = _norm(quote), _norm(source_text)
-    verbatim = re.search(r"(?<![\w\-])" + re.escape(q) + r"(?![\w\-])", s)
+    # Word boundaries that also respect numbers: "$1,200" is not verbatim inside "$1,200,000",
+    # nor "LR-70" inside "LR-705".
+    verbatim = re.search(r"(?<![\w\-])(?<!\d[.,])" + re.escape(q) + r"(?![\w\-])(?![.,]\d)", s)
     if verbatim:
-        score, passage = 1.0, _expand(s, verbatim.start(), verbatim.end())
-    else:
-        aligned = fuzz.partial_ratio_alignment(q, s)
-        raw = (aligned.score if aligned else 0.0) / 100.0
-        score = min(0.99, max(0.0, (raw - GROUNDING_FLOOR) / (1 - GROUNDING_FLOOR)))
-        passage = _expand(s, aligned.dest_start, aligned.dest_end) if aligned else ""
-    if _missing_critical(quote, passage) or _dropped_negation(quote, passage):
-        score = min(score, ALTERED_CAP)
+        # Exact words, and the boundaries above rule out a cut-short identifier or number.
+        # No negation check: words around a
+        # verbatim quote (", not earlier") are context, not part of the quoted fact.
+        return 1.0
+    aligned = fuzz.partial_ratio_alignment(q, s)
+    if aligned is None:
+        return 0.0
+    raw = aligned.score / 100.0
+    score = min(0.99, max(0.0, (raw - GROUNDING_FLOOR) / (1 - GROUNDING_FLOOR)))
+    span = s[aligned.dest_start : aligned.dest_end]  # exactly what the quote matched
+    if _missing_critical(quote, _expand(s, aligned.dest_start, aligned.dest_end)):
+        score = min(score, ALTERED_CAP)  # slack lets "Dec" find "December"
+    elif _dropped_negation(quote, span):
+        score = min(score, ALTERED_CAP)  # only negations *inside* the matched span count
     return score
 
 

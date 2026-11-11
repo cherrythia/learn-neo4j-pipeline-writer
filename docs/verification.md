@@ -13,19 +13,19 @@ Code: `src/writer_service/pipeline/verification.py`. Design: [ADR-0005](adr/0005
 
 `grounding_score(quote, source_text)`:
 
-1. **Find the passage** that best matches the quote: verbatim on word boundaries if possible
-   (so `LR-70` does not match inside `LR-705`), otherwise the fuzzy `partial_ratio` alignment.
-2. **Score** 1.0 for a verbatim match; otherwise the partial ratio rescaled above a noise floor
-   of 0.5 (raw 0.5 → 0, raw 1.0 → 1), max 0.99.
-3. **Cap at 0.1** when, *within that passage* (plus about one word of slack), a critical token
-   of the quote is missing or a negation differs:
-   - anything with a digit: years, amounts (`1,200` vs `1,200,000`), identifiers (`LR-705`);
-   - capitalised words: names, months (abbreviations such as "Dec" for "December" are fine);
-   - negations, including contractions (`not`, `never`, `didn't`, …), in either direction:
-     added by the quote, or dropped from the source.
-   Checking the passage rather than the whole page means a year copied from elsewhere on the
-   page doesn't count. Quotes must be **contiguous** source text: eliding words from the
-   middle of a sentence hides context and is treated as unsupported.
+1. **Verbatim → 1.0.** The quote appears in the source on word *and number* boundaries
+   (so `LR-70` doesn't match inside `LR-705`, nor `$1,200` inside `$1,200,000`), ignoring
+   whitespace and case. Words around it are context, not part of the quoted fact.
+2. Otherwise find the best-matching passage with the fuzzy `partial_ratio` alignment and
+   **score** the ratio rescaled above a noise floor of 0.5 (max 0.99).
+3. **Cap at 0.1** when:
+   - a *critical token* of the quote is missing from the matched passage (plus about one word
+     of slack, so "Dec" can find "December"): anything with a digit (years, amounts,
+     `LR-705`), capitalised words (names, months), negations; or
+   - a negation inside the *exactly matched span* is absent from the quote (dropped "not").
+   Typographic apostrophes are normalised, so `didn’t` counts as a negation. Checking the
+   passage rather than the whole page means a year copied from elsewhere on the page doesn't
+   count. Quotes must be **contiguous** source text; elided quotes are treated as unsupported.
 4. **0** when there is no source text for that location.
 
 `DictSourceText` maps `(source_ref, locator)` (for example `("report.pdf", "page 2")`) to the

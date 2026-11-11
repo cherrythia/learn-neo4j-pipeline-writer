@@ -274,3 +274,40 @@ def test_amount_prefix_is_not_verbatim() -> None:
     source = "The fine was $1,200,000 under the rule."
     assert grounding_score("The fine was $1,200", source) <= 0.1
     assert grounding_score("The fine was $1,200,000", source) == 1.0
+
+
+@pytest.mark.parametrize(
+    "quote,source",
+    [
+        (
+            "approved the final dividend",
+            "The board approved the final dividend and not the special dividend.",
+        ),
+        (
+            "The board approved the final dividend",
+            "Objections: none. The board approved the final dividend.",
+        ),
+        (
+            "in accordance with Listing Rule 705",
+            "Filed in accordance with Listing Rule 705. No exceptions were noted.",
+        ),
+        ("issued on 28 April 2026", "The report was issued on 28 April 2026, not earlier."),
+    ],
+)
+def test_negation_just_outside_a_verbatim_quote_is_context(quote: str, source: str) -> None:
+    assert grounding_score(quote, source) >= 0.9
+
+
+@pytest.mark.parametrize(
+    "quote,source",
+    [
+        ("Aurora did issue the report", "Aurora didn\u2019t issue the report."),
+        ("Aurora didn\u2019t issue the report", "Aurora did issue the report."),
+    ],
+)
+def test_curly_apostrophe_contractions_are_negations(quote: str, source: str) -> None:
+    assert grounding_score(quote, source) <= 0.1
+
+
+def test_quote_and_source_fold_case_the_same_way() -> None:
+    assert grounding_score("Straße", "Haupt Straße 5") == 1.0
