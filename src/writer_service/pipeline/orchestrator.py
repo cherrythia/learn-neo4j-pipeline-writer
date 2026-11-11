@@ -297,6 +297,7 @@ class WriterPipeline:
         reconflict: str | None = None
         approval_run = self.approval_run_id(item_id)
         graph_written = False
+        replaced: list[dict[str, Any]] = []
         try:
             with UnitOfWork(self.engine) as uow:
                 item = self._open_item(uow, item_id)
@@ -348,11 +349,13 @@ class WriterPipeline:
                     if replaced:
                         entry.detail = {**entry.detail, "replaced": replaced}
         except Exception as exc:
-            if graph_written:
+            if graph_written:  # undo the approval *and* put back what it replaced
                 try:
                     self.graph.rollback_run(approval_run)
+                    if replaced:
+                        self.graph.restore_edges(replaced)
                 except Exception as undo_exc:
-                    exc.add_note(f"graph rollback also failed: {undo_exc}")
+                    exc.add_note(f"graph compensation also failed: {undo_exc}")
             raise
         if reconflict is not None:
             raise PipelineError(

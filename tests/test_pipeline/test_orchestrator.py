@@ -470,6 +470,32 @@ def test_conflict_approval_records_replaced_edges(engine: Engine, graph: InMemor
     (item,) = rows(engine, ReviewItem)
     pipe.approve(item.id, reviewer="alice")
     entry = next(a for a in rows(engine, AuditLog) if a.action == "review.approve")
-    assert entry.detail["replaced"] == [
-        {"relation": "FILED_BY", "source": "AR-2025-APH", "target": "BYL"}
-    ]
+    (rep,) = entry.detail["replaced"]
+    assert (rep["relation"], rep["source"]["key"], rep["target"]["key"]) == (
+        "FILED_BY",
+        "AR-2025-APH",
+        "BYL",
+    )
+
+
+def test_failed_conflict_approval_restores_the_replaced_edge(
+    engine: Engine, graph: InMemoryGraph, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from sqlalchemy.orm import Session
+
+    graph.add_edge("FILED_BY", ("Filing", "filing_id", "AR-2025-APH"), ("Issuer", "ticker", "BYL"))
+    graph.edge_meta.append({"runs": ["seed"], "evidence_ids": [], "run_id": "seed"})
+    pipe = pipeline(engine, graph)
+    pipe.ingest(doc([FILED]), actor="bot")
+    (item,) = rows(engine, ReviewItem)
+
+    def fail(self: Session) -> None:
+        raise RuntimeError("db down")
+
+    monkeypatch.setattr(Session, "commit", fail)
+    with pytest.raises(RuntimeError, match="db down"):
+        pipe.approve(item.id, reviewer="alice")
+    monkeypatch.undo()
+    assert graph.targets(
+        "FILED_BY", ("Filing", "filing_id", "AR-2025-APH"), {"Issuer": "ticker"}
+    ) == [{"Issuer": "BYL"}]
