@@ -10,10 +10,9 @@ whose name ends in ``_test`` (the compose stack creates ``governance_test`` for 
 import os
 from datetime import UTC
 
-from sqlalchemy.engine import make_url
-
 import pytest
 from sqlalchemy import inspect, text
+from sqlalchemy.engine import make_url
 
 from writer_service.governance.db import create_engine_for
 from writer_service.governance.migrate import downgrade, upgrade
