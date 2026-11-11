@@ -47,17 +47,25 @@ Only accepted facts ([ADR-0010](adr/0010-neo4j-accepted-facts-only.md)):
 
 ## Run ownership and rollback
 
-Every node, relationship and evidence item keeps a `runs` list of all runs that wrote or
-referenced it. `rollback(run)` removes the run from those lists and deletes **only what no other
-run still owns**:
+Every node, relationship, evidence item and `SUPPORTED_BY` link keeps a `runs` list of all
+runs that wrote or referenced it. Entity nodes also keep `asserted_by`: the runs that *stated
+the entity itself*, as opposed to only pointing a relationship at it. `rollback(run)` removes
+the run from those lists and:
 
-- rolling back an old run never deletes an entity a later run (or an approval) also stated;
-- shared evidence (the same quote ingested twice) stays while any run still has it;
-- relationship provenance is repaired: `evidence_ids` are pruned to evidence that still
-  exists, and `run_id` falls back to the latest remaining run.
+- deletes **only what no other run still owns**, so rolling back an old run never deletes an
+  entity, edge or quote a later run (or an approval) also stated;
+- **demotes an entity to a key-only stub** when no asserting run remains. If run1 stated
+  *Issuer APH, name …* and run2 only filed something by APH, rolling back run1 keeps APH as
+  run2's endpoint but drops run1's name and evidence links;
+- repairs provenance: `evidence_ids` are pruned to evidence that still exists, and `run_id` on
+  nodes, relationships and evidence falls back to the latest remaining run.
 
-Property *values* a run overwrote are not restored (there is no property history); the
-governance store keeps every candidate, so a previous value can be found and re-applied.
+**Limitation:** `rollback(run_id)` does not restore property *values* a run overwrote on an
+entity another run also asserts, and it doesn't remove properties the run *added* to such an
+entity (there is no general property history). The governance store keeps every candidate,
+so a previous value can be found and re-applied. (A *failed* ingest or approval is different:
+when the governance commit fails after the graph write, its overwrites are undone exactly with
+`undo(changes)`; see below.)
 Rolling back a run also **closes its open review items** (`rejected`, note "run rolled back").
 
 ## Review decisions
@@ -76,7 +84,13 @@ pipeline.rollback(run_id, actor)
 - **Approving a conflict** means the new fact *replaces* the old one, as far as the relation's
   cardinality requires: `many_to_one` drops the source's other targets, `one_to_many` the
   target's other sources, `one_to_one` both. The removed edges are recorded in the audit entry.
-- If the governance commit fails after the graph write, the approval's graph run is rolled back.
+- `write_run` returns **change records** for everything it destroyed: `edge` records for
+  edges removed by conflict replacement, and `properties` records with the previous values of
+  properties it overwrote on an existing entity (`null` = the property didn't exist).
+  The audit entry's `replaced` field stores them JSON-safe (`audit_view`).
+- If the governance commit fails after the graph write, the approval's graph run is rolled back
+  **and `undo(changes)` puts back the removed edges and the overwritten property values**.
+  Undo uses the raw values, so Neo4j temporal properties keep their type.
 - Items of a run that isn't `completed` can't be approved or rejected.
 
 Every action is in the audit log (`run.start`, `run.complete`, `run.failed`, `run.rollback`,

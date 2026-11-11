@@ -32,7 +32,8 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   - Run ownership (`runs` on every node, relationship and evidence): rollback deletes only
     what no other run owns and repairs provenance; it also closes the run's open review items.
   - Approvals as their own graph runs, re-gated (schema + constraint), cardinality-aware
-    conflict replacement recorded in the audit log, compensated on commit failure.
+    conflict replacement recorded in the audit log; on commit failure the approval is
+    compensated (removed edges and overwritten properties restored via `undo`).
   - Failure handling for both stores; generic client errors; driver closed on shutdown.
   - `POST /ingest/documents` (API key; PDF/XLSX; size limit) runs the pipeline.
   - In-memory graph for tests/demo; Neo4j integration tests. Docs: `docs/pipeline.md`.
