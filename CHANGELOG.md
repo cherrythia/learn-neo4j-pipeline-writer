@@ -17,6 +17,21 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
     stand-ins**: CI's step with them is a self-test of the harness, not an accuracy gate on
     the model. Committed live recordings (`evaluation/recordings-live/`) are replayed and gated
     in CI when present. Docs: `docs/evaluation.md`.
+- **#10 Writer pipeline and atomic Neo4j writer** (`writer_service.pipeline.orchestrator`,
+  `graph_store`)
+  - One run per source: N-run extraction with voting (documents), matching, gates, signals,
+    scoring and routing; every candidate stored with its derivation; review/conflict items.
+  - Non-verbatim quotes (grounding < 1.0) are never auto-committed.
+  - Neo4j writes in one transaction: MERGE on identity keys, taxonomy labels, provenance
+    (`:Evidence`, `:Source`, `:IngestionRun`, score/run/version on every fact); idempotent.
+  - Run ownership (`runs` on every node, relationship and evidence): rollback deletes only
+    what no other run owns and repairs provenance; it also closes the run's open review items.
+  - Approvals as their own graph runs, re-gated (schema + constraint), cardinality-aware
+    conflict replacement recorded in the audit log; on commit failure the approval is
+    compensated (removed edges and overwritten properties restored via `undo`).
+  - Failure handling for both stores; generic client errors; driver closed on shutdown.
+  - `POST /ingest/documents` (API key; PDF/XLSX; size limit) runs the pipeline.
+  - In-memory graph for tests/demo; Neo4j integration tests. Docs: `docs/pipeline.md`.
 - **#11 Document ingestion library** (`writer_service.ingestion.documents`)
   - PDF → one chunk per page (`page N`); Excel → one chunk per row (`sheet S row N`), from
     paths or uploaded bytes; windowing without splitting chunks.
