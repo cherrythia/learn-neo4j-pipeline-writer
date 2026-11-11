@@ -278,9 +278,11 @@ def row_text(row: dict[str, Any]) -> str:
     return "; ".join(f"{k}: {canonical_text(str(v))}" for k, v in row.items() if v is not None)
 
 
-def row_locator(ds: DatasetInfo, row: dict[str, Any]) -> str:
+def row_locator(ds: DatasetInfo, row: dict[str, Any], position: int) -> str:
+    """Unique within a sync: ``position`` is the row's 1-based place in the ordered read (the
+    first column alone can repeat, and texts are looked up by (source, locator))."""
     first = ds.columns[0]
-    return f"row {first}={row.get(first)}"
+    return f"row {position} ({first}={row.get(first)})"
 
 
 def rows_to_candidates(
@@ -291,8 +293,8 @@ def rows_to_candidates(
     Returns (candidates, texts)."""
     out: list[CandidateEntity | CandidateRelation] = []
     texts: list[tuple[str, str, str]] = []
-    for row in rows:
-        locator, body = row_locator(ds, row), row_text(row)
+    for position, row in enumerate(rows, start=1):
+        locator, body = row_locator(ds, row, position), row_text(row)
         texts.append((ds.ref, locator, body))
 
         def ev(*cols: str, locator: str = locator, row: dict[str, Any] = row) -> list[Evidence]:
@@ -324,8 +326,9 @@ def rows_to_candidates(
             out.append(
                 CandidateRelation(
                     relation=r.relation,
-                    source=EntityRef(class_name=r.source.class_name, key=str(s)),
-                    target=EntityRef(class_name=r.target.class_name, key=str(t)),
+                    # same normalisation as entity keys, so "5.00" (DECIMAL) matches 5
+                    source=EntityRef(class_name=r.source.class_name, key=str(_scalar(s))),
+                    target=EntityRef(class_name=r.target.class_name, key=str(_scalar(t))),
                     evidence=ev(*ordered),
                 )
             )

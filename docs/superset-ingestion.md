@@ -39,7 +39,8 @@ The admin UI and API for this workflow arrive in issues #14–#15.
 ## Evidence and grounding
 
 Each row is rendered as text (`issuer_id: 1; name: Aurora …; ticker: APH; …`) with the
-locator `row <first column>=<value>`. Every mapped column becomes its own evidence item
+locator `row <position> (<first column>=<value>)`, unique within a sync (the first column
+alone may repeat). Every mapped column becomes its own evidence item
 (`ticker: APH`): a contiguous, verbatim fragment of the row text, so grounding is exactly 1.0
 under the strict verbatim rule ([verification](verification.md)).
 
