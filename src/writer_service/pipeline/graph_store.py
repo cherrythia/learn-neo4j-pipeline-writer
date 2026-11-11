@@ -113,6 +113,11 @@ def to_fact(
     )
 
 
+def audit_view(changes: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Change records without the raw ``restore`` payload (JSON-safe, for the audit log)."""
+    return [{k: v for k, v in c.items() if k != "restore"} for c in changes]
+
+
 def replaced_sides(cardinality: str) -> tuple[bool, bool]:
     """Which existing edges an approved conflict replaces: (source's outgoing, target's
     incoming). many_to_one allows one target per source; one_to_many one source per target."""
@@ -137,13 +142,17 @@ class GraphWriter(Protocol):
     def write_run(
         self, run_id: str, ontology_version: int, facts: list[FactWrite]
     ) -> list[dict[str, Any]]:
-        """Write all facts in one transaction (all or nothing). Returns the edges removed by
-        conflict replacement: ``{relation, source, target, properties, restore}`` (JSON-safe;
-        ``source``/``target`` are ``{label, key}``), for the audit log and ``restore_edges``."""
+        """Write all facts in one transaction (all or nothing).
+
+        Returns *change records* for what the write destroyed, so it can be audited and undone:
+        ``{kind: "edge", relation, source, target, properties, restore}`` for edges removed by
+        conflict replacement, and ``{kind: "properties", node, before, restore}`` for property
+        values overwritten on an existing entity. Everything except ``restore`` is JSON-safe
+        (see ``audit_view``)."""
         ...
 
-    def restore_edges(self, edges: list[dict[str, Any]]) -> None:
-        """Put back edges removed by a replacement (compensation for a failed approval)."""
+    def undo(self, changes: list[dict[str, Any]]) -> None:
+        """Re-apply what ``write_run`` destroyed (compensation for a failed approval)."""
         ...
 
     def rollback_run(self, run_id: str) -> dict[str, int]: ...
@@ -176,15 +185,32 @@ class InMemoryGraph(InMemoryGraphView, InMemoryMatchIndex):
             runs.append(run_id)
 
     def _merge_node(
-        self, label: str, key_prop: str, key: str, run_id: str, props: dict[str, Any] | None = None
+        self,
+        label: str,
+        key_prop: str,
+        key: str,
+        run_id: str,
+        props: dict[str, Any] | None = None,
+        changes: list[dict[str, Any]] | None = None,
     ) -> tuple[str, str]:
         slot = (label, match_key(key))
         if slot not in self.nodes:
-            self.nodes[slot] = {key_prop: key, "_key_prop": key_prop, "stub": True}
+            self.nodes[slot] = {key_prop: key, "_key_prop": key_prop, "_label": label, "stub": True}
             self.add(label, key_prop, key, name=None)
         node = self.nodes[slot]
         self._own(node, run_id)
         if props is not None:
+            if changes is not None and not node["stub"]:
+                before = {k: node.get(k) for k, v in props.items() if node.get(k) != v}
+                if before:
+                    changes.append(
+                        {
+                            "kind": "properties",
+                            "node": {"label": label, "key": key},
+                            "before": json_safe(before),
+                            "restore": dict(before),
+                        }
+                    )
             node.update(props)
             node["stub"] = False
             self._own(node, run_id, "asserted_by")
@@ -207,6 +233,7 @@ class InMemoryGraph(InMemoryGraphView, InMemoryMatchIndex):
             src, tgt = self.nodes.get(e[1], {}), self.nodes.get(e[2], {})
             removed.append(
                 {
+                    "kind": "edge",
                     "relation": e[0],
                     "source": {"label": e[1][0], "key": e[3]},
                     "target": {"label": e[2][0], "key": e[4]},
@@ -214,6 +241,7 @@ class InMemoryGraph(InMemoryGraphView, InMemoryMatchIndex):
                     "restore": {
                         "source": [e[1][0], src.get("_key_prop", ""), e[3]],
                         "target": [e[2][0], tgt.get("_key_prop", ""), e[4]],
+                        "properties": dict(self.edge_meta[i]),
                     },
                 }
             )
@@ -245,7 +273,12 @@ class InMemoryGraph(InMemoryGraphView, InMemoryMatchIndex):
             if f.kind == "entity":
                 for label in f.labels:
                     slot = self._merge_node(
-                        label, f.key_prop, f.key, run_id, {**f.properties, **meta, "score": f.score}
+                        label,
+                        f.key_prop,
+                        f.key,
+                        run_id,
+                        {**f.properties, **meta, "score": f.score},
+                        replaced,
                     )
                     for eid in ids:
                         runs = self.supported.setdefault((slot, eid), [])
@@ -296,11 +329,23 @@ class InMemoryGraph(InMemoryGraphView, InMemoryMatchIndex):
                 self._own(m, run_id)
         return replaced
 
-    def restore_edges(self, edges: list[dict[str, Any]]) -> None:
-        for e in edges:
-            s, t = e["restore"]["source"], e["restore"]["target"]
-            self.add_edge(e["relation"], (s[0], s[1], s[2]), (t[0], t[1], t[2]))
-            self.edge_meta.append(dict(e["properties"]))
+    def undo(self, changes: list[dict[str, Any]]) -> None:
+        for c in reversed(changes):
+            if c["kind"] == "edge":
+                s, tg = c["restore"]["source"], c["restore"]["target"]
+                self.add_edge(c["relation"], (s[0], s[1], s[2]), (tg[0], tg[1], tg[2]))
+                self.edge_meta.append(dict(c["restore"]["properties"]))
+                continue
+            node = self.nodes.get((c["node"]["label"], match_key(c["node"]["key"])))
+            if node is None:
+                continue
+            for k, v in c["restore"].items():
+                if v is None:
+                    node.pop(k, None)
+                else:
+                    node[k] = v
+            name = node.get("name") or node.get("title")
+            self._set_name(c["node"]["label"], c["node"]["key"], str(name) if name else None)
 
     def rollback_run(self, run_id: str) -> dict[str, int]:
         counts = {"nodes": 0, "relationships": 0, "evidence": 0}
@@ -385,11 +430,12 @@ class Neo4jGraph(Neo4jGraphView, Neo4jMatchIndex):
     def _replaced(rel: str, records: Any) -> list[dict[str, Any]]:
         return [
             {
+                "kind": "edge",
                 "relation": rel,
                 "source": {"label": r["sl"], "key": json_safe(r["sk"])},
                 "target": {"label": r["tl"], "key": json_safe(r["tk"])},
                 "properties": json_safe(r["props"]),
-                "restore": {"source": r["sid"], "target": r["tid"]},
+                "restore": {"source": r["sid"], "target": r["tid"], "properties": r["props"]},
             }
             for r in records
         ]
@@ -400,8 +446,8 @@ class Neo4jGraph(Neo4jGraphView, Neo4jMatchIndex):
         replaced: list[dict[str, Any]] = []
         removed = (
             "WITH r, a, b, properties(r) AS props DELETE r RETURN props, "
-            "elementId(a) AS sid, elementId(b) AS tid, head(labels(a)) AS sl, "
-            "head(labels(b)) AS tl, a[coalesce(a._key_prop, '')] AS sk, "
+            "elementId(a) AS sid, elementId(b) AS tid, coalesce(a._label, head(labels(a))) AS sl, "
+            "coalesce(b._label, head(labels(b))) AS tl, a[coalesce(a._key_prop, '')] AS sk, "
             "b[coalesce(b._key_prop, '')] AS tk"
         )
 
@@ -434,16 +480,47 @@ class Neo4jGraph(Neo4jGraphView, Neo4jMatchIndex):
                 if f.kind == "entity":
                     label, *parents = f.labels
                     extra = "".join(f" SET n:{p}" for p in parents)
+                    new_values = {
+                        **f.properties,
+                        "ontology_version": ontology_version,
+                        "score": f.score,
+                        "run_id": run_id,
+                    }
+                    found = tx.run(
+                        f"MATCH (n:{label} {{{f.key_prop}: $key}}) WHERE n.stub = false "
+                        "RETURN properties(n) AS p",
+                        key=f.key,
+                    ).single()
+                    if found is not None:
+                        old_p = found["p"]
+                        before = {
+                            k: old_p.get(k) for k, v in new_values.items() if old_p.get(k) != v
+                        }
+                        if before:
+                            replaced.append(
+                                {
+                                    "kind": "properties",
+                                    "node": {"label": label, "key": f.key},
+                                    "before": json_safe(before),
+                                    "restore": {
+                                        "label": label,
+                                        "key_prop": f.key_prop,
+                                        "key": f.key,
+                                        "values": before,
+                                    },
+                                }
+                            )
                     tx.run(
                         f"MERGE (n:{label} {{{f.key_prop}: $key}}) "
                         f"SET n += $props, n.stub = false, n.ontology_version = $v, "
                         f"n.score = $score, n.run_id = $run, n.ingested_at = datetime(), "
-                        f"n._key_prop = $kp, n.runs = {_OWN.format(v='n')}, "
+                        f"n._key_prop = $kp, n._label = $label, n.runs = {_OWN.format(v='n')}, "
                         f"n.asserted_by = {_ASSERT.format(v='n')}{extra} "
                         f"WITH n UNWIND $ev AS e {evidence_cypher} "
                         f"MERGE (n)-[l:SUPPORTED_BY]->(x) SET l.runs = {_OWN.format(v='l')}",
                         key=f.key,
                         kp=f.key_prop,
+                        label=label,
                         props=f.properties,
                         **common,
                     )
@@ -468,9 +545,11 @@ class Neo4jGraph(Neo4jGraphView, Neo4jMatchIndex):
                         )
                         replaced.extend(self._replaced(f.relation, res))
                 tx.run(
-                    f"MERGE (a:{sl} {{{sk}: $sv}}) ON CREATE SET a.stub = true, a._key_prop = $sk "
+                    f"MERGE (a:{sl} {{{sk}: $sv}}) "
+                    "ON CREATE SET a.stub = true, a._key_prop = $sk, a._label = $sl "
                     f"SET a.runs = {_OWN.format(v='a')} "
-                    f"MERGE (b:{tl} {{{tk}: $tv}}) ON CREATE SET b.stub = true, b._key_prop = $tk "
+                    f"MERGE (b:{tl} {{{tk}: $tv}}) "
+                    "ON CREATE SET b.stub = true, b._key_prop = $tk, b._label = $tl "
                     f"SET b.runs = {_OWN.format(v='b')} "
                     f"MERGE (a)-[r:{f.relation}]->(b) ON CREATE SET r.created_run = $run "
                     "SET r.ontology_version = $v, r.score = $score, r.run_id = $run, "
@@ -482,6 +561,8 @@ class Neo4jGraph(Neo4jGraphView, Neo4jMatchIndex):
                     tv=tv,
                     sk=sk,
                     tk=tk,
+                    sl=sl,
+                    tl=tl,
                     ids=[e["id"] for e in ev],
                     **common,
                 )
@@ -490,16 +571,24 @@ class Neo4jGraph(Neo4jGraphView, Neo4jMatchIndex):
             session.execute_write(work)
         return replaced
 
-    def restore_edges(self, edges: list[dict[str, Any]]) -> None:
+    def undo(self, changes: list[dict[str, Any]]) -> None:
         def work(tx: Any) -> None:
-            for e in edges:
-                tx.run(
-                    "MATCH (a) WHERE elementId(a) = $sid MATCH (b) WHERE elementId(b) = $tid "
-                    f"MERGE (a)-[r:{e['relation']}]->(b) SET r = $props",
-                    sid=e["restore"]["source"],
-                    tid=e["restore"]["target"],
-                    props=e["properties"],
-                )
+            for c in reversed(changes):
+                r = c["restore"]
+                if c["kind"] == "edge":  # raw properties: temporal values keep their type
+                    tx.run(
+                        "MATCH (a) WHERE elementId(a) = $sid MATCH (b) WHERE elementId(b) = $tid "
+                        f"MERGE (a)-[r:{c['relation']}]->(b) SET r = $props",
+                        sid=r["source"],
+                        tid=r["target"],
+                        props=r["properties"],
+                    )
+                else:  # `+=` with a null value removes the property
+                    tx.run(
+                        f"MATCH (n:{r['label']} {{{r['key_prop']}: $key}}) SET n += $values",
+                        key=r["key"],
+                        values=r["values"],
+                    )
 
         with self.driver.session(database=self.database) as session:
             session.execute_write(work)

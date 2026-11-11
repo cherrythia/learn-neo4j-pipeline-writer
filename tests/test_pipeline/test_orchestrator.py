@@ -14,15 +14,17 @@ from writer_service.governance.uow import UnitOfWork
 from writer_service.llm.cache import InMemoryCache
 from writer_service.llm.fake import FakeLLM
 from writer_service.llm.structured import StructuredLLM
+from writer_service.ontology.core import CORE_CLASSES, CORE_RELATIONS
 from writer_service.ontology.neo4j_schema import InMemoryGraphSchema
 from writer_service.ontology.service import OntologyService
+from writer_service.ontology.spec import OntologySpec
 from writer_service.pipeline.candidates import (
     CandidateEntity,
     CandidateRelation,
     EntityRef,
     Evidence,
 )
-from writer_service.pipeline.graph_store import InMemoryGraph
+from writer_service.pipeline.graph_store import InMemoryGraph, to_fact
 from writer_service.pipeline.orchestrator import SourceBatch, SourceText, WriterPipeline
 from writer_service.pipeline.verification import BACK_TRANSLATION_PROMPT
 
@@ -499,3 +501,27 @@ def test_failed_conflict_approval_restores_the_replaced_edge(
     assert graph.targets(
         "FILED_BY", ("Filing", "filing_id", "AR-2025-APH"), {"Issuer": "ticker"}
     ) == [{"Issuer": "BYL"}]
+
+
+def test_failed_approval_restores_overwritten_entity_properties(
+    engine: Engine, graph: InMemoryGraph, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Review round 3: compensation must undo property overwrites, not only edge removals."""
+    from sqlalchemy.orm import Session
+
+    old = APH.model_copy(update={"properties": {"ticker": "APH", "name": "Aurora Old Name"}})
+    graph.write_run("seed", 1, [to_fact(old, OntologySpec(CORE_CLASSES, CORE_RELATIONS), 0.9)])
+    pipe = pipeline(engine, graph, judge(0.5))
+    pipe.ingest(doc([APH]), actor="bot")
+    (item,) = rows(engine, ReviewItem)
+
+    def fail(self: Session) -> None:
+        raise RuntimeError("db down")
+
+    monkeypatch.setattr(Session, "commit", fail)
+    with pytest.raises(RuntimeError, match="db down"):
+        pipe.approve(item.id, reviewer="rita")
+    monkeypatch.undo()
+    aph = graph.node_properties("Issuer", "ticker", "APH")
+    assert aph is not None
+    assert (aph["name"], aph["run_id"], aph["runs"]) == ("Aurora Old Name", "seed", ["seed"])

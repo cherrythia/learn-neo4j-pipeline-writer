@@ -60,8 +60,11 @@ the run from those lists and:
 - repairs provenance: `evidence_ids` are pruned to evidence that still exists, and `run_id` on
   nodes, relationships and evidence falls back to the latest remaining run.
 
-Property *values* a run overwrote are not restored (there is no property history); the
-governance store keeps every candidate, so a previous value can be found and re-applied.
+**Limitation:** `rollback(run_id)` does not restore property *values* a run overwrote on an
+entity another run also asserts, and it doesn't remove properties the run *added* to such an
+entity (there is no general property history). The governance store keeps every candidate,
+so a previous value can be found and re-applied. (A failed *approval* is different: its own
+overwrites are undone exactly; see below.)
 Rolling back a run also **closes its open review items** (`rejected`, note "run rolled back").
 
 ## Review decisions
@@ -80,9 +83,13 @@ pipeline.rollback(run_id, actor)
 - **Approving a conflict** means the new fact *replaces* the old one, as far as the relation's
   cardinality requires: `many_to_one` drops the source's other targets, `one_to_many` the
   target's other sources, `one_to_one` both. The removed edges are recorded in the audit entry.
+- `write_run` returns **change records** for everything it destroyed: `edge` records for
+  edges removed by conflict replacement, and `properties` records with the previous values of
+  properties it overwrote on an existing entity (`null` = the property didn't exist).
+  The audit entry's `replaced` field stores them JSON-safe (`audit_view`).
 - If the governance commit fails after the graph write, the approval's graph run is rolled back
-  **and the edges it replaced are restored** (audit entries store them JSON-safe, including
-  Neo4j temporal values).
+  **and `undo(changes)` puts back the removed edges and the overwritten property values**.
+  Undo uses the raw values, so Neo4j temporal properties keep their type.
 - Items of a run that isn't `completed` can't be approved or rejected.
 
 Every action is in the audit log (`run.start`, `run.complete`, `run.failed`, `run.rollback`,

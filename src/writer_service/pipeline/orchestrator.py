@@ -42,7 +42,7 @@ from writer_service.pipeline.candidates import (
     fact_hash,
 )
 from writer_service.pipeline.gates import check_batch, schema_gate
-from writer_service.pipeline.graph_store import GraphWriter, to_fact
+from writer_service.pipeline.graph_store import GraphWriter, audit_view, to_fact
 from writer_service.pipeline.graph_view import GraphView
 from writer_service.pipeline.matching import EntityMatcher, MatchIndex
 from writer_service.pipeline.verification import (
@@ -347,13 +347,13 @@ class WriterPipeline:
                     replaced = self.graph.write_run(approval_run, published.version, [fact])
                     graph_written = True
                     if replaced:
-                        entry.detail = {**entry.detail, "replaced": replaced}
+                        entry.detail = {**entry.detail, "replaced": audit_view(replaced)}
         except Exception as exc:
             if graph_written:  # undo the approval *and* put back what it replaced
                 try:
                     self.graph.rollback_run(approval_run)
                     if replaced:
-                        self.graph.restore_edges(replaced)
+                        self.graph.undo(replaced)
                 except Exception as undo_exc:
                     exc.add_note(f"graph compensation also failed: {undo_exc}")
             raise
