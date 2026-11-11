@@ -311,6 +311,7 @@ export interface paths {
          * Approve Proposal
          * @description Adds the proposal to the current draft (creating one from the published version if
          *     needed), in the ``ext`` namespace. It reaches the graph when the draft is published.
+         *     One transaction: if any step fails, no draft is created and the proposal stays pending.
          */
         post: operations["approve_proposal_api_proposals__proposal_id__approve_post"];
         delete?: never;
