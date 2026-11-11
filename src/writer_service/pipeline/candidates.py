@@ -62,12 +62,16 @@ def canonical_text(value: str) -> str:
 
 
 def match_key(value: Any) -> str:
-    """Comparison form of a value: canonical text, case-folded; dates as ISO strings."""
+    """Comparison form of a value: canonical text, lower-cased; dates as ISO strings.
+
+    Plain ``lower()`` (not ``casefold()``) so it behaves exactly like Cypher's ``toLower`` in
+    ``Neo4jGraphView``: in-memory and Neo4j matching must agree (e.g. on 'ß').
+    """
     if isinstance(value, date):
         return value.isoformat()
     if isinstance(value, bool):
         return "true" if value else "false"
-    return canonical_text(str(value)).casefold()
+    return canonical_text(str(value)).lower()
 
 
 def _digest(material: Any) -> str:

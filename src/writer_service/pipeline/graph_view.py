@@ -2,7 +2,8 @@
 
 Key matching: the schema gate canonicalises every key (``canonical_text``: whitespace
 collapsed) and the writer stores keys in that form, so lookups receive canonical keys. Both
-views then match case-insensitively. ``Neo4jGraphView`` first tries an exact match (served by
+views then match case-insensitively using the same simple lower-casing (`match_key` uses
+`str.lower`, mirroring Cypher's `toLower`). ``Neo4jGraphView`` first tries an exact match (served by
 the identity-key uniqueness index) and only scans with ``toLower`` when that misses.
 """
 

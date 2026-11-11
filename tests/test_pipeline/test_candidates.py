@@ -90,3 +90,10 @@ def test_confidence_is_a_probability(confidence: float) -> None:
 def test_evidence_requires_quote() -> None:
     with pytest.raises(ValidationError):
         Evidence(source_type="pdf", source_ref="a", locator="p1", quote="")
+
+
+def test_match_key_lowercases_like_cypher_tolower() -> None:
+    from writer_service.pipeline.candidates import match_key
+
+    assert match_key("  STRASSE ") == "strasse"
+    assert match_key("Straße") == "straße"  # not folded to 'strasse' (Cypher wouldn't either)
