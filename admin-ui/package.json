@@ -1,0 +1,23 @@
+{
+  "name": "admin-ui",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "bun --hot ./server.ts",
+    "build": "bun build ./index.html --outdir ./dist --minify",
+    "test": "bun test",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1"
+  },
+  "devDependencies": {
+    "@happy-dom/global-registrator": "^21.0.4",
+    "@testing-library/react": "^16.3.3",
+    "@types/bun": "^1.4.4",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "typescript": "^7.0.2"
+  }
+}
