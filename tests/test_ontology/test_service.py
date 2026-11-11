@@ -250,3 +250,74 @@ def test_lock_all_uses_select_for_update_on_mysql(engine: Engine) -> None:
         s.scalars = spy  # type: ignore[method-assign]
         repo.lock_all()
     assert "FOR UPDATE" in captured[0]
+
+
+def test_commit_failure_after_sync_restores_published_constraints(
+    svc: OntologyService,
+    engine: Engine,
+    graph: InMemoryGraphSchema,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from sqlalchemy.orm import Session
+
+    svc.bootstrap("admin")
+    expected = v1_constraints(svc)
+    svc.new_draft("admin")
+    deprecate_finding_add_esg(engine)
+
+    def fail_commit(self: Session) -> None:
+        raise RuntimeError("commit failed")
+
+    monkeypatch.setattr(Session, "commit", fail_commit)
+    with pytest.raises(RuntimeError, match="commit failed"):
+        svc.publish(2, "alice")
+    monkeypatch.undo()
+    assert statuses(engine) == {1: "published", 2: "draft"}
+    assert {n for n in graph.names if n.startswith("wsc_")} == expected
+
+
+def test_rollback_graph_failure_keeps_current_version_and_constraints(
+    svc: OntologyService, engine: Engine, graph: InMemoryGraphSchema
+) -> None:
+    from writer_service.ontology.neo4j_schema import desired_constraints
+
+    svc.bootstrap("admin")
+    svc.new_draft("admin")
+    deprecate_finding_add_esg(engine)
+    svc.publish(2, "alice")
+    spec2 = svc.published_spec()
+    assert spec2 is not None
+    v2_constraints = set(desired_constraints(spec2))
+    graph.fail_on = "CREATE CONSTRAINT wsc_finding_finding_id"  # rollback must re-create it
+    with pytest.raises(RuntimeError, match="neo4j down"):
+        svc.rollback("bob")
+    assert statuses(engine) == {1: "superseded", 2: "published"}
+    assert {n for n in graph.names if n.startswith("wsc_")} == v2_constraints
+
+
+def test_rollback_commit_failure_restores_current_constraints(
+    svc: OntologyService,
+    engine: Engine,
+    graph: InMemoryGraphSchema,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from sqlalchemy.orm import Session
+
+    from writer_service.ontology.neo4j_schema import desired_constraints
+
+    svc.bootstrap("admin")
+    svc.new_draft("admin")
+    deprecate_finding_add_esg(engine)
+    svc.publish(2, "alice")
+    spec2 = svc.published_spec()
+    assert spec2 is not None
+
+    def fail_commit(self: Session) -> None:
+        raise RuntimeError("commit failed")
+
+    monkeypatch.setattr(Session, "commit", fail_commit)
+    with pytest.raises(RuntimeError, match="commit failed"):
+        svc.rollback("bob")
+    monkeypatch.undo()
+    assert statuses(engine) == {1: "superseded", 2: "published"}
+    assert {n for n in graph.names if n.startswith("wsc_")} == set(desired_constraints(spec2))

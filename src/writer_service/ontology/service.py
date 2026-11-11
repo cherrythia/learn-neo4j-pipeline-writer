@@ -1,10 +1,12 @@
 """Ontology lifecycle: bootstrap, draft, publish (through the gate) and rollback.
 
-Publish/rollback order: lock versions → validate → sync Neo4j constraints → update statuses →
-commit. Neo4j DDL can't join the SQL transaction, so if the sync fails part-way the service
-re-syncs Neo4j back to the still-published version's constraints and the SQL transaction rolls
-back. Sync creates before it drops, so even a failed restore only leaves *extra* constraints.
-Constraint DDL is idempotent, so a crash between sync and commit is fixed by retrying.
+Publish/rollback order: lock versions → validate → all SQL writes (flushed) → sync Neo4j
+constraints → commit. Neo4j DDL can't join the SQL transaction, so if *anything* fails after
+the sync has started (the sync itself, the audit update or the commit), the service re-syncs
+Neo4j back to the still-published version's constraints and the SQL transaction rolls back.
+Sync creates before it drops, so even a failed restore only leaves *extra* constraints. Only a
+process crash between sync and commit can leave Neo4j ahead of the governance store; retrying
+the command (DDL is idempotent) or publishing again fixes it.
 
 Concurrency: publish, rollback and new_draft lock the ``ontology_versions`` rows
 (``SELECT ... FOR UPDATE`` on MySQL), so two admins cannot publish at the same time.
@@ -115,11 +117,7 @@ class OntologyService:
         try:
             return sync_constraints(self.graph, desired_constraints(target))
         except Exception as exc:
-            if fallback is not None:
-                try:
-                    sync_constraints(self.graph, desired_constraints(fallback))
-                except Exception as restore_exc:  # keep both errors visible
-                    exc.add_note(f"restoring previous constraints also failed: {restore_exc}")
+            self._restore(fallback, exc)
             raise
 
     def published_spec(self) -> OntologySpec | None:
@@ -165,63 +163,96 @@ class OntologyService:
             return number
 
     def publish(self, number: int, actor: str) -> None:
-        with UnitOfWork(self.engine) as uow:
-            uow.ontology_versions.lock_all()
-            version = uow.ontology_versions.get_by_number(number)
-            if version is None:
-                raise OntologyError(f"no version {number}")
-            if version.status != "draft":
-                raise OntologyError(f"v{number} is not a draft (status {version.status})")
-            previous = uow.ontology_versions.published()
-            spec = spec_of(version)
-            errors = validate(spec, previous=spec_of(previous) if previous else None)
-            if errors:
-                raise OntologyError(f"v{number} failed validation: " + "; ".join(errors))
-            result = self._sync(spec, spec_of(previous) if previous else None)
-            if previous is not None:
-                previous.status = "superseded"
-                uow.session.flush()  # keep at most one published row at every point
-            version.status = "published"
-            version.published_at = utcnow()
-            uow.audit(
-                actor,
-                "ontology.publish",
-                "ontology_version",
-                str(number),
-                {
-                    "previous": previous.version if previous else None,
+        synced_to: OntologySpec | None = None
+        fallback: OntologySpec | None = None
+        try:
+            with UnitOfWork(self.engine) as uow:
+                uow.ontology_versions.lock_all()
+                version = uow.ontology_versions.get_by_number(number)
+                if version is None:
+                    raise OntologyError(f"no version {number}")
+                if version.status != "draft":
+                    raise OntologyError(f"v{number} is not a draft (status {version.status})")
+                previous = uow.ontology_versions.published()
+                spec = spec_of(version)
+                fallback = spec_of(previous) if previous else None
+                errors = validate(spec, previous=fallback)
+                if errors:
+                    raise OntologyError(f"v{number} failed validation: " + "; ".join(errors))
+                # All SQL writes first, so the only thing left after the Neo4j sync is commit.
+                if previous is not None:
+                    previous.status = "superseded"
+                    uow.session.flush()  # keep at most one published row at every point
+                version.status = "published"
+                version.published_at = utcnow()
+                entry = uow.audit(
+                    actor,
+                    "ontology.publish",
+                    "ontology_version",
+                    str(number),
+                    {"previous": previous.version if previous else None},
+                )
+                uow.session.flush()
+                result = self._sync(spec, fallback)
+                synced_to = spec
+                entry.detail = {
+                    **entry.detail,
                     "constraints_created": result.created,
                     "constraints_dropped": result.dropped,
-                },
-            )
+                }
+        except BaseException as exc:
+            # The sync succeeded but the governance transaction did not commit: put Neo4j back.
+            if synced_to is not None:
+                self._restore(fallback, exc)
+            raise
+
+    def _restore(self, spec: OntologySpec | None, exc: BaseException) -> None:
+        if spec is None:
+            return
+        try:
+            sync_constraints(self.graph, desired_constraints(spec))
+        except Exception as restore_exc:
+            exc.add_note(f"restoring previous constraints also failed: {restore_exc}")
 
     def rollback(self, actor: str) -> int:
         """Deprecate the published version and re-publish the most recent superseded one."""
-        with UnitOfWork(self.engine) as uow:
-            versions = uow.ontology_versions.lock_all()
-            current = uow.ontology_versions.published()
-            if current is None:
-                raise OntologyError("nothing is published")
-            candidates = [
-                v for v in versions if v.status == "superseded" and v.version < current.version
-            ]
-            if not candidates:
-                raise OntologyError("nothing to roll back to")
-            target = max(candidates, key=lambda v: v.version)
-            result = self._sync(spec_of(target), spec_of(current))
-            current.status = "deprecated"
-            uow.session.flush()
-            target.status = "published"
-            target.published_at = utcnow()
-            uow.audit(
-                actor,
-                "ontology.rollback",
-                "ontology_version",
-                str(target.version),
-                {
-                    "from": current.version,
+        synced = False
+        fallback: OntologySpec | None = None
+        try:
+            with UnitOfWork(self.engine) as uow:
+                versions = uow.ontology_versions.lock_all()
+                current = uow.ontology_versions.published()
+                if current is None:
+                    raise OntologyError("nothing is published")
+                candidates = [
+                    v for v in versions if v.status == "superseded" and v.version < current.version
+                ]
+                if not candidates:
+                    raise OntologyError("nothing to roll back to")
+                target = max(candidates, key=lambda v: v.version)
+                fallback = spec_of(current)
+                current.status = "deprecated"
+                uow.session.flush()
+                target.status = "published"
+                target.published_at = utcnow()
+                entry = uow.audit(
+                    actor,
+                    "ontology.rollback",
+                    "ontology_version",
+                    str(target.version),
+                    {"from": current.version},
+                )
+                uow.session.flush()
+                result = self._sync(spec_of(target), fallback)
+                synced = True
+                entry.detail = {
+                    **entry.detail,
                     "constraints_created": result.created,
                     "constraints_dropped": result.dropped,
-                },
-            )
-            return target.version
+                }
+                rolled_back_to = target.version
+        except BaseException as exc:
+            if synced:
+                self._restore(fallback, exc)
+            raise
+        return rolled_back_to

@@ -73,12 +73,16 @@ class identity key (`wsc_issuer_ticker`), plus `Evidence.id`, `Source.id` and
 missing ones, drops stale ones and leaves everything else alone. Property-existence
 constraints need Neo4j Enterprise, so required properties are enforced by the pipeline's gates.
 
-**Atomicity.** Publish locks the version rows, validates, syncs Neo4j, then updates statuses
-and commits the governance transaction. Neo4j DDL can't be part of that SQL transaction, so:
+**Atomicity.** Publish locks the version rows, validates, writes the new statuses, syncs Neo4j
+and then commits the governance transaction. Neo4j DDL can't be part of that SQL transaction, so:
 - sync **creates before it drops**, so a failure part-way only ever leaves extra constraints;
-- if the sync fails, the service **re-syncs Neo4j back to the still-published version** and
-  the governance transaction rolls back (tested with failures on a CREATE and on a DROP);
-- if the commit fails after a successful sync, retrying is safe (constraint DDL is idempotent).
+- every SQL write is flushed *before* the sync, so after it only the commit remains;
+- if anything fails once the sync has started (the sync itself, the audit update or the
+  commit), the service **re-syncs Neo4j back to the still-published version** and the
+  governance transaction rolls back. Tested for publish and rollback, with failures on a
+  CREATE, on a DROP and on the commit;
+- only a process crash between sync and commit can leave Neo4j ahead; re-running the command
+  fixes it, because constraint DDL is idempotent.
 
 **Concurrency.** Publish, rollback and new-draft take `SELECT … FOR UPDATE` locks on
 `ontology_versions` (MySQL), so two admins can't publish at once. SQLite has no row locks, so
