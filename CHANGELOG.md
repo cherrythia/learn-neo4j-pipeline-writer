@@ -18,6 +18,18 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   - `writer-ontology` CLI; `scripts/check.sh` runs every CI check locally.
   - Tests: validation rules, constraint generation and sync, lifecycle (including Neo4j failure
     rollback), CLI; Neo4j integration test in CI. Docs: `docs/ontology.md`.
+- **#5 LLM abstraction** (`writer_service.llm`)
+  - Provider-neutral `LLMClient` protocol; `StructuredLLM.ask()` renders a versioned prompt,
+    requests JSON matching a pydantic model, validates, retries with feedback, and caches.
+  - Claude adapter (default `claude-sonnet-5-5`) using structured outputs, configurable effort,
+    and server-side refusal fallback (on by default).
+  - Cache keyed by model, prompt version, input, schema, ontology version and sample index;
+    `InMemoryCache` and `FileCache` (usable as recorded fixtures with `ReplayOnlyLLM`).
+  - `FakeLLM` for tests; factory fails fast when the Anthropic key is missing.
+  - Unusable output (non-JSON, truncated) is retried like schema mismatches; refusals and
+    replay misses are not. Fallback turns are parsed from the serving model only.
+  - New settings: `WRITER_LLM_EFFORT`, `WRITER_LLM_FALLBACKS`, `WRITER_LLM_MAX_ATTEMPTS`,
+    `WRITER_LLM_CACHE_DIR`. Docs: `docs/llm.md`; ADR-0003/0005 updated.
 - **#3 Governance store**
   - SQLAlchemy 2 models for ontology versions, classes (with taxonomy parent), properties,
     relation types, extension proposals, scoring configs, ingestion runs, candidates, review

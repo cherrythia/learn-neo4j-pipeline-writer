@@ -18,8 +18,8 @@ sources ─► Ingest ─► Match ─► Compile (gates) ─► Test (score) �
 
 Built issue by issue; see the [issues](https://github.com/cherrythia/learn-neo4j-pipeline-writer/issues).
 Currently in place: service skeleton, settings, admin UI skeleton, CI, local demo environment,
-governance store ([docs](docs/governance-store.md)), core ontology and publish workflow
-([docs](docs/ontology.md)).
+governance store ([docs](docs/governance-store.md)), LLM layer ([docs](docs/llm.md)),
+core ontology and publish workflow ([docs](docs/ontology.md)).
 
 ## Quick start
 
@@ -54,9 +54,13 @@ All settings use the `WRITER_` prefix. See [`.env.example`](.env.example).
 | Variable | Default | Purpose |
 |---|---|---|
 | `WRITER_APP_ENV` | `dev` | `dev`, `test` or `prod` |
-| `WRITER_LLM_PROVIDER` | `anthropic` | `anthropic` or `fake` (tests) |
+| `WRITER_LLM_PROVIDER` | `anthropic` | `anthropic`, or `fake` to replay recorded answers offline |
 | `WRITER_LLM_MODEL` | `claude-sonnet-5-5` | Model id |
-| `WRITER_ANTHROPIC_API_KEY` | *(none)* | **Secret.** Needed for real LLM calls; not checked at startup yet (enforced by the LLM adapter, #5) |
+| `WRITER_ANTHROPIC_API_KEY` | *(none)* | **Secret.** Required when provider is `anthropic` (the LLM factory fails fast without it) |
+| `WRITER_LLM_EFFORT` | `high` | Claude effort: `low` to `max` |
+| `WRITER_LLM_FALLBACKS` | `true` | Server-side fallback when Claude declines a request |
+| `WRITER_LLM_MAX_ATTEMPTS` | `2` | Attempts per call when output is not JSON, truncated or fails the schema |
+| `WRITER_LLM_CACHE_DIR` | `data/cache/llm` | Cache of validated LLM answers |
 | `WRITER_SELF_CONSISTENCY_RUNS` | `3` | Extraction runs per input (1 to 10) |
 | `WRITER_NEO4J_URI` | `bolt://localhost:7687` | Neo4j connection |
 | `WRITER_NEO4J_USER` | `neo4j` | Neo4j user |

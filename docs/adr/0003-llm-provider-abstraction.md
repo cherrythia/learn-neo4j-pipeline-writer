@@ -11,3 +11,9 @@ All LLM calls go through an `LLMClient` protocol with structured output. The def
 
 ## Consequences
 Switching provider is one adapter plus config. Provider-specific features are only used behind the interface.
+
+## Update (issue #5)
+Claude Sonnet 5.5 rejects forced `tool_choice` and non-default sampling parameters, so the
+adapter uses structured outputs (`output_config.format`) and sends no temperature. Anthropic's
+server-side fallback on safety refusals is enabled by default and can be turned off with
+`WRITER_LLM_FALLBACKS=false`. See [`docs/llm.md`](../llm.md).

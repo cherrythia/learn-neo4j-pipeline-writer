@@ -9,6 +9,7 @@ dependencies = [
     "uvicorn[standard]>=0.32",
     "pydantic>=2.9",
     "pydantic-settings>=2.6",
+    "anthropic>=2.8.0",
     "sqlalchemy>=2.1.8",
     "alembic>=1.20.1",
     "pymysql>=1.2.4",
@@ -42,7 +43,10 @@ packages = ["src/writer_service", "src/demo_env"]
 testpaths = ["tests"]
 addopts = "-q"
 filterwarnings = ["error"]
-markers = ["integration: needs live Neo4j/MySQL (skipped when unavailable)"]
+markers = [
+    "integration: needs live Neo4j/MySQL (skipped when unavailable)",
+    "live: calls a real LLM API (skipped unless a test key is set; never in CI)",
+]
 
 [tool.ruff]
 line-length = 100
