@@ -15,7 +15,6 @@ from typing import Any, Literal
 from openpyxl import load_workbook
 from pydantic import BaseModel, Field, create_model
 from pypdf import PdfReader
-from pypdf.errors import PdfReadError
 
 from writer_service.llm.prompts import PromptTemplate
 from writer_service.llm.structured import StructuredLLM
@@ -53,7 +52,8 @@ def pdf_chunks(source: Path | bytes, *, source_ref: str) -> list[SourceChunk]:
     try:
         reader = PdfReader(_open(source))
         pages = [p.extract_text() or "" for p in reader.pages]
-    except (PdfReadError, ValueError, OSError) as exc:
+    except Exception as exc:  # pypdf raises many unrelated types on corrupt input
+        # (PdfReadError, LimitReachedError, NotImplementedError for unsupported filters, …)
         raise ValueError(f"{source_ref} is not a readable PDF: {exc}") from exc
     return [
         SourceChunk("pdf", source_ref, f"page {i}", text.strip())

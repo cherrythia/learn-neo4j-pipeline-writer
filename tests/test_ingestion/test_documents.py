@@ -206,3 +206,39 @@ def test_evidence_matches_sheet_names_with_irregular_spacing(tmp_path: Path) -> 
     fake = FakeLLM({EXTRACTION_PROMPT.name: [{"entities": [ent], "relations": []}]})
     (cand,) = extractor(fake).extract(chunks)
     assert [e.locator for e in cand.evidence] == ["sheet Two  Spaces row 2"]
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        NotImplementedError("Unsupported filter /Foo"),
+        __import__("pypdf.errors", fromlist=["LimitReachedError"]).LimitReachedError("too big"),
+        __import__("pypdf.errors", fromlist=["PdfReadError"]).PdfReadError("bad xref"),
+    ],
+)
+def test_any_pdf_parser_failure_becomes_value_error(
+    monkeypatch: pytest.MonkeyPatch, error: Exception
+) -> None:
+    import writer_service.ingestion.documents as docs
+
+    class Exploding:
+        def __init__(self, *_: object) -> None:
+            raise error
+
+    monkeypatch.setattr(docs, "PdfReader", Exploding)
+    with pytest.raises(ValueError, match="not a readable PDF"):
+        pdf_chunks(b"%PDF-1.7 ...", source_ref="x.pdf")
+
+
+def test_randomly_corrupted_pdfs_never_escape_as_other_errors() -> None:
+    import contextlib
+    import random
+
+    data = bytearray((ROOT / PDF_PATH).read_bytes())
+    rng = random.Random(1)
+    for _ in range(200):
+        broken = bytearray(data)
+        for _ in range(20):
+            broken[rng.randrange(len(broken))] = rng.randrange(256)
+        with contextlib.suppress(ValueError):  # anything else fails the test
+            pdf_chunks(bytes(broken), source_ref="fuzz.pdf")
