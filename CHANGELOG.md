@@ -6,6 +6,18 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Added
+- **#4 Core ontology, versioning and Neo4j constraints** (`writer_service.ontology`)
+  - Core ontology v1 (Issuer, Filing, Rule, Obligation, Finding, with Organisation and Document
+    as taxonomy parents) and six typed relations.
+  - Publish gate: identity keys, parents, relation endpoints, cycles, duplicates, safe Cypher
+    identifiers, and "deprecate, never delete" against the published version.
+  - Lifecycle service: bootstrap, one draft at a time, publish (supersedes previous), rollback;
+    all audited.
+  - Neo4j uniqueness constraints generated per class plus provenance nodes; idempotent sync
+    that manages only `wsc_*` constraints.
+  - `writer-ontology` CLI; `scripts/check.sh` runs every CI check locally.
+  - Tests: validation rules, constraint generation and sync, lifecycle (including Neo4j failure
+    rollback), CLI; Neo4j integration test in CI. Docs: `docs/ontology.md`.
 - **#3 Governance store**
   - SQLAlchemy 2 models for ontology versions, classes (with taxonomy parent), properties,
     relation types, extension proposals, scoring configs, ingestion runs, candidates, review

@@ -116,8 +116,13 @@ def test_graph_failure_rolls_back_the_publish(
 ) -> None:
     svc.bootstrap("admin")
     svc.new_draft("admin")
-    add_class(engine, 2, ClassSpec("ESGMetric", "metric_id",
-                                   (PropertySpec("metric_id", "string", True),), namespace="ext"))
+    add_class(
+        engine,
+        2,
+        ClassSpec(
+            "ESGMetric", "metric_id", (PropertySpec("metric_id", "string", True),), namespace="ext"
+        ),
+    )
     graph.fail_next = True  # the new class needs a CREATE CONSTRAINT, which fails
     with pytest.raises(RuntimeError, match="neo4j down"):
         svc.publish(2, "alice")
