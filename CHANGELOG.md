@@ -6,6 +6,12 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Added
+- **#11 Document ingestion library** (`writer_service.ingestion.documents`)
+  - PDF → one chunk per page (`page N`); Excel → one chunk per row (`sheet S row N`), from
+    paths or uploaded bytes; windowing without splitting chunks.
+  - LLM extraction whose structured-output schema enumerates the published ontology's class,
+    relation and property names; evidence anchored to existing locators only.
+  - `pypdf` and `openpyxl` are now runtime dependencies. Docs: `docs/document-ingestion.md`.
 - **#8 Verification signals** (`writer_service.pipeline.verification`)
   - Evidence grounding: only verbatim quotes (after Unicode/typography normalisation, on word
     and number boundaries, without a dropped preceding negation) score 1.0; near-quotes are
