@@ -6,6 +6,12 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Added
+- **#9 Entity matching** (`writer_service.pipeline.matching`)
+  - Exact (case-insensitive) key matches, fuzzy name/title resolution (token-set + token-sort
+    average), ambiguity detection (partial or near-tie matches), possible duplicates.
+  - Relation endpoints rewritten to existing keys with notes for reviewers; confidence feeds
+    `entity_match`. Batch-local entities are resolvable.
+  - In-memory and Neo4j match indexes (Neo4j integration test). Docs: `docs/matching.md`.
 - **#6 Candidate facts and hard gates** (`writer_service.pipeline`)
   - Pydantic candidate models (entity / relation, discriminated) with `Evidence`;
     `fact_hash` (whitespace/case/order-insensitive, evidence-free) and `identity_hash`.
