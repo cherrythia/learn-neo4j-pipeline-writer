@@ -29,6 +29,7 @@ Currently in place:
 - candidate facts and hard gates ([docs](docs/gates.md))
 - verification signals ([docs](docs/verification.md))
 - entity matching ([docs](docs/matching.md))
+- document ingestion: PDF/Excel extraction ([docs](docs/document-ingestion.md))
 
 ## Quick start
 

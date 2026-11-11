@@ -143,7 +143,7 @@ MySQL, mock Superset, optional real Superset).
 ## 11. Delivery (ADR-0001, ADR-0012)
 
 Issue-driven: one GitHub issue → branch `engineering/<#>-<slug>` → PR (`Closes #N`) →
-independent agent review posted as a PR comment → fixes → clean re-review (max 3 rounds) → CI
+independent agent review posted as a PR comment → fixes → clean re-review (max 5 rounds) → CI
 green → squash-merge. See [`CONTRIBUTING.md`](../CONTRIBUTING.md).
 
 ## 12. Left to the builder
