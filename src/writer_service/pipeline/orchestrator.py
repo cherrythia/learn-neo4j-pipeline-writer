@@ -266,44 +266,102 @@ class WriterPipeline:
 
     # ----------------------------------------------------------------- review decisions
 
-    def approve(self, item_id: int, reviewer: str, edited: dict[str, Any] | None = None) -> None:
-        """Commit a reviewed candidate (optionally edited). For a conflict, approving means the
-        new fact *replaces* the conflicting one."""
-        with UnitOfWork(self.engine) as uow:
-            item = uow.session.get(ReviewItem, item_id)
-            if item is None or item.status != "open":
-                raise PipelineError(f"review item {item_id} is not open")
-            row = item.candidate
-            published = uow.ontology_versions.published()
-            assert published is not None
-            spec = spec_of(published)
-            cand = _CANDIDATE.validate_python(edited if edited is not None else row.payload)
-            failures, cand = schema_gate(cand, spec)
-            if failures:
-                raise PipelineError(
-                    "edited candidate fails the schema gate: " + "; ".join(failures)
-                )
-            fact = to_fact(cand, spec, row.score or 0.0, replace_existing=item.reason == "conflict")
-            item.status = "edited" if edited is not None else "approved"
-            item.reviewer, item.decided_at = reviewer, utcnow()
-            row.decision = "commit"
-            if edited is not None:
-                row.payload = cand.model_dump(mode="json")
-            uow.audit(
-                reviewer,
-                "review.approve",
-                "review_item",
-                str(item_id),
-                {"edited": edited is not None, "reason": item.reason},
+    @staticmethod
+    def approval_run_id(item_id: int) -> str:
+        """Approved facts are written under their own run id, so they don't depend on (and
+        aren't removed by a rollback of) the ingestion run that proposed them."""
+        return f"approval-{item_id}"
+
+    def _open_item(self, uow: UnitOfWork, item_id: int) -> ReviewItem:
+        item = uow.session.get(ReviewItem, item_id)
+        if item is None or item.status != "open":
+            raise PipelineError(f"review item {item_id} is not open")
+        if item.candidate.run.status != "completed":
+            raise PipelineError(
+                f"review item {item_id} belongs to a run that is {item.candidate.run.status}"
             )
-            uow.session.flush()
-            self.graph.write_run(row.run_id, published.version, [fact])
+        return item
+
+    def approve(self, item_id: int, reviewer: str, edited: dict[str, Any] | None = None) -> None:
+        """Commit a reviewed candidate (optionally edited).
+
+        * The schema gate runs again (edits must still fit the ontology).
+        * For a ``score`` item the constraint gate runs again too: if the graph changed since
+          ingest and the fact now contradicts it, the item becomes a ``conflict`` (still open)
+          and nothing is written.
+        * For a ``conflict`` item, approving means the new fact **replaces** the old one; the
+          replaced edges are recorded in the audit log.
+        * If the governance commit fails after the graph write, the approval's graph changes
+          are rolled back.
+        """
+        reconflict: str | None = None
+        approval_run = self.approval_run_id(item_id)
+        graph_written = False
+        try:
+            with UnitOfWork(self.engine) as uow:
+                item = self._open_item(uow, item_id)
+                row = item.candidate
+                published = uow.ontology_versions.published()
+                assert published is not None
+                spec = spec_of(published)
+                cand = _CANDIDATE.validate_python(edited if edited is not None else row.payload)
+                failures, cand = schema_gate(cand, spec)
+                if failures:
+                    raise PipelineError(
+                        "edited candidate fails the schema gate: " + "; ".join(failures)
+                    )
+                if item.reason == "score":
+                    (result,) = check_batch([cand], spec, self.graph)
+                    if result.status == "conflict":
+                        item.reason, item.conflict_with = "conflict", {"message": result.conflict}
+                        uow.audit(
+                            reviewer,
+                            "review.reconflict",
+                            "review_item",
+                            str(item_id),
+                            {"conflict": result.conflict},
+                        )
+                        reconflict = result.conflict
+                if reconflict is None:
+                    fact = to_fact(
+                        cand, spec, row.score or 0.0, replace_existing=item.reason == "conflict"
+                    )
+                    item.status = "edited" if edited is not None else "approved"
+                    item.reviewer, item.decided_at = reviewer, utcnow()
+                    row.decision = "commit"
+                    if edited is not None:
+                        row.payload = cand.model_dump(mode="json")
+                    entry = uow.audit(
+                        reviewer,
+                        "review.approve",
+                        "review_item",
+                        str(item_id),
+                        {
+                            "edited": edited is not None,
+                            "reason": item.reason,
+                            "graph_run": approval_run,
+                        },
+                    )
+                    uow.session.flush()
+                    replaced = self.graph.write_run(approval_run, published.version, [fact])
+                    graph_written = True
+                    if replaced:
+                        entry.detail = {**entry.detail, "replaced": replaced}
+        except Exception as exc:
+            if graph_written:
+                try:
+                    self.graph.rollback_run(approval_run)
+                except Exception as undo_exc:
+                    exc.add_note(f"graph rollback also failed: {undo_exc}")
+            raise
+        if reconflict is not None:
+            raise PipelineError(
+                f"the graph changed since ingest; item {item_id} is now a conflict: {reconflict}"
+            )
 
     def reject(self, item_id: int, reviewer: str, note: str | None = None) -> None:
         with UnitOfWork(self.engine) as uow:
-            item = uow.session.get(ReviewItem, item_id)
-            if item is None or item.status != "open":
-                raise PipelineError(f"review item {item_id} is not open")
+            item = self._open_item(uow, item_id)
             item.status, item.reviewer, item.note, item.decided_at = (
                 "rejected",
                 reviewer,
@@ -316,11 +374,26 @@ class WriterPipeline:
     # ----------------------------------------------------------------- rollback
 
     def rollback(self, run_id: str, actor: str) -> dict[str, int]:
+        """Remove what the run alone owns from the graph and close its open review items.
+        Facts that later runs or approvals also wrote stay (see ``graph_store``)."""
         with UnitOfWork(self.engine) as uow:
             run = uow.session.get(IngestionRun, run_id)
             if run is None or run.status != "completed":
                 raise PipelineError(f"run {run_id} is not a completed run")
             removed = self.graph.rollback_run(run_id)
+            closed = 0
+            for cand in run.candidates:
+                item = cand.review_item
+                if item is not None and item.status == "open":
+                    item.status, item.reviewer, item.decided_at = "rejected", actor, utcnow()
+                    item.note = "run rolled back"
+                    closed += 1
             run.status = "rolled_back"
-            uow.audit(actor, "run.rollback", "ingestion_run", run_id, removed)
-            return removed
+            uow.audit(
+                actor,
+                "run.rollback",
+                "ingestion_run",
+                run_id,
+                {**removed, "review_items_closed": closed},
+            )
+            return {**removed, "review_items_closed": closed}

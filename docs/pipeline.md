@@ -45,24 +45,42 @@ Only accepted facts ([ADR-0010](adr/0010-neo4j-accepted-facts-only.md)):
 | Governance commit fails after the graph write | The run's graph changes are rolled back; run `failed` |
 | No published ontology | Refused before anything starts |
 
-## Operations
+## Run ownership and rollback
+
+Every node, relationship and evidence item keeps a `runs` list of all runs that wrote or
+referenced it. `rollback(run)` removes the run from those lists and deletes **only what no other
+run still owns**:
+
+- rolling back an old run never deletes an entity a later run (or an approval) also stated;
+- shared evidence (the same quote ingested twice) stays while any run still has it;
+- relationship provenance is repaired: `evidence_ids` are pruned to evidence that still
+  exists, and `run_id` falls back to the latest remaining run.
+
+Property *values* a run overwrote are not restored (there is no property history); the
+governance store keeps every candidate, so a previous value can be found and re-applied.
+Rolling back a run also **closes its open review items** (`rejected`, note "run rolled back").
+
+## Review decisions
 
 ```python
-pipeline.ingest(batch, actor)  # → RunSummary(run_id, status, counts)
-pipeline.approve(review_item_id, reviewer, edited=None)  # commit a reviewed fact
+pipeline.approve(review_item_id, reviewer, edited=None)
 pipeline.reject(review_item_id, reviewer, note)
-pipeline.rollback(run_id, actor)  # remove what the run created
+pipeline.rollback(run_id, actor)
 ```
 
-- **Approving a conflict** means the new fact *replaces* the old one (the source's other edges
-  of that relation are removed first).
-- **Edited approvals** go through the schema gate again.
-- **Rollback** removes the nodes, relationships and evidence the run *created*. Properties it
-  overwrote on pre-existing nodes are not restored (no property history); the governance store
-  keeps every candidate if they need to be re-applied.
+- An approval is written under its **own graph run** (`approval-<item id>`), so it doesn't depend
+  on, and isn't removed by, a rollback of the ingestion run that proposed it.
+- The **schema gate** runs again (edits must still fit the ontology). For a score-routed item
+  the **constraint gate** runs again too: if the graph changed since ingest and the fact now
+  contradicts it, the item becomes a `conflict` (still open) and nothing is written.
+- **Approving a conflict** means the new fact *replaces* the old one, as far as the relation's
+  cardinality requires: `many_to_one` drops the source's other targets, `one_to_many` the
+  target's other sources, `one_to_one` both. The removed edges are recorded in the audit entry.
+- If the governance commit fails after the graph write, the approval's graph run is rolled back.
+- Items of a run that isn't `completed` can't be approved or rejected.
 
 Every action is in the audit log (`run.start`, `run.complete`, `run.failed`, `run.rollback`,
-`review.approve`, `review.reject`).
+`review.approve`, `review.reject`, `review.reconflict`).
 
 ## HTTP
 
@@ -75,4 +93,6 @@ curl -H "X-API-Key: $WRITER_INGEST_API_KEY" -F file=@samples/aurora_pacific_annu
 ```
 
 Errors: 401 (key), 413 (size), 415 (type), 422 (unreadable), 409 (no published ontology),
-503 (LLM not configured).
+503 (LLM not configured). A failed run returns `status: failed` with a generic message; the
+internal error is stored with the run (`ingestion_runs.error`), not sent to the client.
+The Neo4j driver is created once (thread-safe) and closed on shutdown.
