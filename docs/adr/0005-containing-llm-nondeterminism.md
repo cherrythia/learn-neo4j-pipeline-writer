@@ -11,3 +11,8 @@ Pinned model, versioned prompts, structured output with an ontology-restricted v
 
 ## Consequences
 Same input gives the same stored result, and drift is visible. Extraction costs about N times as many LLM calls.
+
+## Update (issue #5)
+"Lowest-randomness settings" is not an available lever on Claude Sonnet 5.5 (non-default
+`temperature`/`top_p` are rejected), which makes the cache and self-consistency the primary
+controls. The cache key includes the self-consistency sample index so N runs stay independent.
