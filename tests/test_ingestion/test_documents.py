@@ -182,3 +182,27 @@ def test_each_window_is_a_separate_call() -> None:
     )
     ex.extract(chunks)
     assert len(fake.calls) == 3
+
+
+def test_evidence_matches_sheet_names_with_irregular_spacing(tmp_path: Path) -> None:
+    from openpyxl import Workbook
+
+    wb = Workbook()
+    ws = wb.active
+    assert ws is not None
+    ws.title = "Two  Spaces"
+    ws.append(["issuer", "status"])
+    ws.append(["Aurora Pacific Holdings (Demo)", "late"])
+    path = tmp_path / "s.xlsx"
+    wb.save(path)
+    chunks = xlsx_chunks(path, source_ref="s.xlsx")
+    assert chunks[0].locator == "sheet Two  Spaces row 2"
+    ent = {
+        "class_name": "Issuer",
+        "properties": [{"name": "ticker", "value": "APH"}, {"name": "name", "value": "A"}],
+        "evidence": [{"locator": "sheet Two  Spaces row 2", "quote": "late"}],
+        "confidence": 1.0,
+    }
+    fake = FakeLLM({EXTRACTION_PROMPT.name: [{"entities": [ent], "relations": []}]})
+    (cand,) = extractor(fake).extract(chunks)
+    assert [e.locator for e in cand.evidence] == ["sheet Two  Spaces row 2"]

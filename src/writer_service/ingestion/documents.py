@@ -234,7 +234,8 @@ class DocumentExtractor:
     @staticmethod
     def _evidence(items: list[dict[str, Any]], window: list[SourceChunk]) -> list[Evidence]:
         """Keep only evidence citing a chunk that exists in this window."""
-        known = {c.locator: c for c in window}
+        # Compare canonical forms on both sides: a sheet titled "Two  Spaces" must still match.
+        known = {canonical_text(c.locator): c for c in window}
         out = []
         for e in items:
             chunk = known.get(canonical_text(e["locator"]).strip("[]"))
