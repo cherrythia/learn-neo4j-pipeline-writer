@@ -39,7 +39,8 @@ The admin UI and API for this workflow arrive in issues #14–#15.
 ## Evidence and grounding
 
 Each row is rendered as text (`issuer_id: 1; name: Aurora …; ticker: APH; …`) with the
-locator `row <first column>=<value>`. Every mapped column becomes its own evidence item
+locator `row <position> (<first column>=<value>)`, unique within a sync (the first column
+alone may repeat). Every mapped column becomes its own evidence item
 (`ticker: APH`): a contiguous, verbatim fragment of the row text, so grounding is exactly 1.0
 under the strict verbatim rule ([verification](verification.md)).
 
@@ -49,13 +50,25 @@ under the strict verbatim rule ([verification](verification.md)).
   else is refused. SQLAlchemy quotes them, and values are never interpolated.
 - Virtual (SQL) datasets run the SQL Superset already holds, wrapped as a subquery, on the
   **read-only** `reader` user.
-- At most `WRITER_MAX_ROWS_PER_SYNC` rows per sync.
+- At most `WRITER_MAX_ROWS_PER_SYNC` rows per sync. Pages are ordered by **every** column, so
+  LIMIT/OFFSET paging can't skip or repeat rows when the first column isn't unique.
+- Driver values are normalised before they become candidates: a DATETIME at midnight becomes a
+  date, any other DATETIME ISO text, DECIMAL an int or float.
+
+## Validation and errors
+
+- A mapping is approved only for **its own** dataset, and only if every column exists, every
+  class and relation is active, the identity key is mapped, and each relation end fits the
+  relation's domain/range (a subclass is fine).
+- `POST /ingest/superset/{id}`: 409 without an approved mapping; 404 for an unknown dataset;
+  502 when Superset is unreachable or the source database can't be read (the response names
+  the dataset only; SQL and driver details are logged).
 
 ## Configuration
 
 | Variable | Default | |
 |---|---|---|
 | `WRITER_SUPERSET_URL` | `http://127.0.0.1:8088` | Mock locally; real Superset on `:8089` with `--profile superset` |
-| `WRITER_SUPERSET_USERNAME` / `_PASSWORD` | | |
+| `WRITER_SUPERSET_USERNAME` / `_PASSWORD` | `admin` / `change-me` | **Secret** password; set both for a real Superset |
 | `WRITER_SOURCE_DB_URL` | `mysql+pymysql://reader:…@127.0.0.1:3306/demo_compliance` | **Read-only** user |
 | `WRITER_MAX_ROWS_PER_SYNC` | 10000 | |

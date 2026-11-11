@@ -32,8 +32,12 @@ from writer_service.governance.models import (
 )
 from writer_service.governance.uow import UnitOfWork
 from writer_service.ingestion.superset import (
+    DatasetInfo,
     DatasetMapping,
+    DatasetNotFound,
     MappingError,
+    SourceReadError,
+    SupersetClient,
     SupersetError,
     approve_mapping,
     save_draft,
@@ -486,14 +490,20 @@ def list_mappings(_: Admin, engine: EngineDep) -> list[MappingOut]:
         return [MappingOut.model_validate(r, from_attributes=True) for r in rows]
 
 
+def _dataset(superset: SupersetClient, dataset_id: int) -> DatasetInfo:
+    try:
+        return superset.dataset(dataset_id)
+    except DatasetNotFound as exc:
+        raise HTTPException(404, str(exc)) from exc
+    except SupersetError as exc:  # unreachable, login failed, bad metadata
+        raise HTTPException(502, str(exc)) from exc
+
+
 @router.post("/mappings", status_code=201)
 def create_mapping(
     body: MappingIn, user: Admin, engine: EngineDep, superset: SupersetDep
 ) -> dict[str, int]:
-    try:
-        ds = superset.dataset(body.dataset_id)
-    except SupersetError as exc:
-        raise HTTPException(404 if "not found" in str(exc) else 502, str(exc)) from exc
+    ds = _dataset(superset, body.dataset_id)
     with UnitOfWork(engine) as uow:
         return {
             "id": save_draft(uow, ds, body.mapping, suggested_by="user", actor=user.username).id
@@ -511,13 +521,13 @@ def suggest(
 ) -> dict[str, Any]:
     if pipeline.llm is None:
         raise HTTPException(503, "mapping suggestions need an LLM")
-    try:
-        ds = superset.dataset(dataset_id)
-    except SupersetError as exc:
-        raise HTTPException(404 if "not found" in str(exc) else 502, str(exc)) from exc
+    ds = _dataset(superset, dataset_id)
     with UnitOfWork(engine) as uow:
         spec, version = _published_spec(uow)
-    sample = list(reader.rows(ds, limit=5))
+    try:
+        sample = list(reader.rows(ds, limit=5))
+    except SourceReadError as exc:  # names the dataset only, never SQL or the driver
+        raise HTTPException(502, str(exc)) from exc
     draft = suggest_mapping(pipeline.llm, spec, version, ds, sample)
     with UnitOfWork(engine) as uow:
         row = save_draft(uow, ds, draft, suggested_by="llm", actor=user.username)
@@ -533,10 +543,7 @@ def approve(
         if row is None:
             raise _404(f"mapping {mapping_id}")
         dataset_id = row.dataset_id
-    try:
-        ds = superset.dataset(dataset_id)
-    except SupersetError as exc:
-        raise HTTPException(404 if "not found" in str(exc) else 502, str(exc)) from exc
+    ds = _dataset(superset, dataset_id)
     try:
         with UnitOfWork(engine) as uow:
             spec, _ = _published_spec(uow)

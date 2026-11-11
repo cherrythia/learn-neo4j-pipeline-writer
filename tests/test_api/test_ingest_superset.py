@@ -128,3 +128,19 @@ def test_sync_requires_api_key_and_known_dataset(setup: Any) -> None:
             )
         )
     assert client.post("/ingest/superset/999", headers={"X-API-Key": KEY}).status_code == 404
+
+
+def test_source_database_errors_are_502_without_internals(setup: Any) -> None:
+    from sqlalchemy.exc import OperationalError
+
+    client, (engine, superset, _), _ = setup
+    approve_issuers(engine, superset)
+
+    class Down(DatasetReader):
+        def _rows(self, *_: Any, **__: Any) -> Any:
+            raise OperationalError("SELECT secret_stuff", {}, Exception("conn refused"))
+
+    down = Down(source_engine())
+    client.app.dependency_overrides[get_reader] = lambda: down  # type: ignore[attr-defined]
+    r = client.post("/ingest/superset/1", headers={"X-API-Key": KEY})
+    assert r.status_code == 502 and "secret_stuff" not in r.text

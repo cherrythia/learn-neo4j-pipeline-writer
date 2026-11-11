@@ -30,6 +30,8 @@ uv sync && (cd admin-ui && bun install)
 
 Don't pipe check commands into `tail`/`grep` without `set -o pipefail`: the pipe hides the
 exit code.
+This includes the UI smoke test (`cd admin-ui && bunx playwright test`), which is slow
+enough that it's tempting to pipe through `tail`; a failing run would still exit 0.
 
 Integration tests (need `docker compose up -d --wait`):
 
