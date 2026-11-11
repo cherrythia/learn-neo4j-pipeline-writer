@@ -16,8 +16,7 @@ what was built and why.
    finding with severity (blocker/major/minor/nit), `file:line`, problem and fix.
 7. **Fix and re-review**: fix every finding, push, and post a reply listing how each was
    addressed. Re-review until a round reports `No findings — review clean` (max **5** rounds,
-   then escalate to a human). A conflict with `main` or missing CI on the head commit
-   counts as a finding: merge `origin/main` and let CI run before the next round.
+   then escalate to a human).
 8. **Merge**: when CI is green and the review is clean, squash-merge. The issue closes
    automatically.
 

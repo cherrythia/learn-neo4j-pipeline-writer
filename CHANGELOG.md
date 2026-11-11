@@ -5,10 +5,6 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
-### Changed
-- **#30 Review process**: up to 5 independent review rounds per PR (was 3) before escalating;
-  a conflict with `main` or missing CI on the head commit counts as a finding.
-
 ### Added
 - **#9 Entity matching** (`writer_service.pipeline.matching`)
   - Exact (case-insensitive) key matches, fuzzy name/title resolution (token-set + token-sort
@@ -112,3 +108,8 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   - GitHub Actions CI: ruff, mypy (strict), pytest, plus UI typecheck, test and build.
   - Design spec (`docs/design.md`), ADRs 0001–0013 (`docs/adr/`), `CONTRIBUTING.md`,
     `.env.example`.
+
+### Changed
+- **#30 Review process**: up to 5 independent review rounds per PR (was 3) before escalating
+  (CONTRIBUTING, design §11, ADR-0001 amendment).
+
