@@ -6,6 +6,7 @@ from collections.abc import Awaitable, Callable
 from fastapi import FastAPI, Request, Response
 
 from writer_service import __version__
+from writer_service.api.ingest import router as ingest_router
 from writer_service.auth.ratelimit import LoginLimiter
 from writer_service.auth.routes import router as auth_router
 from writer_service.config import Settings, get_settings
@@ -26,6 +27,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
     app.state.login_limiter = LoginLimiter()
     app.include_router(auth_router)
+    app.include_router(ingest_router)
 
     @app.middleware("http")
     async def version_header(

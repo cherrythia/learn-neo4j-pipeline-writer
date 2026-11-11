@@ -9,7 +9,8 @@
 2. **Match**: resolve entity references to existing keys (``EntityMatcher``).
 3. **Compile**: schema gate (reject) and constraint gate (conflict) over the batch.
 4. **Test**: grounding, back-translation (LLM-extracted sources only), stability, entity
-   match and self-confidence → weighted score with breakdown.
+   match and self-confidence → weighted score with breakdown. A fact whose grounding is
+   below 1.0 (quote not verbatim) is routed to review at most, whatever its score.
 5. **Review**: route to commit / review / conflict / reject; every candidate is stored with
    its derivation; review and conflict create review items.
 6. **Commit**: all ``commit`` facts are written to Neo4j in **one transaction** with
@@ -50,7 +51,7 @@ from writer_service.pipeline.verification import (
     VotedCandidate,
     self_consistency,
 )
-from writer_service.scoring.engine import Signals, route, score
+from writer_service.scoring.engine import Routing, Signals, route, score
 from writer_service.scoring.store import active_policy, record_outcome
 
 AnyCandidate = CandidateEntity | CandidateRelation
@@ -238,6 +239,17 @@ class WriterPipeline:
                 )
                 s = score(signals, policy)
                 routing = route(s.value, policy, conflict=result.conflict)
+                if routing.decision == "commit" and signals.grounding < 1.0:
+                    # A non-verbatim quote is never trusted enough to auto-commit (#8):
+                    # however reliable the source, a human confirms it.
+                    routing = Routing(
+                        "review",
+                        [
+                            *routing.reasons,
+                            f"grounding {signals.grounding:.2f} < 1.0 (quote not verbatim): "
+                            "needs review",
+                        ],
+                    )
                 record_outcome(row, routing, s)
                 if routing.decision == "commit":
                     facts.append(to_fact(cand, spec, s.value))

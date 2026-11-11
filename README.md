@@ -30,6 +30,7 @@ Currently in place:
 - verification signals ([docs](docs/verification.md))
 - entity matching ([docs](docs/matching.md))
 - document ingestion: PDF/Excel extraction ([docs](docs/document-ingestion.md))
+- the writer pipeline and Neo4j writer, `POST /ingest/documents` ([docs](docs/pipeline.md))
 
 ## Quick start
 
@@ -80,6 +81,7 @@ All settings use the `WRITER_` prefix. See [`.env.example`](.env.example).
 | `WRITER_ADMIN_JWT_SECRET` | *(random in dev)* | **Secret.** Signs admin sessions; 32+ chars, required in prod |
 | `WRITER_SESSION_TTL_MINUTES` | `480` | Admin session length |
 | `WRITER_COOKIE_SECURE` | `false` | Secure cookie flag; must be `true` in prod |
+| `WRITER_MAX_UPLOAD_MB` | `20` | Upload size limit for `/ingest/documents` |
 | `WRITER_GOVERNANCE_DB_URL` | `sqlite:///./governance.sqlite` | Governance store |
 
 Empty values in `.env` are treated as unset. Invalid values stop the service at startup.

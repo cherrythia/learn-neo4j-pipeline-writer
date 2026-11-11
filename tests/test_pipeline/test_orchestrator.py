@@ -286,9 +286,10 @@ def test_approving_a_review_item_writes_it(engine: Engine, graph: InMemoryGraph)
     (item,) = rows(engine, ReviewItem)
     pipe.approve(item.id, reviewer="rita")
     assert graph.node_properties("Issuer", "ticker", "APH") is not None
-    (item,) = rows(engine, ReviewItem)
-    assert item.status == "approved" and item.reviewer == "rita"
-    assert item.candidate.decision == "commit"
+    with UnitOfWork(engine) as uow:
+        item = uow.session.scalars(select(ReviewItem)).one()
+        assert item.status == "approved" and item.reviewer == "rita"
+        assert item.candidate.decision == "commit"
 
 
 def test_approving_a_conflict_replaces_the_old_edge(engine: Engine, graph: InMemoryGraph) -> None:
@@ -315,7 +316,39 @@ def test_edited_approval_is_gated_and_rejection_recorded(
     with pytest.raises(PipelineError, match="schema gate"):
         pipe.approve(item.id, reviewer="rita", edited=bad)
     pipe.reject(item.id, reviewer="rita", note="not convincing")
-    (item,) = rows(engine, ReviewItem)
-    assert item.status == "rejected" and item.candidate.decision == "reject"
+    with UnitOfWork(engine) as uow:
+        item = uow.session.scalars(select(ReviewItem)).one()
+        assert item.status == "rejected" and item.candidate.decision == "reject"
     with pytest.raises(PipelineError, match="not open"):
         pipe.approve(item.id, reviewer="rita")
+
+
+def test_near_quote_never_commits_even_from_a_reliable_source(
+    engine: Engine, graph: InMemoryGraph
+) -> None:
+    """Superset reliability 0.95 + every other signal 1.0 + grounding 0.5 scores ~0.865,
+    above the commit threshold; the pipeline must still send it to review (#8 review)."""
+    row = SourceText(
+        "dataset:1", "row ticker=APH", "ticker: APH; name: Aurora Pacific Holdings (Demo)"
+    )
+    near = CandidateEntity(
+        class_name="Issuer",
+        properties={"ticker": "APH", "name": "Aurora Pacific Holdings (Demo)"},
+        evidence=[
+            Evidence(
+                source_type="superset",
+                source_ref="dataset:1",
+                locator="row ticker=APH",
+                quote="ticker: APH; name: Aurora Pacific Holding",
+            )
+        ],
+    )
+    graph.add_node("Issuer", "ticker", "APH", {"ticker": "APH"})  # known entity: match 1.0
+    graph.add("Issuer", "ticker", "APH", name="Aurora Pacific Holdings (Demo)")
+    summary = pipeline(engine, graph).ingest(
+        SourceBatch("superset", "dataset:1", [row], candidates=[near]), actor="sync"
+    )
+    assert summary.counts["commit"] == 0 and summary.counts["review"] == 1
+    (cand,) = rows(engine, Candidate)
+    assert cand.score is not None and cand.score >= 0.85  # the score alone would have committed
+    assert any("not verbatim" in r for r in cand.breakdown["reasons"])

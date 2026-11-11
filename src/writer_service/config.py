@@ -42,6 +42,7 @@ class Settings(BaseSettings):
     admin_jwt_secret: SecretStr | None = None  # unset in dev = random per process
     session_ttl_minutes: int = Field(default=480, ge=5, le=7 * 24 * 60)
     cookie_secure: bool = False  # True behind HTTPS (always in prod)
+    max_upload_mb: int = Field(default=20, ge=1, le=200)
 
     @model_validator(mode="after")
     def _prod_needs_real_secrets(self) -> "Settings":
