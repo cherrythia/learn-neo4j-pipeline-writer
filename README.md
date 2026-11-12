@@ -64,9 +64,9 @@ report (filing AR-2025-APH) for the financial year ended 31 December 2025 …"*.
 2. **Match.** `AR-2025-APH` and `Aurora Pacific Holdings (Demo)` are resolved to existing nodes
    (exact key, or a fuzzy match on name/title), so a fact that names the issuer instead of
    its ticker still lands on the right node. A *new* key whose name closely matches an
-   existing entity is flagged as a possible duplicate: its match signal drops toward 0,
-   which lowers the score. (It isn't merged automatically, and the signal is only 10% of
-   the score, so a strong fact can still commit as a separate node.)
+   existing entity is flagged as a **possible duplicate**: it (and any relation to it) goes
+   to review whatever its score, and the reviewer either merges it into the existing entity
+   or keeps it as a new one. Nothing is merged automatically.
 3. **Gates.** Hard checks that no score can override: the class/relation must exist with the
    right domain and range; cardinality must hold; and a fact that **contradicts** an accepted
    one (a filing with a second issuer) becomes a *conflict* for a human, never an overwrite.

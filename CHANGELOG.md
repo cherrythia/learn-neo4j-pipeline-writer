@@ -24,6 +24,31 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   - Golden test against Neo4j (demo issuers, near-twins, non-ASCII names and keys): same
     decisions as the full scan. Limit: name candidates are the index's best 50, so a name
     could only be missed if more than 50 names share the reference's words and outrank it.
+- **#38 Possible duplicates go to review**
+  - A new key whose name matches an existing entity (and any relation in the batch to that
+    key) is routed to review with reason `duplicate`, whatever its score, so a strong
+    structured row can no longer commit a second node for the same entity.
+  - The review item carries `conflict_with.duplicate_of` (class, key property, new key,
+    existing key, similarity, relation side). Approving keeps it as new;
+    `POST /api/review/{id}/approve {"merge": true}` / `pipeline.approve(..., merge=True)`
+    rewrites the key to the existing entity, keeping the existing entity's differing values
+    (audited as `merged_into` / `kept_existing`).
+  - Migration `0004`: `review_items.reason` accepts `duplicate` (MySQL CHECK replaced; the
+    downgrade turns duplicate items into score items).
+  - Merge needs the target accepted in the graph, re-runs the constraint gate (a
+    contradiction leaves the item unchanged, with `merge_conflict`), and works on conflict
+    items that carry `duplicate_of`; a relation to a duplicate kept as new needs its entity
+    approved first. All 409 otherwise.
+  - Merges stick: later ingests rewrite a merged-away key to the merged entity while the
+    incoming name still matches it (otherwise: review, marked `previously_merged`), so
+    re-syncing a dataset doesn't re-open the duplicate. A relation is rewritten that way only
+    together with its fitting entity; on its own it goes to review pointing at the merge
+    target. One key can't be both merged and kept as new. Merging a relation whose entity was kept as new
+    is refused (409); keeping a relation as new writes the entity's stored key.
+  - Admin UI: a Duplicate filter, a *Possible duplicate* panel (also on conflicts involving
+    one, with any refused merge), Merge into / Keep as new.
+  - `GET /api/review?reason=` only accepts `score`, `conflict` or `duplicate`: an unknown
+    reason is now 422 (it used to return `[]`).
 - **#17 README walkthrough and demo script**
   - README: architecture diagram, how a fact gets into Neo4j, scoring with worked examples,
     one-command demo, running the real service, switching LLM.

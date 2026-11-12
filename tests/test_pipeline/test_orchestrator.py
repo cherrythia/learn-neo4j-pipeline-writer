@@ -584,3 +584,621 @@ def test_failed_ingest_restores_properties_it_overwrote(
         "seed",
         ["seed"],
     )
+
+
+# ---------------------------------------------------------------- possible duplicates (#38)
+
+DUP_ROW = SourceText(
+    "dataset:1", "row 1 (ticker=AUR)", "ticker: AUR; name: Aurora Pacific Holdings"
+)
+
+
+def sev(quote: str) -> Evidence:
+    return Evidence(
+        source_type="superset", source_ref="dataset:1", locator="row 1 (ticker=AUR)", quote=quote
+    )
+
+
+AUR = CandidateEntity(
+    class_name="Issuer",
+    properties={"ticker": "AUR", "name": "Aurora Pacific Holdings"},
+    evidence=[sev("name: Aurora Pacific Holdings")],
+)
+AUR_FILED = CandidateRelation(
+    relation="FILED_BY",
+    source=EntityRef(class_name="Filing", key="AR-2025-APH"),
+    target=EntityRef(class_name="Issuer", key="AUR"),
+    evidence=[sev("ticker: AUR")],
+)
+
+
+def superset(*cands: Any) -> SourceBatch:
+    return SourceBatch("superset", "dataset:1", [DUP_ROW], candidates=list(cands))
+
+
+def dup_items(engine: Engine) -> list[dict[str, Any]]:
+    """Duplicate review items as plain dicts (read inside the session)."""
+    with UnitOfWork(engine) as uow:
+        return [
+            {
+                "id": i.id,
+                "status": i.status,
+                "conflict_with": i.conflict_with,
+                "kind": i.candidate.kind,
+                "reasons": i.candidate.breakdown["reasons"],
+            }
+            for i in uow.session.scalars(select(ReviewItem))
+            if i.reason == "duplicate"
+        ]
+
+
+def test_possible_duplicate_never_auto_commits(engine: Engine, graph: InMemoryGraph) -> None:
+    """A structured row scores high enough to commit; a near-identical name under a new key
+    must still go to a human, with the entity it may duplicate."""
+    pipe = pipeline(engine, graph)
+    pipe.ingest(doc([APH]), actor="bot")
+    summary = pipe.ingest(superset(AUR), actor="sync")
+    assert summary.counts["commit"] == 0 and summary.counts["review"] == 1
+    assert graph.node_properties("Issuer", "ticker", "AUR") is None
+    (item,) = dup_items(engine)
+    dup = item["conflict_with"]["duplicate_of"]
+    assert dup["class_name"] == "Issuer" and dup["key"] == "APH" and dup["candidate_key"] == "AUR"
+    assert dup["key_property"] == "ticker" and dup["similarity"] >= 0.9
+    assert "possible duplicate of Issuer 'APH'" in item["conflict_with"]["message"]
+    assert any("possible duplicate" in r for r in item["reasons"])
+
+
+def test_relations_to_a_possible_duplicate_wait_for_review(
+    engine: Engine, graph: InMemoryGraph
+) -> None:
+    """Writing the relation would create the duplicate node as a stub."""
+    pipe = pipeline(engine, graph)
+    pipe.ingest(doc([APH, FILING]), actor="bot")
+    summary = pipe.ingest(superset(AUR, AUR_FILED), actor="sync")
+    assert summary.counts["commit"] == 0 and summary.counts["review"] == 2
+    assert graph.node_properties("Issuer", "ticker", "AUR") is None
+    rel = next(i for i in dup_items(engine) if i["kind"] == "relation")
+    assert rel["conflict_with"]["duplicate_of"]["side"] == "target"
+    assert rel["conflict_with"]["duplicate_of"]["key"] == "APH"
+
+
+def test_approving_a_possible_duplicate_as_new_creates_it(
+    engine: Engine, graph: InMemoryGraph
+) -> None:
+    pipe = pipeline(engine, graph)
+    pipe.ingest(doc([APH]), actor="bot")
+    pipe.ingest(superset(AUR), actor="sync")
+    (item,) = dup_items(engine)
+    pipe.approve(item["id"], reviewer="rita")
+    assert graph.node_properties("Issuer", "ticker", "AUR") is not None
+    assert graph.node_properties("Issuer", "ticker", "APH") is not None
+
+
+def test_merging_a_possible_duplicate_writes_into_the_existing_entity(
+    engine: Engine, graph: InMemoryGraph
+) -> None:
+    pipe = pipeline(engine, graph)
+    pipe.ingest(doc([APH, FILING]), actor="bot")
+    pipe.ingest(superset(AUR, AUR_FILED), actor="sync")
+    for item in dup_items(engine):
+        pipe.approve(item["id"], reviewer="rita", merge=True)
+    assert graph.node_properties("Issuer", "ticker", "AUR") is None
+    aph = graph.node_properties("Issuer", "ticker", "APH")
+    assert aph is not None and aph["name"] == "Aurora Pacific Holdings (Demo)"  # existing kept
+    assert graph.targets(
+        "FILED_BY", ("Filing", "filing_id", "AR-2025-APH"), {"Issuer": "ticker"}
+    ) == [{"Issuer": "APH"}]
+    with UnitOfWork(engine) as uow:
+        items = [i for i in uow.session.scalars(select(ReviewItem)) if i.reason == "duplicate"]
+        assert {i.status for i in items} == {"edited"}
+        entity = next(i for i in items if i.candidate.kind == "entity")
+        assert entity.candidate.payload["properties"]["ticker"] == "APH"
+        relation = next(i for i in items if i.candidate.kind == "relation")
+        assert relation.candidate.payload["target"]["key"] == "APH"
+    merged = [a for a in rows(engine, AuditLog) if a.action == "review.approve"]
+    assert all(a.detail["merged_into"] == "APH" for a in merged)
+    entity_audit = next(a for a in merged if a.detail["kept_existing"])
+    assert entity_audit.detail["kept_existing"] == {"name": "Aurora Pacific Holdings"}
+
+
+def test_merge_is_only_for_duplicates(engine: Engine, graph: InMemoryGraph) -> None:
+    from writer_service.pipeline.orchestrator import PipelineError
+
+    pipe = pipeline(engine, graph, judge(0.5))
+    pipe.ingest(doc([APH]), actor="bot")
+    (item,) = rows(engine, ReviewItem)
+    assert item.reason == "score"
+    with pytest.raises(PipelineError, match="only a possible duplicate can be merged"):
+        pipe.approve(item.id, reviewer="rita", merge=True)
+    assert rows(engine, ReviewItem)[0].status == "open"
+
+
+def test_exact_and_unrelated_entities_are_not_flagged(engine: Engine, graph: InMemoryGraph) -> None:
+    pipe = pipeline(engine, graph)
+    pipe.ingest(doc([APH]), actor="bot")
+    other = CandidateEntity(
+        class_name="Issuer",
+        properties={"ticker": "AUR", "name": "Zebra Mining"},
+        evidence=[sev("ticker: AUR")],
+    )
+    summary = pipe.ingest(
+        SourceBatch(
+            "superset",
+            "dataset:1",
+            [SourceText("dataset:1", "row 1 (ticker=AUR)", "ticker: AUR; name: Zebra Mining")],
+            candidates=[other],
+        ),
+        actor="sync",
+    )
+    assert summary.counts["commit"] == 1 and dup_items(engine) == []
+
+
+# review #39 round 1
+
+
+def test_a_conflicting_relation_to_a_duplicate_can_be_merged(
+    engine: Engine, graph: InMemoryGraph
+) -> None:
+    """Finding 1: the graph has FILED_BY APH; FILED_BY AUR conflicts, and must still carry
+    duplicate_of so the reviewer can merge instead of replacing the edge with a new AUR."""
+    pipe = pipeline(engine, graph)
+    pipe.ingest(doc([APH, FILING, FILED]), actor="bot")
+    pipe.ingest(superset(AUR, AUR_FILED), actor="sync")
+    rel = next(i for i in rows(engine, ReviewItem) if i.reason == "conflict")
+    assert rel.conflict_with["duplicate_of"]["key"] == "APH"
+    (ent,) = dup_items(engine)
+    pipe.approve(ent["id"], reviewer="rita", merge=True)
+    pipe.approve(rel.id, reviewer="rita", merge=True)
+    assert graph.node_properties("Issuer", "ticker", "AUR") is None
+    assert graph.targets(
+        "FILED_BY", ("Filing", "filing_id", "AR-2025-APH"), {"Issuer": "ticker"}
+    ) == [{"Issuer": "APH"}]
+
+
+def test_a_relation_kept_as_new_needs_its_entity_accepted_first(
+    engine: Engine, graph: InMemoryGraph
+) -> None:
+    """Finding 2: keeping FILED_BY -> AUR while AUR was merged away (or rejected) would
+    create AUR as a stub."""
+    from writer_service.pipeline.orchestrator import PipelineError
+
+    pipe = pipeline(engine, graph)
+    pipe.ingest(doc([APH, FILING]), actor="bot")
+    pipe.ingest(superset(AUR, AUR_FILED), actor="sync")
+    ent = next(i for i in dup_items(engine) if i["kind"] == "entity")
+    rel = next(i for i in dup_items(engine) if i["kind"] == "relation")
+    pipe.reject(ent["id"], reviewer="rita")
+    with pytest.raises(PipelineError, match="approve its entity item first"):
+        pipe.approve(rel["id"], reviewer="rita")
+    assert graph.node_properties("Issuer", "ticker", "AUR") is None
+    pipe.approve(rel["id"], reviewer="rita", merge=True)  # merging is still possible
+    assert graph.node_properties("Issuer", "ticker", "AUR") is None
+
+
+def test_keeping_entity_and_relation_as_new_in_order_works(
+    engine: Engine, graph: InMemoryGraph
+) -> None:
+    pipe = pipeline(engine, graph)
+    pipe.ingest(doc([APH, FILING]), actor="bot")
+    pipe.ingest(superset(AUR_FILED, AUR), actor="sync")  # relation listed before its entity
+    items = dup_items(engine)
+    assert {i["kind"] for i in items} == {"entity", "relation"}
+    for kind in ("entity", "relation"):
+        pipe.approve(next(i["id"] for i in items if i["kind"] == kind), reviewer="rita")
+    aur = graph.node_properties("Issuer", "ticker", "AUR")
+    assert aur is not None and not aur["stub"]
+
+
+def test_merge_target_must_be_an_accepted_entity(engine: Engine, graph: InMemoryGraph) -> None:
+    """Finding 3: the matcher also compares against new entities of the same batch; merging
+    into one that was never accepted must not write it."""
+    from writer_service.pipeline.orchestrator import PipelineError
+
+    first = CandidateEntity(
+        class_name="Issuer",
+        confidence=0.9,
+        properties={"ticker": "APH", "name": "Aurora Pacific Holdings (Demo)"},
+        evidence=[ev("Aurora Pacific Holdings (Demo) (ticker APH)")],
+    )
+    twin = first.model_copy(
+        update={"properties": {"ticker": "AURX", "name": "Aurora Pacific Holdings (Demo)"}}
+    )
+    pipe = pipeline(engine, graph, judge(0.5))  # both land in review
+    pipe.ingest(doc([first, twin]), actor="bot")
+    score = next(i for i in rows(engine, ReviewItem) if i.reason == "score")
+    (dup,) = dup_items(engine)
+    assert dup["conflict_with"]["duplicate_of"]["key"] == "APH"
+    pipe.reject(score.id, reviewer="rita")
+    with pytest.raises(PipelineError, match="not in the graph"):
+        pipe.approve(dup["id"], reviewer="rita", merge=True)
+    assert graph.node_count() == 0
+
+
+def test_merge_that_contradicts_the_graph_stays_open_unchanged(
+    engine: Engine, graph: InMemoryGraph
+) -> None:
+    """Finding 5: AR-2025-APH is filed by BYL; merging FILED_BY -> AUR into APH contradicts
+    that. Nothing is written and the item keeps its reason and original fact."""
+    from writer_service.pipeline.orchestrator import PipelineError
+
+    pipe = pipeline(engine, graph)
+    pipe.ingest(doc([APH]), actor="bot")
+    graph.add_edge("FILED_BY", ("Filing", "filing_id", "AR-2025-APH"), ("Issuer", "ticker", "BYL"))
+    pipe.ingest(superset(AUR_FILED, AUR), actor="sync")
+    rel = next(i for i in rows(engine, ReviewItem) if i.candidate_id and i.reason == "conflict")
+    with pytest.raises(PipelineError, match="contradicts the graph"):
+        pipe.approve(rel.id, reviewer="rita", merge=True)
+    with UnitOfWork(engine) as uow:
+        item = uow.session.get(ReviewItem, rel.id)
+        assert item is not None and item.status == "open" and item.reason == "conflict"
+        assert item.candidate.payload["target"]["key"] == "AUR"
+        assert "BYL" in item.conflict_with["merge_conflict"]
+
+
+def test_merge_with_an_edit_and_case_insensitive_endpoints(
+    engine: Engine, graph: InMemoryGraph
+) -> None:
+    pipe = pipeline(engine, graph)
+    pipe.ingest(doc([APH, FILING]), actor="bot")
+    lower = AUR_FILED.model_copy(
+        update={"target": EntityRef(class_name="Issuer", key="aur")}
+    )  # same new entity, other case
+    pipe.ingest(superset(AUR, lower), actor="sync")
+    items = dup_items(engine)
+    rel = next(i for i in items if i["kind"] == "relation")
+    assert rel["conflict_with"]["duplicate_of"]["key"] == "APH"
+    ent = next(i for i in items if i["kind"] == "entity")
+    edited = AUR.model_copy(
+        update={"properties": {**AUR.properties, "sector": "Industrials"}}
+    ).model_dump(mode="json")
+    pipe.approve(ent["id"], reviewer="rita", edited=edited, merge=True)
+    aph = graph.node_properties("Issuer", "ticker", "APH")
+    assert aph is not None and aph["sector"] == "Industrials"
+    assert aph["name"] == "Aurora Pacific Holdings (Demo)"
+    assert graph.node_properties("Issuer", "ticker", "AUR") is None
+
+
+def test_rollback_closes_open_duplicate_items(engine: Engine, graph: InMemoryGraph) -> None:
+    pipe = pipeline(engine, graph)
+    pipe.ingest(doc([APH, FILING]), actor="bot")
+    summary = pipe.ingest(superset(AUR, AUR_FILED), actor="sync")
+    assert pipe.rollback(summary.run_id, actor="admin")["review_items_closed"] == 2
+    assert {i["status"] for i in dup_items(engine)} == {"rejected"}
+
+
+def test_both_flagged_endpoints_are_recorded() -> None:
+    """Finding 6: a relation whose two endpoints are both possible duplicates."""
+    from writer_service.pipeline.orchestrator import _duplicate_of
+
+    dups = {
+        ("Issuer", "aur"): {"class_name": "Issuer", "key": "APH", "candidate_key": "AUR"},
+        ("Issuer", "byx"): {"class_name": "Issuer", "key": "BYL", "candidate_key": "BYX"},
+    }
+    rel = CandidateRelation(
+        relation="PARTNERS_WITH",
+        source=EntityRef(class_name="Issuer", key="AUR"),
+        target=EntityRef(class_name="Issuer", key="BYX"),
+    )
+    dup = _duplicate_of(rel, dups)
+    assert dup is not None and dup["side"] == "source"
+    assert [(s["side"], s["key"]) for s in dup["sides"]] == [("source", "APH"), ("target", "BYL")]
+
+
+# review #39 round 2
+
+
+def test_a_merge_sticks_when_the_source_is_ingested_again(
+    engine: Engine, graph: InMemoryGraph
+) -> None:
+    """Finding 1: re-syncing the same dataset must not re-open the duplicate."""
+    pipe = pipeline(engine, graph)
+    pipe.ingest(doc([APH, FILING]), actor="bot")
+    pipe.ingest(superset(AUR, AUR_FILED), actor="sync")
+    for item in dup_items(engine):
+        pipe.approve(item["id"], reviewer="rita", merge=True)
+    again = pipe.ingest(superset(AUR, AUR_FILED), actor="sync")
+    assert again.counts["commit"] == 2 and again.counts["review"] == 0, again.counts
+    assert again.counts["conflict"] == 0
+    assert graph.node_properties("Issuer", "ticker", "AUR") is None
+    aph = graph.node_properties("Issuer", "ticker", "APH")
+    assert aph is not None and aph["name"] == "Aurora Pacific Holdings (Demo)"
+    with UnitOfWork(engine) as uow:
+        latest = list(
+            uow.session.scalars(select(Candidate).where(Candidate.run_id == again.run_id))
+        )
+        assert any("was merged into 'APH'" in n for c in latest for n in c.breakdown["notes"])
+
+
+def test_keep_as_new_writes_the_stored_key(engine: Engine, graph: InMemoryGraph) -> None:
+    """Finding 2: Neo4j keys are case-sensitive; the relation must use the stored key."""
+    pipe = pipeline(engine, graph)
+    pipe.ingest(doc([APH, FILING]), actor="bot")
+    lower = AUR_FILED.model_copy(update={"target": EntityRef(class_name="Issuer", key="aur")})
+    pipe.ingest(superset(lower, AUR), actor="sync")
+    items = dup_items(engine)
+    for kind in ("entity", "relation"):
+        pipe.approve(next(i["id"] for i in items if i["kind"] == kind), reviewer="rita")
+    with UnitOfWork(engine) as uow:
+        rel = next(
+            i for i in uow.session.scalars(select(ReviewItem)) if i.candidate.kind == "relation"
+        )
+        assert rel.candidate.payload["target"]["key"] == "AUR"
+
+
+def test_merging_a_relation_after_keeping_its_entity_is_refused(
+    engine: Engine, graph: InMemoryGraph
+) -> None:
+    """Finding 3: that would split the entity (AUR accepted, its filing pointing at APH)."""
+    from writer_service.pipeline.orchestrator import PipelineError
+
+    pipe = pipeline(engine, graph)
+    pipe.ingest(doc([APH, FILING]), actor="bot")
+    pipe.ingest(superset(AUR, AUR_FILED), actor="sync")
+    items = dup_items(engine)
+    pipe.approve(next(i["id"] for i in items if i["kind"] == "entity"), reviewer="rita")
+    rel = next(i["id"] for i in items if i["kind"] == "relation")
+    with pytest.raises(PipelineError, match="was kept as a new entity"):
+        pipe.approve(rel, reviewer="rita", merge=True)
+    pipe.approve(rel, reviewer="rita")  # keeping it as new is fine
+    assert graph.targets(
+        "FILED_BY", ("Filing", "filing_id", "AR-2025-APH"), {"Issuer": "ticker"}
+    ) == [{"Issuer": "AUR"}]
+
+
+def test_merge_rewrites_both_flagged_endpoints(engine: Engine, graph: InMemoryGraph) -> None:
+    """Finding 5: every flagged side is rewritten, and each target must exist."""
+    from writer_service.ontology.service import spec_of
+    from writer_service.pipeline.orchestrator import PipelineError
+
+    pipe = pipeline(engine, graph)
+    with UnitOfWork(engine) as uow:
+        published = uow.ontology_versions.published()
+        assert published is not None
+        spec = spec_of(published)
+    rel = CandidateRelation(
+        relation="FILED_BY",
+        source=EntityRef(class_name="Filing", key="AR-NEW"),
+        target=EntityRef(class_name="Issuer", key="AUR"),
+    )
+    dup = {
+        "sides": [
+            {
+                "side": "source",
+                "class_name": "Filing",
+                "candidate_key": "AR-NEW",
+                "key": "AR-2025-APH",
+            },
+            {"side": "target", "class_name": "Issuer", "candidate_key": "AUR", "key": "APH"},
+        ]
+    }
+    with pytest.raises(PipelineError, match="not in the graph"):
+        pipe._merged(rel, dup, spec)
+    pipe.ingest(doc([APH, FILING]), actor="bot")
+    merged, _, sides = pipe._merged(rel, dup, spec)
+    assert [s["side"] for s in sides] == ["source", "target"]
+    assert isinstance(merged, CandidateRelation)
+    assert (merged.source.key, merged.target.key) == ("AR-2025-APH", "APH")
+
+
+# review #39 round 3
+
+
+def _merge_all(pipe: WriterPipeline, engine: Engine) -> None:
+    for item in dup_items(engine):
+        if item["status"] == "open":
+            pipe.approve(item["id"], reviewer="rita", merge=True)
+
+
+def test_a_reused_key_is_not_rewritten_onto_the_merge_target(
+    engine: Engine, graph: InMemoryGraph
+) -> None:
+    """Finding 1: after AUR was merged into APH, a row AUR "Zebra Mining Corp" is not the
+    same entity: it goes to review (with the earlier merge noted), nothing lands on APH."""
+    pipe = pipeline(engine, graph)
+    pipe.ingest(doc([APH, FILING]), actor="bot")
+    pipe.ingest(superset(AUR, AUR_FILED), actor="sync")
+    _merge_all(pipe, engine)
+    zebra = AUR.model_copy(
+        update={"properties": {"ticker": "AUR", "name": "Zebra Mining Corp", "sector": "Mining"}}
+    )
+    again = pipe.ingest(superset(zebra, AUR_FILED), actor="sync")
+    assert again.counts["commit"] == 0, again.counts
+    aph = graph.node_properties("Issuer", "ticker", "APH")
+    assert aph is not None and "sector" not in aph
+    open_items = [i for i in dup_items(engine) if i["status"] == "open"]
+    ent = next(i for i in open_items if i["kind"] == "entity")
+    assert ent["conflict_with"]["duplicate_of"]["previously_merged"]
+    assert any("doesn't match it" in r for r in ent["reasons"] + [ent["conflict_with"]["message"]])
+    # the reviewer decides AUR is now a different company: allowed for this item
+    pipe.approve(ent["id"], reviewer="rita")
+    assert graph.node_properties("Issuer", "ticker", "AUR") is not None
+
+
+def test_keep_as_new_after_the_relation_was_merged_is_refused(
+    engine: Engine, graph: InMemoryGraph
+) -> None:
+    """Finding 2: relation merged first, then the entity kept as new would split AUR."""
+    from writer_service.pipeline.orchestrator import PipelineError
+
+    pipe = pipeline(engine, graph)
+    pipe.ingest(doc([APH, FILING]), actor="bot")
+    pipe.ingest(superset(AUR, AUR_FILED), actor="sync")
+    items = dup_items(engine)
+    pipe.approve(next(i["id"] for i in items if i["kind"] == "relation"), "rita", merge=True)
+    ent = next(i["id"] for i in items if i["kind"] == "entity")
+    with pytest.raises(PipelineError, match="was merged into 'APH'"):
+        pipe.approve(ent, reviewer="rita")
+    assert graph.node_properties("Issuer", "ticker", "AUR") is None
+    pipe.approve(ent, reviewer="rita", merge=True)
+
+
+def test_two_open_items_for_one_key_cannot_disagree(engine: Engine, graph: InMemoryGraph) -> None:
+    """Finding 3: two syncs before review open two duplicate items for AUR."""
+    from writer_service.pipeline.orchestrator import PipelineError
+
+    pipe = pipeline(engine, graph)
+    pipe.ingest(doc([APH]), actor="bot")
+    pipe.ingest(superset(AUR), actor="sync")
+    pipe.ingest(superset(AUR), actor="sync")
+    first, second = dup_items(engine)
+    pipe.approve(first["id"], reviewer="rita", merge=True)
+    with pytest.raises(PipelineError, match="was merged into 'APH'"):
+        pipe.approve(second["id"], reviewer="rita")
+    assert graph.node_properties("Issuer", "ticker", "AUR") is None
+
+
+def test_merge_skips_a_side_the_reviewer_edited(engine: Engine, graph: InMemoryGraph) -> None:
+    """Finding 4: edit the target elsewhere, then merge: nothing left to merge."""
+    from writer_service.pipeline.orchestrator import PipelineError
+
+    pipe = pipeline(engine, graph)
+    pipe.ingest(doc([APH, FILING]), actor="bot")
+    pipe.ingest(superset(AUR, AUR_FILED), actor="sync")
+    rel = next(i for i in dup_items(engine) if i["kind"] == "relation")
+    edited = AUR_FILED.model_copy(
+        update={"target": EntityRef(class_name="Issuer", key="APH")}
+    ).model_dump(mode="json")
+    with pytest.raises(PipelineError, match="nothing to merge"):
+        pipe.approve(rel["id"], reviewer="rita", edited=edited, merge=True)
+
+
+# review #39 round 4
+
+ZEBRA = AUR.model_copy(
+    update={"properties": {"ticker": "AUR", "name": "Zebra Mining Corp", "sector": "Mining"}}
+)
+NEW_FILING = CandidateRelation(
+    relation="FILED_BY",
+    source=EntityRef(class_name="Filing", key="AR-2026-AUR"),
+    target=EntityRef(class_name="Issuer", key="AUR"),
+    evidence=[sev("ticker: AUR")],
+)
+
+
+def _merged_aur(engine: Engine, graph: InMemoryGraph) -> WriterPipeline:
+    pipe = pipeline(engine, graph)
+    pipe.ingest(doc([APH, FILING]), actor="bot")
+    pipe.ingest(superset(AUR, AUR_FILED), actor="sync")
+    _merge_all(pipe, engine)
+    return pipe
+
+
+def test_a_reused_key_stays_blocked_for_relations_in_a_later_run(
+    engine: Engine, graph: InMemoryGraph
+) -> None:
+    """Finding 1: issuers and filings are separate datasets, so separate runs."""
+    pipe = _merged_aur(engine, graph)
+    assert pipe.ingest(superset(ZEBRA), actor="sync").counts["commit"] == 0
+    filings = pipe.ingest(superset(NEW_FILING), actor="sync")
+    assert filings.counts["commit"] == 0 and filings.counts["review"] == 1, filings.counts
+    assert (
+        graph.targets("FILED_BY", ("Filing", "filing_id", "AR-2026-AUR"), {"Issuer": "ticker"})
+        == []
+    )
+    # the reviewer keeps Zebra as a new AUR; then the filing can be kept for it
+    open_items = [i for i in dup_items(engine) if i["status"] == "open"]
+    ent = next(i for i in open_items if i["kind"] == "entity")
+    rel = next(i for i in open_items if i["kind"] == "relation")
+    pipe.approve(ent["id"], reviewer="rita")
+    pipe.approve(rel["id"], reviewer="rita")
+    assert graph.targets(
+        "FILED_BY", ("Filing", "filing_id", "AR-2026-AUR"), {"Issuer": "ticker"}
+    ) == [{"Issuer": "AUR"}]
+
+
+def test_a_newer_merge_revokes_the_keep_as_new_exemption(
+    engine: Engine, graph: InMemoryGraph
+) -> None:
+    """Finding 2: merge the reused key's relation into APH, then keep the entity: a split."""
+    from writer_service.pipeline.orchestrator import PipelineError
+
+    pipe = _merged_aur(engine, graph)
+    pipe.ingest(superset(ZEBRA, NEW_FILING), actor="sync")
+    open_items = [i for i in dup_items(engine) if i["status"] == "open"]
+    rel = next(i for i in open_items if i["kind"] == "relation")
+    ent = next(i for i in open_items if i["kind"] == "entity")
+    pipe.approve(rel["id"], reviewer="rita", merge=True)
+    with pytest.raises(PipelineError, match="'AUR' was merged into 'APH'"):
+        pipe.approve(ent["id"], reviewer="rita")
+    assert graph.node_properties("Issuer", "ticker", "AUR") is None
+
+
+def test_the_earlier_merge_wins_over_another_name_match(
+    engine: Engine, graph: InMemoryGraph
+) -> None:
+    """Finding 3: an accepted ZMC also matches the Zebra name; the item must still say
+    'previously merged into APH', so keeping AUR as new stays possible."""
+    pipe = _merged_aur(engine, graph)
+    zmc = ZEBRA.model_copy(update={"properties": {"ticker": "ZMC", "name": "Zebra Mining Corp"}})
+    pipe.ingest(superset(zmc), actor="sync")
+    pipe.ingest(superset(ZEBRA), actor="sync")
+    ent = next(i for i in dup_items(engine) if i["status"] == "open" and i["kind"] == "entity")
+    assert ent["conflict_with"]["duplicate_of"]["key"] == "APH"
+    assert ent["conflict_with"]["duplicate_of"]["previously_merged"]
+    pipe.approve(ent["id"], reviewer="rita")
+    assert graph.node_properties("Issuer", "ticker", "AUR") is not None
+
+
+# review #39 round 5
+
+
+def test_a_relation_alone_is_never_rewritten_through_an_alias(
+    engine: Engine, graph: InMemoryGraph
+) -> None:
+    """Finding 1 (a): a filings sync arrives before the issuer sync; nothing in it says AUR
+    is still the merged entity, so it goes to review (pointing at APH) instead of committing
+    onto APH unseen."""
+    pipe = _merged_aur(engine, graph)
+    run = pipe.ingest(superset(NEW_FILING), actor="sync")
+    assert run.counts["commit"] == 0 and run.counts["review"] == 1, run.counts
+    assert (
+        graph.targets("FILED_BY", ("Filing", "filing_id", "AR-2026-AUR"), {"Issuer": "ticker"})
+        == []
+    )
+    rel = next(i for i in dup_items(engine) if i["status"] == "open")
+    dup = rel["conflict_with"]["duplicate_of"]
+    assert dup["key"] == "APH" and dup["merged_earlier"]
+    assert "nothing in this batch confirms" in rel["conflict_with"]["message"]
+    pipe.approve(rel["id"], reviewer="rita", merge=True)  # the reviewer confirms
+    assert graph.targets(
+        "FILED_BY", ("Filing", "filing_id", "AR-2026-AUR"), {"Issuer": "ticker"}
+    ) == [{"Issuer": "APH"}]
+
+
+def test_after_rejecting_a_reused_key_its_relations_still_wait(
+    engine: Engine, graph: InMemoryGraph
+) -> None:
+    """Finding 1 (b): rejecting the Zebra item must not let later filings commit onto APH."""
+    pipe = _merged_aur(engine, graph)
+    pipe.ingest(superset(ZEBRA), actor="sync")
+    ent = next(i for i in dup_items(engine) if i["status"] == "open")
+    pipe.reject(ent["id"], reviewer="rita")
+    run = pipe.ingest(superset(NEW_FILING), actor="sync")
+    assert run.counts["commit"] == 0 and run.counts["review"] == 1, run.counts
+
+
+def test_an_entity_kept_as_new_cannot_then_be_merged(engine: Engine, graph: InMemoryGraph) -> None:
+    """Finding 2: two open items for AUR; keep A as new, then merging B would put AUR's
+    values on APH while AUR also exists."""
+    from writer_service.pipeline.orchestrator import PipelineError
+
+    pipe = pipeline(engine, graph)
+    pipe.ingest(doc([APH]), actor="bot")
+    pipe.ingest(superset(AUR), actor="sync")
+    pipe.ingest(superset(AUR), actor="sync")
+    first, second = dup_items(engine)
+    pipe.approve(first["id"], reviewer="rita")
+    with pytest.raises(PipelineError, match="was kept as a new entity"):
+        pipe.approve(second["id"], reviewer="rita", merge=True)
+
+
+def test_the_other_name_match_is_kept_on_a_previously_merged_item(
+    engine: Engine, graph: InMemoryGraph
+) -> None:
+    """Finding 3: the reviewer should see that the name also matches ZMC."""
+    pipe = _merged_aur(engine, graph)
+    zmc = ZEBRA.model_copy(update={"properties": {"ticker": "ZMC", "name": "Zebra Mining Corp"}})
+    pipe.ingest(superset(zmc), actor="sync")
+    pipe.ingest(superset(ZEBRA), actor="sync")
+    ent = next(i for i in dup_items(engine) if i["status"] == "open" and i["kind"] == "entity")
+    assert ent["conflict_with"]["duplicate_of"]["also_matches"] == "ZMC"

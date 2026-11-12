@@ -34,7 +34,7 @@ export function summarize(candidate: Record<string, unknown>): string {
   return `${String(candidate.class_name ?? "?")}${first !== undefined ? `: ${String(first)}` : ""}`;
 }
 
-type Filter = "all" | "score" | "conflict";
+type Filter = "all" | "score" | "conflict" | "duplicate";
 
 export function ReviewPage() {
   const api = useApi();
@@ -62,6 +62,7 @@ export function ReviewPage() {
             { label: "All", value: "all" },
             { label: "Score", value: "score" },
             { label: "Conflict", value: "conflict" },
+            { label: "Duplicate", value: "duplicate" },
           ]}
         />
       </Group>
@@ -118,11 +119,11 @@ export function ReviewDetail({ item, onDone }: { item: ReviewItem; onDone: () =>
     onDone();
   };
   const approve = useMutation({
-    mutationFn: (edited: Record<string, unknown> | null) =>
+    mutationFn: (body: { edited?: Record<string, unknown>; merge: boolean }) =>
       unwrap(
         api.POST("/api/review/{item_id}/approve", {
           params: { path: { item_id: item.id } },
-          body: edited ? { edited } : {},
+          body,
         }),
       ),
     onSuccess: () => {
@@ -144,6 +145,8 @@ export function ReviewDetail({ item, onDone }: { item: ReviewItem; onDone: () =>
     },
   });
   const evidence = item.evidence as EvidenceItem[];
+  const duplicate = duplicateOf(item); // duplicate items, and conflicts that involve one
+  const mergeConflict = (item.conflict_with as { merge_conflict?: string } | null)?.merge_conflict;
 
   return (
     <Card withBorder>
@@ -154,9 +157,26 @@ export function ReviewDetail({ item, onDone }: { item: ReviewItem; onDone: () =>
           </Title>
           <StatusBadge status={item.reason} />
         </Group>
-        {item.conflict_with && (
+        {item.reason === "conflict" && item.conflict_with && (
           <Alert color="orange" title="Conflict">
             {String((item.conflict_with as { message?: unknown }).message ?? JSON.stringify(item.conflict_with))}
+          </Alert>
+        )}
+        {duplicate && (
+          <Alert color="yellow" title="Possible duplicate" data-testid="duplicate-of">
+            <Text size="sm">
+              This looks like {duplicate.class_name} {duplicate.key_property} ={" "}
+              <b>{duplicate.key}</b> (name similarity {duplicate.similarity.toFixed(2)}), under the
+              new key {duplicate.candidate_key}
+              {duplicate.side ? ` (the relation's ${duplicate.side})` : ""}. Merge it into{" "}
+              {duplicate.key} (which must already be in the graph), or keep it as a new one (a
+              relation needs its new entity approved first).
+            </Text>
+            {mergeConflict && (
+              <Text size="sm" c="red" mt="xs" data-testid="merge-conflict">
+                A merge was refused: {mergeConflict}
+              </Text>
+            )}
           </Alert>
         )}
         <Text fw={600}>Candidate</Text>
@@ -177,9 +197,20 @@ export function ReviewDetail({ item, onDone }: { item: ReviewItem; onDone: () =>
         <ErrorAlert error={approve.error} title="Approve failed" />
         <ErrorAlert error={reject.error} title="Reject failed" />
         <Group>
-          <Button color="green" onClick={() => approve.mutate(null)} loading={approve.isPending}>
-            Approve
-          </Button>
+          {duplicate ? (
+            <>
+              <Button color="green" onClick={() => approve.mutate({ merge: true })} loading={approve.isPending}>
+                Merge into {duplicate.key}
+              </Button>
+              <Button variant="light" color="green" onClick={() => approve.mutate({ merge: false })} loading={approve.isPending}>
+                {item.reason === "conflict" ? "Approve (replace)" : "Keep as new"}
+              </Button>
+            </>
+          ) : (
+            <Button color="green" onClick={() => approve.mutate({ merge: false })} loading={approve.isPending}>
+              Approve
+            </Button>
+          )}
           <Button variant="light" onClick={() => setEditing(true)}>
             Edit then approve
           </Button>
@@ -193,7 +224,7 @@ export function ReviewDetail({ item, onDone }: { item: ReviewItem; onDone: () =>
           opened
           candidate={item.candidate}
           onClose={() => setEditing(false)}
-          onSubmit={(edited) => approve.mutate(edited)}
+          onSubmit={(edited) => approve.mutate({ edited, merge: false })}
           busy={approve.isPending}
         />
       )}
@@ -207,6 +238,20 @@ export function ReviewDetail({ item, onDone }: { item: ReviewItem; onDone: () =>
       </Modal>
     </Card>
   );
+}
+
+export type DuplicateOf = {
+  class_name: string;
+  key_property: string;
+  candidate_key: string;
+  key: string;
+  similarity: number;
+  side?: "source" | "target";
+};
+
+function duplicateOf(item: ReviewItem): DuplicateOf | null {
+  const d = (item.conflict_with as { duplicate_of?: DuplicateOf } | null)?.duplicate_of;
+  return d && typeof d.key === "string" ? d : null;
 }
 
 const asText = (v: unknown) => (v === null || v === undefined ? "" : String(v));

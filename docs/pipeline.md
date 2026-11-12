@@ -18,7 +18,7 @@ Code: `src/writer_service/pipeline/orchestrator.py`, `graph_store.py`. Design: [
 | 2 Match | Entity references resolved to existing keys (fuzzy names, case), duplicates flagged | [matching](matching.md) |
 | 3 Compile | Schema gate → **reject**; constraint gate → **conflict** | [gates](gates.md) |
 | 4 Test | Grounding (exact page/row), back-translation (LLM-extracted only), stability, entity match, self-confidence → weighted score | [scoring](scoring.md) |
-| 5 Review | Route: commit / review / conflict / reject. A **non-verbatim quote (grounding < 1.0) is never auto-committed**, whatever the score. Every candidate is stored with its breakdown, and review/conflict items open in the queue | |
+| 5 Review | Route: commit / review / conflict / reject. A **non-verbatim quote (grounding < 1.0) is never auto-committed**, whatever the score, and neither is a **possible duplicate** (or a relation to one; reason `duplicate`). Every candidate is stored with its breakdown, and review/conflict items open in the queue | [matching](matching.md) |
 | 6 Commit | All `commit` facts written in **one Neo4j transaction** | `graph_store.py` |
 
 ## What lands in Neo4j
@@ -71,19 +71,68 @@ Rolling back a run also **closes its open review items** (`rejected`, note "run 
 ## Review decisions
 
 ```python
-pipeline.approve(review_item_id, reviewer, edited=None)
+pipeline.approve(review_item_id, reviewer, edited=None, merge=False)
 pipeline.reject(review_item_id, reviewer, note)
 pipeline.rollback(run_id, actor)
 ```
 
 - An approval is written under its **own graph run** (`approval-<item id>`), so it doesn't depend
   on, and isn't removed by, a rollback of the ingestion run that proposed it.
-- The **schema gate** runs again (edits must still fit the ontology). For a score-routed item
-  the **constraint gate** runs again too: if the graph changed since ingest and the fact now
+- Review reasons: `score` (between the thresholds, or grounding < 1.0), `conflict`
+  (contradicts an accepted fact) and `duplicate` (a possible duplicate, see below).
+- The **schema gate** runs again (edits must still fit the ontology). For a `score` or
+  `duplicate` item the **constraint gate** runs again too: if the graph changed since ingest and the fact now
   contradicts it, the item becomes a `conflict` (still open) and nothing is written.
 - **Approving a conflict** means the new fact *replaces* the old one, as far as the relation's
   cardinality requires: `many_to_one` drops the source's other targets, `one_to_many` the
   target's other sources, `one_to_one` both. The removed edges are recorded in the audit entry.
+- **Duplicates.** Approving a `duplicate` item keeps the candidate as a **new** entity.
+  `merge=True` instead rewrites its identity key (for a relation: every flagged endpoint) to the
+  existing entity's key, so the fact lands on that node. Where the existing entity already has
+  a different value (typically the variant name that made it look like a duplicate), the
+  existing value is kept; the audit entry records `merged_into` and the values not written
+  (`kept_existing`). The item is stored as `edited`.
+  - Merge works on any item that carries `duplicate_of`: a relation to a possible duplicate
+    that also contradicts the graph is a `conflict` item with `duplicate_of`.
+  - The merge target must be an accepted (non-stub) entity in the graph: the matcher also
+    compares against new entities of the same batch, which may never be accepted (409).
+  - A merged fact always goes through the constraint gate; if it contradicts the graph,
+    nothing is written and the item stays as it was, with `merge_conflict` (409).
+  - Keeping a relation to a possible duplicate as new needs that entity accepted first
+    (approve its entity item); otherwise the relation would create it as a stub (409).
+  - Merging an item without `duplicate_of` is an error (409), and so is merging a relation
+    whose new entity was kept as new (that would split the entity).
+  - Keeping a relation as new rewrites the endpoint to the entity's stored key (Neo4j keys are
+    case-sensitive).
+  - **Merges stick.** An approved merge records the keys it rewrote (`merged`) on its item.
+    Later ingests rewrite such a key to the merged entity before matching, the way the merge
+    did (differing values of the merged entity are kept; the note lists them), so re-syncing
+    the same dataset doesn't re-open the duplicate. An alias is used only while
+    - its target is still an accepted entity and the merged-away key is *not* one (once a
+      reviewer keeps that key as a real entity, the alias is ignored), and
+    - the incoming entity's name still matches the target (similarity ≥ 0.90). Otherwise (a
+      reused key, or no name to compare) it is **not** rewritten: it goes to review as a
+      duplicate marked `previously_merged`. While that item is open the key stays blocked,
+      so relations to it go to review too, in the same run or a later one (issuers and
+      filings are usually separate datasets). Keeping that item as new is the reviewer's
+      decision that the key now names a different entity; it is allowed only if no newer
+      merge of the key happened since (e.g. one of its relations merged into the target).
+    - **Relations** are rewritten through an alias only when the same batch carries the
+      entity under that key and it still fits the target. A relation on its own (e.g. a
+      filings dataset synced separately) has no name to check, so it goes to review pointing
+      at the target (`merged_earlier`): the reviewer merges it (one click) or, once the key's
+      entity has been kept as new, keeps it. Nothing is ever rewritten onto the target unseen.
+    - When the name also matches another entity, a `previously_merged` item records it as
+      `also_matches`.
+  - Merging an entity whose own key was already kept as a new entity is refused (409).
+  - Keeping an entity as new under a key that has a valid merge alias is refused (409),
+    except on a `previously_merged` item flagged against that same (latest) merge: in any
+    order, one key can't be both merged and kept (relation merged first, or two items for
+    the same key).
+  - With `merge` and `edited` together, only endpoints that still point at the flagged key
+    are rewritten; if none do, 409 "nothing to merge".
+  - The approval audit records `merged_into`, every rewritten side (`merged`) and
+    `kept_existing`.
 - `write_run` returns **change records** for everything it destroyed: `edge` records for
   edges removed by conflict replacement, and `properties` records with the previous values of
   properties it overwrote on an existing entity (`null` = the property didn't exist).

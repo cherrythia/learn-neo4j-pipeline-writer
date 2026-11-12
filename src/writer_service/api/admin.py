@@ -412,6 +412,8 @@ class ReviewOut(BaseModel):
 
 class ApproveIn(BaseModel):
     edited: dict[str, Any] | None = None
+    # duplicate items only: write into the existing entity instead of creating a new one
+    merge: bool = False
 
 
 class RejectIn(BaseModel):
@@ -423,7 +425,7 @@ def list_review(
     _: Reviewer,
     engine: EngineDep,
     status: str = "open",
-    reason: str | None = None,
+    reason: Literal["score", "conflict", "duplicate"] | None = None,
     limit: Annotated[int, Query(ge=1, le=500)] = 100,
 ) -> list[ReviewOut]:
     with UnitOfWork(engine) as uow:
@@ -464,7 +466,7 @@ def approve_review(
     item_id: int, body: ApproveIn, user: Reviewer, pipeline: PipelineDep
 ) -> dict[str, str]:
     try:
-        pipeline.approve(item_id, user.username, body.edited)
+        pipeline.approve(item_id, user.username, body.edited, merge=body.merge)
     except ValidationError as exc:  # `edited` isn't a well-formed candidate fact
         raise HTTPException(422, f"edited fact is invalid: {exc}") from exc
     except PipelineError as exc:  # not open, or the edit fails the gates
