@@ -1,6 +1,6 @@
 # Admin API
 
-The JSON API behind the admin UI. Code: `src/writer_service/api/admin.py`. Interactive docs at
+The JSON API behind the [admin UI](admin-ui.md). Code: `src/writer_service/api/admin.py`. Interactive docs at
 `http://localhost:8000/docs` once the service runs. The schema is exported to
 `admin-ui/src/api/openapi.json` (`uv run writer-openapi`; a test fails if it's stale).
 

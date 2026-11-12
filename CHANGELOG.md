@@ -6,6 +6,22 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Added
+- **#15 Admin UI** (`admin-ui/`, served at `/admin/`)
+  - React + TypeScript + Mantine on Bun; TanStack Query; hash routing; React Flow graph.
+  - Typed client generated from `openapi.json` (`openapi-typescript` + `openapi-fetch`,
+    `bun run gen:api`; a test fails if the types are stale). Every request sends
+    `X-Requested-With: writer-admin` with `credentials: "include"`; 401 → Login,
+    403 → permission message, 429 → login throttled, other errors → the server's `detail`.
+  - Screens: Login, Review queue (evidence, score breakdown, approve / edit-then-approve /
+    reject), Ontology (versions, classes, relations, graph; drafts: add class/relation/property,
+    deprecate, publish with gate reasons, rollback), Proposals, Mappings, Scoring (validated
+    before saving), Runs (detail, rollback), Audit, Users. Navigation is role-aware.
+  - FastAPI serves `admin-ui/dist` at `/admin/` when built (`WRITER_ADMIN_UI_DIR`); the dev
+    server proxies `/api` and `/ingest` with paths unchanged.
+  - `uv run writer-demo-server`: the real app over a temporary SQLite store, in-memory graph,
+    `FakeLLM` and mock Superset, with users and a seeded review queue.
+  - Component tests (bun test + Testing Library), Playwright smoke test (`e2e` CI job).
+    Docs: `docs/admin-ui.md`.
 - **#14 Admin JSON API** (`writer_service.api.admin`)
   - Ontology versions and drafts (classes, relations, publish, rollback), extension proposals,
     review queue (approve/edit/reject), column mappings (manual, LLM-suggested, approve),

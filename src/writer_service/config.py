@@ -43,6 +43,7 @@ class Settings(BaseSettings):
     session_ttl_minutes: int = Field(default=480, ge=5, le=7 * 24 * 60)
     cookie_secure: bool = False  # True behind HTTPS (always in prod)
     max_upload_mb: int = Field(default=20, ge=1, le=200)
+    admin_ui_dir: str | None = None  # built admin UI served at /admin/; unset = admin-ui/dist
 
     # Superset / source MySQL (read-only) for structured ingestion (issue #12)
     superset_url: str = "http://127.0.0.1:8088"
