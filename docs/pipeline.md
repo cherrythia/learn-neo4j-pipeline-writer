@@ -112,11 +112,15 @@ pipeline.rollback(run_id, actor)
       reviewer keeps that key as a real entity, the alias is ignored), and
     - the incoming entity's name still matches the target (similarity ≥ 0.90). Otherwise (a
       reused key, or no name to compare) it is **not** rewritten: it goes to review as a
-      duplicate marked `previously_merged`, and relations to it follow. Keeping that item as
-      new is the reviewer's decision that the key now names a different entity.
+      duplicate marked `previously_merged`. While that item is open the key stays blocked,
+      so relations to it go to review too, in the same run or a later one (issuers and
+      filings are usually separate datasets). Keeping that item as new is the reviewer's
+      decision that the key now names a different entity; it is allowed only if no newer
+      merge of the key happened since (e.g. one of its relations merged into the target).
   - Keeping an entity as new under a key that has a valid merge alias is refused (409),
-    except on a `previously_merged` item: in any order, one key can't be both merged and kept
-    (relation merged first, or two items for the same key).
+    except on a `previously_merged` item flagged against that same (latest) merge: in any
+    order, one key can't be both merged and kept (relation merged first, or two items for
+    the same key).
   - With `merge` and `edited` together, only endpoints that still point at the flagged key
     are rewritten; if none do, 409 "nothing to merge".
   - The approval audit records `merged_into`, every rewritten side (`merged`) and

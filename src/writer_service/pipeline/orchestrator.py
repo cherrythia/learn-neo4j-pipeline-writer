@@ -207,14 +207,17 @@ class WriterPipeline:
             and (slot := _slot(v.candidate, spec)) in aliases
             and not self._alias_fits(v.candidate, aliases[slot][0], spec)
         }
+        # ... and keys an earlier run already sent to review for that reason, still undecided:
+        # relations to them (often a separate dataset, so a separate run) wait as well
+        for slot, info in self._pending_reused_keys(uow).items():
+            blocked.add(slot)
+            duplicates.setdefault(slot, info)
         for v in voted:
             c, alias_note, forced = self._apply_aliases(v.candidate, aliases, blocked, spec)
             if isinstance(c, CandidateEntity):
                 m = matcher.match_entity(c) if c.class_name in matcher.classes else None
                 conf = m.confidence if m else None
                 note = list(alias_note)
-                if forced is not None:
-                    duplicates[(c.class_name, match_key(forced["candidate_key"]))] = forced
                 if m is not None and m.status == "possible_duplicate" and m.key is not None:
                     note.append(f"possible duplicate of {c.class_name} {m.key!r}")
                     cls = matcher.classes[c.class_name]
@@ -226,6 +229,8 @@ class WriterPipeline:
                         "key": m.key,
                         "similarity": round(1 - (m.confidence or 0.0), 4),
                     }
+                if forced is not None:  # the earlier merge is what the reviewer must see
+                    duplicates[(c.class_name, match_key(forced["candidate_key"]))] = forced
                 if c.class_name in matcher.classes:
                     matcher.add_batch_entity(c)
                 resolved.append(c)
@@ -595,11 +600,12 @@ class WriterPipeline:
     def _merge_aliases(
         self, uow: UnitOfWork, spec: OntologySpec
     ) -> dict[tuple[str, str], tuple[str, int]]:
-        """(class, match key of a merged-away key) -> (entity it was merged into, item id),
+        """(class, match key of a merged-away key) -> (entity it was merged into, id of the
+        latest merging item),
         from approved merges. An alias is only valid while its target is an accepted entity
         and the merged-away key is *not* (once someone keeps that key as a real entity, the
         merge no longer says anything about it)."""
-        out: dict[tuple[str, str], tuple[str, int]] = {}
+        out: dict[tuple[str, str], tuple[str, int, str]] = {}
         q = select(ReviewItem).where(
             ReviewItem.status == "edited", ReviewItem.reason.in_(("duplicate", "conflict"))
         )
@@ -611,12 +617,27 @@ class WriterPipeline:
                 out[(side["class_name"], match_key(side["candidate_key"]))] = (
                     side["key"],
                     item.id,
+                    side["candidate_key"],  # original spelling: Neo4j's exact lookup is indexed
                 )
         return {
             slot: (key, item_id)
-            for slot, (key, item_id) in out.items()
-            if self._accepted(spec, slot[0], key) and not self._accepted(spec, slot[0], slot[1])
+            for slot, (key, item_id, original) in out.items()
+            if self._accepted(spec, slot[0], key) and not self._accepted(spec, slot[0], original)
         }
+
+    @staticmethod
+    def _pending_reused_keys(uow: UnitOfWork) -> dict[tuple[str, str], dict[str, Any]]:
+        """Keys with an open entity item sent to review because they no longer match an earlier
+        merge (``previously_merged``) -> that item's ``duplicate_of``."""
+        out: dict[tuple[str, str], dict[str, Any]] = {}
+        q = select(ReviewItem).where(
+            ReviewItem.status == "open", ReviewItem.reason.in_(("duplicate", "conflict"))
+        )
+        for item in uow.session.scalars(q):
+            dup = (item.conflict_with or {}).get("duplicate_of") or {}
+            if dup.get("previously_merged") and "side" not in dup and dup.get("candidate_key"):
+                out[(dup["class_name"], match_key(dup["candidate_key"]))] = dict(dup)
+        return out
 
     def _alias_fits(self, cand: CandidateEntity, target: str, spec: OntologySpec) -> bool:
         """Does an incoming entity under a merged-away key still look like the merge target?
@@ -690,15 +711,20 @@ class WriterPipeline:
         it (the relations went to the merge target). Allowed only on an item that was sent to
         review *because* it no longer matches the merge (``previously_merged``): the reviewer
         then decides the key now names a different entity."""
-        if not isinstance(cand, CandidateEntity) or dup.get("previously_merged"):
+        if not isinstance(cand, CandidateEntity):
             return
         slot = _slot(cand, spec)
         hit = self._merge_aliases(uow, spec).get(slot) if slot else None
-        if hit is not None:
-            raise PipelineError(
-                f"{cand.class_name} {slot[1] if slot else ''!r} was merged into {hit[0]!r} "
-                f"(review item {hit[1]}): merge this one too, or reject it"
-            )
+        if hit is None or hit[1] == dup.get("previously_merged"):
+            # no merge, or exactly the merge this item was flagged against: the reviewer is
+            # deciding the key now names a different entity
+            return
+        cls = next(c for c in spec.classes if c.name == cand.class_name)
+        key = cand.properties.get(cls.identity_key)
+        raise PipelineError(
+            f"{cand.class_name} {key!r} was merged into {hit[0]!r} (review item {hit[1]}): "
+            "merge this one too, or reject it"
+        )
 
     def reject(self, item_id: int, reviewer: str, note: str | None = None) -> None:
         with UnitOfWork(self.engine) as uow:
