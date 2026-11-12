@@ -63,6 +63,16 @@ def test_upgrade_downgrade_roundtrip_on_mysql(mysql_url: str) -> None:
                     "VALUES (2, 'bogus', 'it', NOW())"
                 )
             )
+        # 0004 (#38): the review_items.reason CHECK accepts 'duplicate'
+        with engine.connect() as conn:
+            clause = conn.execute(
+                text(
+                    "SELECT CHECK_CLAUSE FROM information_schema.CHECK_CONSTRAINTS "
+                    "WHERE CONSTRAINT_SCHEMA = DATABASE() "
+                    "AND CONSTRAINT_NAME = 'ck_review_items_review_reason'"
+                )
+            ).scalar_one()
+        assert "duplicate" in clause
     finally:
         engine.dispose()
         downgrade(mysql_url, "base")

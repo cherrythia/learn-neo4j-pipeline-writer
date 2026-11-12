@@ -18,7 +18,7 @@ Code: `src/writer_service/pipeline/orchestrator.py`, `graph_store.py`. Design: [
 | 2 Match | Entity references resolved to existing keys (fuzzy names, case), duplicates flagged | [matching](matching.md) |
 | 3 Compile | Schema gate → **reject**; constraint gate → **conflict** | [gates](gates.md) |
 | 4 Test | Grounding (exact page/row), back-translation (LLM-extracted only), stability, entity match, self-confidence → weighted score | [scoring](scoring.md) |
-| 5 Review | Route: commit / review / conflict / reject. A **non-verbatim quote (grounding < 1.0) is never auto-committed**, whatever the score. Every candidate is stored with its breakdown, and review/conflict items open in the queue | |
+| 5 Review | Route: commit / review / conflict / reject. A **non-verbatim quote (grounding < 1.0) is never auto-committed**, whatever the score, and neither is a **possible duplicate** (or a relation to one; reason `duplicate`). Every candidate is stored with its breakdown, and review/conflict items open in the queue | [matching](matching.md) |
 | 6 Commit | All `commit` facts written in **one Neo4j transaction** | `graph_store.py` |
 
 ## What lands in Neo4j
@@ -71,19 +71,27 @@ Rolling back a run also **closes its open review items** (`rejected`, note "run 
 ## Review decisions
 
 ```python
-pipeline.approve(review_item_id, reviewer, edited=None)
+pipeline.approve(review_item_id, reviewer, edited=None, merge=False)
 pipeline.reject(review_item_id, reviewer, note)
 pipeline.rollback(run_id, actor)
 ```
 
 - An approval is written under its **own graph run** (`approval-<item id>`), so it doesn't depend
   on, and isn't removed by, a rollback of the ingestion run that proposed it.
-- The **schema gate** runs again (edits must still fit the ontology). For a score-routed item
-  the **constraint gate** runs again too: if the graph changed since ingest and the fact now
+- Review reasons: `score` (between the thresholds, or grounding < 1.0), `conflict`
+  (contradicts an accepted fact) and `duplicate` (a possible duplicate, see below).
+- The **schema gate** runs again (edits must still fit the ontology). For a `score` or
+  `duplicate` item the **constraint gate** runs again too: if the graph changed since ingest and the fact now
   contradicts it, the item becomes a `conflict` (still open) and nothing is written.
 - **Approving a conflict** means the new fact *replaces* the old one, as far as the relation's
   cardinality requires: `many_to_one` drops the source's other targets, `one_to_many` the
   target's other sources, `one_to_one` both. The removed edges are recorded in the audit entry.
+- **Duplicates.** Approving a `duplicate` item keeps the candidate as a **new** entity.
+  `merge=True` instead rewrites its identity key (for a relation: the flagged endpoint) to the
+  existing entity's key, so the fact lands on that node. Where the existing entity already has
+  a different value (typically the variant name that made it look like a duplicate), the
+  existing value is kept; the audit entry records `merged_into` and the values not written
+  (`kept_existing`). The item is stored as `edited`. Merging any other kind of item is an error.
 - `write_run` returns **change records** for everything it destroyed: `edge` records for
   edges removed by conflict replacement, and `properties` records with the previous values of
   properties it overwrote on an existing entity (`null` = the property didn't exist).

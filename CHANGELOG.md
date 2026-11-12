@@ -6,6 +6,18 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Added
+- **#38 Possible duplicates go to review**
+  - A new key whose name matches an existing entity (and any relation in the batch to that
+    key) is routed to review with reason `duplicate`, whatever its score, so a strong
+    structured row can no longer commit a second node for the same entity.
+  - The review item carries `conflict_with.duplicate_of` (class, key property, new key,
+    existing key, similarity, relation side). Approving keeps it as new;
+    `POST /api/review/{id}/approve {"merge": true}` / `pipeline.approve(..., merge=True)`
+    rewrites the key to the existing entity, keeping the existing entity's differing values
+    (audited as `merged_into` / `kept_existing`).
+  - Migration `0004`: `review_items.reason` accepts `duplicate` (MySQL CHECK replaced; the
+    downgrade turns duplicate items into score items).
+  - Admin UI: a Duplicate filter, a *Possible duplicate* panel, Merge into / Keep as new.
 - **#17 README walkthrough and demo script**
   - README: architecture diagram, how a fact gets into Neo4j, scoring with worked examples,
     one-command demo, running the real service, switching LLM.

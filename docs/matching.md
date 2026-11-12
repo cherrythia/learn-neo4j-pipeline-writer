@@ -17,7 +17,14 @@ identity key (`APH`), or propose an entity that duplicates an existing one under
 | `fuzzy` | text matches one entity's name/title ≥ 0.90, clear of the runner-up by ≥ 0.05 | relation endpoint **rewritten** to that entity's key | the similarity (≤ 0.99) |
 | `ambiguous` | best match is only partial (0.75–0.90), or two entities are within 0.05 | nothing rewritten; listed alternatives | 0.3 (sends the fact to review) |
 | `new` | nothing ≥ 0.75 | none | None (neutral 0.5 in scoring) |
-| `possible_duplicate` | an entity candidate's key is new but its name matches an existing entity | flagged with the other key | `1 − similarity` (near 0) |
+| `possible_duplicate` | an entity candidate's key is new but its name matches an existing entity (≥ 0.90) | **routed to review** (reason `duplicate`) with the other key, whatever the score; so is any relation in the batch that points to the new key | `1 − similarity` (near 0) |
+
+A possible duplicate never auto-commits: a structured row can score ≈ 0.89 even with a near-0
+`entity_match` (it weighs 0.10), which would otherwise write a second node for the same
+real-world entity. The review item's `conflict_with.duplicate_of` holds
+`{class_name, key_property, candidate_key, key, similarity}` (plus `side` for a relation), and
+the reviewer **merges** it into the existing entity or **keeps it as new**
+([pipeline](pipeline.md#review-decisions)).
 
 Thresholds are constructor arguments (`threshold`, `margin`, `floor`).
 

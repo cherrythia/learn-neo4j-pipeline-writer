@@ -584,3 +584,150 @@ def test_failed_ingest_restores_properties_it_overwrote(
         "seed",
         ["seed"],
     )
+
+
+# ---------------------------------------------------------------- possible duplicates (#38)
+
+DUP_ROW = SourceText(
+    "dataset:1", "row 1 (ticker=AUR)", "ticker: AUR; name: Aurora Pacific Holdings"
+)
+
+
+def sev(quote: str) -> Evidence:
+    return Evidence(
+        source_type="superset", source_ref="dataset:1", locator="row 1 (ticker=AUR)", quote=quote
+    )
+
+
+AUR = CandidateEntity(
+    class_name="Issuer",
+    properties={"ticker": "AUR", "name": "Aurora Pacific Holdings"},
+    evidence=[sev("name: Aurora Pacific Holdings")],
+)
+AUR_FILED = CandidateRelation(
+    relation="FILED_BY",
+    source=EntityRef(class_name="Filing", key="AR-2025-APH"),
+    target=EntityRef(class_name="Issuer", key="AUR"),
+    evidence=[sev("ticker: AUR")],
+)
+
+
+def superset(*cands: Any) -> SourceBatch:
+    return SourceBatch("superset", "dataset:1", [DUP_ROW], candidates=list(cands))
+
+
+def dup_items(engine: Engine) -> list[dict[str, Any]]:
+    """Duplicate review items as plain dicts (read inside the session)."""
+    with UnitOfWork(engine) as uow:
+        return [
+            {
+                "id": i.id,
+                "status": i.status,
+                "conflict_with": i.conflict_with,
+                "kind": i.candidate.kind,
+                "reasons": i.candidate.breakdown["reasons"],
+            }
+            for i in uow.session.scalars(select(ReviewItem))
+            if i.reason == "duplicate"
+        ]
+
+
+def test_possible_duplicate_never_auto_commits(engine: Engine, graph: InMemoryGraph) -> None:
+    """A structured row scores high enough to commit; a near-identical name under a new key
+    must still go to a human, with the entity it may duplicate."""
+    pipe = pipeline(engine, graph)
+    pipe.ingest(doc([APH]), actor="bot")
+    summary = pipe.ingest(superset(AUR), actor="sync")
+    assert summary.counts["commit"] == 0 and summary.counts["review"] == 1
+    assert graph.node_properties("Issuer", "ticker", "AUR") is None
+    (item,) = dup_items(engine)
+    dup = item["conflict_with"]["duplicate_of"]
+    assert dup["class_name"] == "Issuer" and dup["key"] == "APH" and dup["candidate_key"] == "AUR"
+    assert dup["key_property"] == "ticker" and dup["similarity"] >= 0.9
+    assert "possible duplicate of Issuer 'APH'" in item["conflict_with"]["message"]
+    assert any("possible duplicate" in r for r in item["reasons"])
+
+
+def test_relations_to_a_possible_duplicate_wait_for_review(
+    engine: Engine, graph: InMemoryGraph
+) -> None:
+    """Writing the relation would create the duplicate node as a stub."""
+    pipe = pipeline(engine, graph)
+    pipe.ingest(doc([APH, FILING]), actor="bot")
+    summary = pipe.ingest(superset(AUR, AUR_FILED), actor="sync")
+    assert summary.counts["commit"] == 0 and summary.counts["review"] == 2
+    assert graph.node_properties("Issuer", "ticker", "AUR") is None
+    rel = next(i for i in dup_items(engine) if i["kind"] == "relation")
+    assert rel["conflict_with"]["duplicate_of"]["side"] == "target"
+    assert rel["conflict_with"]["duplicate_of"]["key"] == "APH"
+
+
+def test_approving_a_possible_duplicate_as_new_creates_it(
+    engine: Engine, graph: InMemoryGraph
+) -> None:
+    pipe = pipeline(engine, graph)
+    pipe.ingest(doc([APH]), actor="bot")
+    pipe.ingest(superset(AUR), actor="sync")
+    (item,) = dup_items(engine)
+    pipe.approve(item["id"], reviewer="rita")
+    assert graph.node_properties("Issuer", "ticker", "AUR") is not None
+    assert graph.node_properties("Issuer", "ticker", "APH") is not None
+
+
+def test_merging_a_possible_duplicate_writes_into_the_existing_entity(
+    engine: Engine, graph: InMemoryGraph
+) -> None:
+    pipe = pipeline(engine, graph)
+    pipe.ingest(doc([APH, FILING]), actor="bot")
+    pipe.ingest(superset(AUR, AUR_FILED), actor="sync")
+    for item in dup_items(engine):
+        pipe.approve(item["id"], reviewer="rita", merge=True)
+    assert graph.node_properties("Issuer", "ticker", "AUR") is None
+    aph = graph.node_properties("Issuer", "ticker", "APH")
+    assert aph is not None and aph["name"] == "Aurora Pacific Holdings (Demo)"  # existing kept
+    assert graph.targets(
+        "FILED_BY", ("Filing", "filing_id", "AR-2025-APH"), {"Issuer": "ticker"}
+    ) == [{"Issuer": "APH"}]
+    with UnitOfWork(engine) as uow:
+        items = [i for i in uow.session.scalars(select(ReviewItem)) if i.reason == "duplicate"]
+        assert {i.status for i in items} == {"edited"}
+        entity = next(i for i in items if i.candidate.kind == "entity")
+        assert entity.candidate.payload["properties"]["ticker"] == "APH"
+        relation = next(i for i in items if i.candidate.kind == "relation")
+        assert relation.candidate.payload["target"]["key"] == "APH"
+    merged = [a for a in rows(engine, AuditLog) if a.action == "review.approve"]
+    assert all(a.detail["merged_into"] == "APH" for a in merged)
+    entity_audit = next(a for a in merged if a.detail["kept_existing"])
+    assert entity_audit.detail["kept_existing"] == {"name": "Aurora Pacific Holdings"}
+
+
+def test_merge_is_only_for_duplicates(engine: Engine, graph: InMemoryGraph) -> None:
+    from writer_service.pipeline.orchestrator import PipelineError
+
+    pipe = pipeline(engine, graph, judge(0.5))
+    pipe.ingest(doc([APH]), actor="bot")
+    (item,) = rows(engine, ReviewItem)
+    assert item.reason == "score"
+    with pytest.raises(PipelineError, match="only a possible duplicate can be merged"):
+        pipe.approve(item.id, reviewer="rita", merge=True)
+    assert rows(engine, ReviewItem)[0].status == "open"
+
+
+def test_exact_and_unrelated_entities_are_not_flagged(engine: Engine, graph: InMemoryGraph) -> None:
+    pipe = pipeline(engine, graph)
+    pipe.ingest(doc([APH]), actor="bot")
+    other = CandidateEntity(
+        class_name="Issuer",
+        properties={"ticker": "AUR", "name": "Zebra Mining"},
+        evidence=[sev("ticker: AUR")],
+    )
+    summary = pipe.ingest(
+        SourceBatch(
+            "superset",
+            "dataset:1",
+            [SourceText("dataset:1", "row 1 (ticker=AUR)", "ticker: AUR; name: Zebra Mining")],
+            candidates=[other],
+        ),
+        actor="sync",
+    )
+    assert summary.counts["commit"] == 1 and dup_items(engine) == []

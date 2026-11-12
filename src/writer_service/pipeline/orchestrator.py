@@ -12,7 +12,10 @@
    match and self-confidence → weighted score with breakdown. A fact whose grounding is
    below 1.0 (quote not verbatim) is routed to review at most, whatever its score.
 5. **Review**: route to commit / review / conflict / reject; every candidate is stored with
-   its derivation; review and conflict create review items.
+   its derivation; review and conflict create review items. A **possible duplicate** (a new
+   key whose name matches an existing entity), and any relation to it, is routed to review
+   (reason ``duplicate``) whatever its score: the reviewer keeps it as a new entity or merges
+   it into the existing one (#38).
 6. **Commit**: all ``commit`` facts are written to Neo4j in **one transaction** with
    provenance. If the graph write fails nothing is written and the run is marked ``failed``;
    if the governance commit fails after the graph write, the run is rolled back in the graph.
@@ -30,6 +33,7 @@ from sqlalchemy import Engine
 from writer_service.governance.models import Candidate, IngestionRun, ReviewItem, utcnow
 from writer_service.governance.uow import UnitOfWork
 from writer_service.llm.structured import StructuredLLM
+from writer_service.ontology.neo4j_schema import neo4j_label
 from writer_service.ontology.service import spec_of
 from writer_service.ontology.spec import OntologySpec
 from writer_service.pipeline.candidates import (
@@ -38,8 +42,10 @@ from writer_service.pipeline.candidates import (
 from writer_service.pipeline.candidates import (
     CandidateEntity,
     CandidateRelation,
+    EntityRef,
     SourceType,
     fact_hash,
+    match_key,
 )
 from writer_service.pipeline.gates import check_batch, schema_gate
 from writer_service.pipeline.graph_store import GraphWriter, audit_view, to_fact
@@ -184,14 +190,25 @@ class WriterPipeline:
         resolved: list[AnyCandidate] = []
         match_conf: list[float | None] = []
         notes: list[list[str]] = []
+        # (class, match key of the new entity) -> the existing entity it may duplicate
+        duplicates: dict[tuple[str, str], dict[str, Any]] = {}
         for v in voted:
             c = v.candidate
             if isinstance(c, CandidateEntity):
                 m = matcher.match_entity(c) if c.class_name in matcher.classes else None
                 conf = m.confidence if m else None
                 note = []
-                if m is not None and m.status == "possible_duplicate":
+                if m is not None and m.status == "possible_duplicate" and m.key is not None:
                     note.append(f"possible duplicate of {c.class_name} {m.key!r}")
+                    cls = matcher.classes[c.class_name]
+                    new_key = str(c.properties.get(cls.identity_key, ""))
+                    duplicates[(c.class_name, match_key(new_key))] = {
+                        "class_name": c.class_name,
+                        "key_property": cls.identity_key,
+                        "candidate_key": new_key,
+                        "key": m.key,
+                        "similarity": round(1 - (m.confidence or 0.0), 4),
+                    }
                 if c.class_name in matcher.classes:
                     matcher.add_batch_entity(c)
                 resolved.append(c)
@@ -208,6 +225,7 @@ class WriterPipeline:
             match_conf.append(conf)
             notes.append(note)
 
+        duplicate_of = [_duplicate_of(c, duplicates) for c in resolved]
         results = check_batch(resolved, spec, self.graph)
         counts = {
             "extracted": raw_total,
@@ -218,7 +236,9 @@ class WriterPipeline:
             "reject": 0,
         }
         facts = []
-        for v, result, conf, note in zip(voted, results, match_conf, notes, strict=True):
+        for v, result, conf, note, dup in zip(
+            voted, results, match_conf, notes, duplicate_of, strict=True
+        ):
             cand = result.candidate
             row = Candidate(
                 run_id=run_id,
@@ -253,14 +273,24 @@ class WriterPipeline:
                             "needs review",
                         ],
                     )
+                dup_message = _duplicate_message(dup) if dup else None
+                if dup_message and routing.decision in ("commit", "review"):
+                    # However strong the fact, a possible duplicate never auto-commits (#38).
+                    routing = Routing("review", [*routing.reasons, dup_message])
                 record_outcome(row, routing, s)
                 if routing.decision == "commit":
                     facts.append(to_fact(cand, spec, s.value))
-                elif routing.decision in ("review", "conflict"):
+                elif routing.decision == "conflict":
                     row.review_item = ReviewItem(
-                        reason="conflict" if routing.decision == "conflict" else "score",
-                        conflict_with={"message": result.conflict} if result.conflict else None,
+                        reason="conflict", conflict_with={"message": result.conflict}
                     )
+                elif dup_message:
+                    row.review_item = ReviewItem(
+                        reason="duplicate",
+                        conflict_with={"message": dup_message, "duplicate_of": dup},
+                    )
+                elif routing.decision == "review":
+                    row.review_item = ReviewItem(reason="score")
             if note:
                 row.breakdown = {**row.breakdown, "notes": note}
             counts[routing.decision] += 1
@@ -285,8 +315,19 @@ class WriterPipeline:
             )
         return item
 
-    def approve(self, item_id: int, reviewer: str, edited: dict[str, Any] | None = None) -> None:
+    def approve(
+        self,
+        item_id: int,
+        reviewer: str,
+        edited: dict[str, Any] | None = None,
+        *,
+        merge: bool = False,
+    ) -> None:
         """Commit a reviewed candidate (optionally edited).
+
+        * For a ``duplicate`` item, approving keeps the candidate as a **new** entity;
+          ``merge=True`` instead rewrites its key (or the relation's endpoint) to the existing
+          entity it may duplicate, so its properties and evidence go onto that entity.
 
         * The schema gate runs again (edits must still fit the ontology).
         * For a ``score`` item the constraint gate runs again too: if the graph changed since
@@ -305,6 +346,12 @@ class WriterPipeline:
             with UnitOfWork(self.engine) as uow:
                 item = self._open_item(uow, item_id)
                 row = item.candidate
+                dup: dict[str, Any] = (item.conflict_with or {}).get("duplicate_of") or {}
+                if merge and (item.reason != "duplicate" or not dup):
+                    raise PipelineError(
+                        f"only a possible duplicate can be merged (item {item_id} is a "
+                        f"{item.reason} item)"
+                    )
                 published = uow.ontology_versions.published()
                 assert published is not None
                 spec = spec_of(published)
@@ -314,10 +361,17 @@ class WriterPipeline:
                     raise PipelineError(
                         "edited candidate fails the schema gate: " + "; ".join(failures)
                     )
-                if item.reason == "score":
+                kept: dict[str, Any] = {}
+                if merge:
+                    cand, kept = self._merged(cand, dup, spec)
+                if item.reason in ("score", "duplicate"):
                     (result,) = check_batch([cand], spec, self.graph)
                     if result.status == "conflict":
-                        item.reason, item.conflict_with = "conflict", {"message": result.conflict}
+                        item.reason = "conflict"
+                        item.conflict_with = {
+                            **(item.conflict_with or {}),
+                            "message": result.conflict,
+                        }
                         uow.audit(
                             reviewer,
                             "review.reconflict",
@@ -330,10 +384,11 @@ class WriterPipeline:
                     fact = to_fact(
                         cand, spec, row.score or 0.0, replace_existing=item.reason == "conflict"
                     )
-                    item.status = "edited" if edited is not None else "approved"
+                    changed = edited is not None or merge
+                    item.status = "edited" if changed else "approved"
                     item.reviewer, item.decided_at = reviewer, utcnow()
                     row.decision = "commit"
-                    if edited is not None:
+                    if changed:
                         row.payload = cand.model_dump(mode="json")
                     entry = uow.audit(
                         reviewer,
@@ -344,6 +399,7 @@ class WriterPipeline:
                             "edited": edited is not None,
                             "reason": item.reason,
                             "graph_run": approval_run,
+                            **({"merged_into": dup["key"], "kept_existing": kept} if merge else {}),
                         },
                     )
                     uow.session.flush()
@@ -364,6 +420,31 @@ class WriterPipeline:
             raise PipelineError(
                 f"the graph changed since ingest; item {item_id} is now a conflict: {reconflict}"
             )
+
+    def _merged(
+        self, cand: AnyCandidate, dup: dict[str, Any], spec: OntologySpec
+    ) -> tuple[AnyCandidate, dict[str, Any]]:
+        """Point the candidate at the existing entity instead of its new key.
+
+        For an entity, where the existing entity already has a different value (the variant
+        name that made it look like a duplicate, typically) the existing value is kept; those
+        candidate values are returned so the audit log records what was not written."""
+        if isinstance(cand, CandidateRelation):
+            ref = EntityRef(class_name=dup["class_name"], key=dup["key"])
+            return cand.model_copy(update={dup.get("side", "target"): ref}), {}
+        cls = next(c for c in spec.classes if c.name == cand.class_name)
+        key_prop = cls.identity_key
+        existing = self.graph.node_properties(neo4j_label(cls), key_prop, dup["key"]) or {}
+        props: dict[str, Any] = {key_prop: dup["key"]}
+        kept: dict[str, Any] = {}
+        for name, value in cand.properties.items():
+            if name == key_prop or value is None:
+                continue
+            if existing.get(name) is not None and match_key(existing[name]) != match_key(value):
+                kept[name] = value  # the existing entity's value stays
+            else:
+                props[name] = value
+        return cand.model_copy(update={"properties": props}), kept
 
     def reject(self, item_id: int, reviewer: str, note: str | None = None) -> None:
         with UnitOfWork(self.engine) as uow:
@@ -403,3 +484,38 @@ class WriterPipeline:
                 {**removed, "review_items_closed": closed},
             )
             return {**removed, "review_items_closed": closed}
+
+
+# --------------------------------------------------------------------------- duplicates (#38)
+
+
+def _duplicate_of(
+    cand: AnyCandidate, duplicates: dict[tuple[str, str], dict[str, Any]]
+) -> dict[str, Any] | None:
+    """The existing entity this candidate may duplicate: its own key for an entity, or an
+    endpoint for a relation (writing the relation would create the duplicate node)."""
+    if isinstance(cand, CandidateEntity):
+        return next(
+            (
+                d
+                for (cls, k), d in duplicates.items()
+                if cls == cand.class_name
+                and k == match_key(str(cand.properties.get(d["key_property"], "")))
+            ),
+            None,
+        )
+    for side, ref in (("source", cand.source), ("target", cand.target)):
+        found = duplicates.get((ref.class_name, match_key(ref.key)))
+        if found is not None:
+            return {**found, "side": side}
+    return None
+
+
+def _duplicate_message(dup: dict[str, Any]) -> str:
+    what = f"{dup['class_name']} {dup['candidate_key']!r}"
+    if "side" in dup:
+        what = f"{dup['side']} {what}"
+    return (
+        f"{what} is a possible duplicate of {dup['class_name']} {dup['key']!r} "
+        f"(name similarity {dup['similarity']:.2f}): needs review"
+    )

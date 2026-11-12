@@ -559,6 +559,11 @@ export interface components {
             edited?: {
                 [key: string]: unknown;
             } | null;
+            /**
+             * Merge
+             * @default false
+             */
+            merge: boolean;
         };
         /** AuditOut */
         AuditOut: {
@@ -1663,7 +1668,7 @@ export interface operations {
         parameters: {
             query?: {
                 status?: string;
-                reason?: string | null;
+                reason?: ("score" | "conflict" | "duplicate") | null;
                 limit?: number;
             };
             header?: never;

@@ -441,6 +441,44 @@ def test_review_reject_with_note(env: Env) -> None:
     assert c.get("/api/review?status=rejected").json()[0]["note"] == "weak"
 
 
+def test_possible_duplicate_review_and_merge(env: Env) -> None:
+    """#38: a near-identical name under a new key is a ``duplicate`` item that shows the entity
+    it may duplicate; merging writes into that entity instead."""
+
+    def sync(ticker: str) -> dict[str, int]:
+        e = Evidence(source_type="superset", source_ref="dataset:1", locator="row 1", quote=ticker)
+        cand = CandidateEntity(
+            class_name="Issuer",
+            properties={"ticker": ticker, "name": "Aurora Pacific Holdings"},
+            evidence=[e],
+        )
+        text = SourceText("dataset:1", "row 1", f"{ticker} Aurora Pacific Holdings")
+        batch = SourceBatch("superset", "dataset:1", [text], candidates=[cand])
+        return env.pipeline.ingest(batch, actor="sync").counts
+
+    assert sync("APH")["commit"] == 1  # the existing entity
+    assert sync("AUR")["commit"] == 0  # same name, new key: a possible duplicate
+    c = env.client("rita")
+    assert c.get("/api/review?reason=score").json() == []
+    assert c.get("/api/review?reason=bogus").status_code == 422
+    (row,) = c.get("/api/review?reason=duplicate").json()
+    assert row["conflict_with"]["duplicate_of"]["key"] == "APH"
+    assert row["candidate"]["properties"]["ticker"] == "AUR"
+    r = c.post(f"/api/review/{row['id']}/approve", headers=CSRF, json={"merge": True})
+    assert r.status_code == 200, r.text
+    assert env.graph.node_properties("Issuer", "ticker", "AUR") is None
+    assert (
+        c.get("/api/review?status=edited").json()[0]["candidate"]["properties"]["ticker"] == "APH"
+    )
+
+
+def test_merge_on_a_score_item_is_409(env: Env) -> None:
+    item = env.review_item()
+    c = env.client("rita")
+    r = c.post(f"/api/review/{item}/approve", headers=CSRF, json={"merge": True})
+    assert r.status_code == 409 and "only a possible duplicate" in r.text
+
+
 # --------------------------------------------------------------------------- mappings
 
 
