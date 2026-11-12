@@ -16,14 +16,13 @@ key that missed the exact (uniqueness-indexed) match was looked up with
 
 The indexes use the ``standard-folding`` analyzer (lower-case + ASCII folding: "Müller" is
 stored as "muller"). Analysed clauses are sent only lower-cased and the analyzer folds them;
-fuzzy terms, which Lucene doesn't analyse, are folded in Python (ASCII words only).
+fuzzy terms, which Lucene doesn't analyse, are built in Python (``_fuzzy_terms``).
 
-The old scan is used when the class has no ONLINE full-text index for the field (not yet
-synced, still populating, or a non-string identity key), when the query fails (e.g. too many
-clauses), and for a key lookup whose result was capped without an exact hit. Name candidates
-are the index's best ``TOP_K``: a name the scan would have found can only be missed if more
-than ``TOP_K`` names share the reference's words and outrank it, which the golden test
-checks doesn't happen on realistic data.
+The old scan is used for classes under ``SCAN_BELOW`` nodes (identical results where a scan
+is cheap), when the class has no ONLINE full-text index for the field (not yet synced, still
+populating, or a non-string identity key), when the query fails (e.g. too many clauses), and
+for a key lookup whose result was capped without an exact hit. Above ``SCAN_BELOW`` the name
+candidates are a recall approximation (see docs/matching.md, "Limit").
 Labels and property names come from the validated ontology (safe to interpolate).
 """
 
@@ -46,6 +45,11 @@ MAX_TEXT_WORDS = 64  # words of the analysed clause
 _WORD = re.compile(r"\w+")
 _ASCII_WORD = re.compile(r"[a-z0-9]+")
 _FUZZY_MIN_LEN = 4
+_PREFIX_MIN_LEN = 8  # words this long also match as a prefix (names written as one word)
+_PREFIX_LEN = 5
+# Below this many nodes a class is matched by the old full scan (exact old behaviour, and
+# cheap); the full-text index is for the scale where scanning is the problem.
+SCAN_BELOW = 5000
 # Lucene's English stop words, which the ``standard-folding`` analyzer drops: a key made only
 # of these has no tokens in the index, so it can only be found by the scan
 STOP_WORDS = frozenset(
@@ -120,12 +124,44 @@ def key_query(field: str, value: str) -> str | None:
     return f'{field}:"{escaped}"'
 
 
+def _alphabetic(word: str) -> bool:
+    """Latin, Greek or Cyrillic letters (and digits): scripts the analyzer keeps as whole
+    words, so a fuzzy term can match them (CJK, for one, is split per character)."""
+    return all(
+        ch.isdigit() or unicodedata.name(ch, "").startswith(("LATIN", "GREEK", "CYRILLIC"))
+        for ch in word
+    )
+
+
+def _fuzzy_terms(text: str) -> list[str]:
+    """Typo-tolerant terms for ``text``, as Lucene sees them unanalysed:
+
+    * each alphabetic word of 4+ characters, lower-cased, with "ς" as "σ" and with accents
+      folded (``Μυτιληναίος`` vs ``ΜΥΤΙΛΗΝΑΙΟΣ``), within one edit;
+    * adjacent words joined ("Sing Tel" ~ "SingTel"), within one edit;
+    * a prefix of each long word ("StarHubLtd" -> "starh*" ~ "StarHub Ltd").
+    """
+    words = [w for w in _WORD.findall(lower(text)) if _alphabetic(w)]
+    terms: list[str] = []
+    for w in words:
+        if len(w) >= _FUZZY_MIN_LEN:
+            for form in (w, w.replace("ς", "σ"), fold(w).replace("ς", "σ")):
+                terms.append(f"{form}~1")
+    for a, b in zip(words, words[1:], strict=False):
+        joined = fold(a + b).replace("ς", "σ")
+        if len(joined) >= _FUZZY_MIN_LEN:
+            terms.append(f"{joined}~1")
+    for w in words:
+        if len(w) >= _PREFIX_MIN_LEN:
+            terms.append(f"{fold(w)[:_PREFIX_LEN]}*")
+    return list(dict.fromkeys(terms))[: MAX_WORDS * 4]
+
+
 def name_query(field: str, text: str) -> str | None:
     """Lucene query for names like ``text``: the whole text, analysed by the index's analyzer
-    (escaped; with a final sigma also as "σ", as the index stores an upper-case "Σ"), OR
-    fuzzy terms for its first ``MAX_WORDS`` distinct ASCII-folded words of 4+
-    characters (within one edit). Words are lower-case, so ``and``/``or`` are never
-    operators."""
+    (escaped; with a final sigma also as "σ", as the index stores an upper-case "Σ"), OR the
+    typo-tolerant terms of ``_fuzzy_terms``. Words are lower-case, so ``and``/``or`` are
+    never operators."""
     if not _WORD.search(text):
         return None
     head = " ".join(lower(canonical_text(text)).split()[:MAX_TEXT_WORDS])
@@ -133,11 +169,9 @@ def name_query(field: str, text: str) -> str | None:
     if "ς" in head:  # the index lower-cases "Σ" to "σ"; Python gives a final "ς"
         variants.append(head.replace("ς", "σ"))
     clauses = [f"{field}:({_LUCENE_SPECIAL.sub(r'\\\1', v)})" for v in variants]
-    words = list(
-        dict.fromkeys(w for w in _ASCII_WORD.findall(fold(text)) if len(w) >= _FUZZY_MIN_LEN)
-    )
-    if words:
-        clauses.append(f"{field}:({' OR '.join(f'{w}~1' for w in words[:MAX_WORDS])})")
+    terms = _fuzzy_terms(canonical_text(text))
+    if terms:
+        clauses.append(f"{field}:({' OR '.join(terms)})")
     return " OR ".join(clauses)
 
 
@@ -146,6 +180,7 @@ class Neo4jLookup:
 
     driver: Any
     database: str
+    scan_below: int = SCAN_BELOW
 
     def __init__(self, driver: Any, database: str = "neo4j") -> None:
         self.driver = driver
@@ -154,6 +189,17 @@ class Neo4jLookup:
     def _query(self, cypher: str, **params: Any) -> list[Any]:
         records, _, _ = self.driver.execute_query(cypher, database_=self.database, **params)
         return list(records)
+
+    def _small(self, label: str) -> bool:
+        """Is the label small enough to scan (``scan_below``)? Counted once per instance
+        (Neo4j answers a label count from its count store)."""
+        if self.scan_below <= 0:
+            return False
+        counts: dict[str, int] = self.__dict__.setdefault("_label_counts", {})
+        if label not in counts:
+            rows = self._query(f"MATCH (n:{label}) RETURN count(n) AS c")
+            counts[label] = int(rows[0]["c"]) if rows else 0
+        return counts[label] < self.scan_below
 
     def _fulltext_index(self, label: str, field: str) -> str | None:
         """Name of an ONLINE managed full-text index on ``label`` covering ``field``. Read
@@ -181,7 +227,7 @@ class Neo4jLookup:
         )
         if rows:
             return rows[0]["n"]
-        index = self._fulltext_index(label, key_prop)
+        index = None if self._small(label) else self._fulltext_index(label, key_prop)
         query = key_query(key_prop, canonical_text(value)) if index else None
         hits = self._fulltext(index, query) if index and query else None
         want = match_key(value)
@@ -220,7 +266,7 @@ class Neo4jLookup:
     def _name_candidates(
         self, label: str, key_prop: str, name_prop: str, text: str
     ) -> list[tuple[str, str]]:
-        index = self._fulltext_index(label, name_prop)
+        index = None if self._small(label) else self._fulltext_index(label, name_prop)
         query = name_query(name_prop, text) if index else None
         hits = self._fulltext(index, query) if index and query else None
         if hits is not None:

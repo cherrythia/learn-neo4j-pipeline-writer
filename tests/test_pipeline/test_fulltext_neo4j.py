@@ -53,6 +53,12 @@ ISSUERS = {
     f"{P}ΟΔΟΣ": "Zqx Odos Key",
     f"{P}MU\u0308LLER": "Zqx Nfd Key",
     f"{P}HYD": unicodedata.normalize("NFD", "현대자동차"),
+    # review #40 round 4: accents dropped in all-caps Greek, a Cyrillic typo, one word vs two
+    f"{P}MYTA": "Μυτιληναίος",
+    f"{P}AKT": "ΑΚΤΩΡ",
+    f"{P}GAZ": "Зквгазпром",
+    f"{P}SGT": "Aqsingtel",
+    f"{P}SHB": "Aqstar Hubz",
     # the demo issuers, under throwaway keys
     **{f"{P}D{i.ticker}": i.name for i in DEMO_ISSUERS},
     # a key whose token many longer keys share (more than TOP_K phrase hits)
@@ -86,6 +92,10 @@ QUERIES = [
     f"{P.lower()}οδος",
     f"{P.lower()}mu\u0308ller",
     unicodedata.normalize("NFD", "현대자동차"),
+    "Άκτωρ",
+    "Зквгазпрон",
+    "Aqsing Tel",
+    "Aqstarhubz",
     f"{P}topk",
     *[i.name for i in DEMO_ISSUERS],
     *[i.name.replace(" (Demo)", "") for i in DEMO_ISSUERS],
@@ -135,6 +145,13 @@ def old_behaviour_index(driver: Driver) -> InMemoryMatchIndex:
     return idx
 
 
+def indexed(lookup: Any) -> Any:
+    """Use the full-text path even on this small test graph (below ``SCAN_BELOW`` nodes a
+    class is scanned, exactly as before #28)."""
+    lookup.scan_below = 0
+    return lookup
+
+
 def results(index: Any, spec: OntologySpec) -> list[Any]:
     """Per query: status, key, confidence, the best alternative, and the scores of the
     alternatives that matter (at or above the ambiguity floor). Which *keys* fill the listed
@@ -167,21 +184,21 @@ def test_fulltext_matching_gives_the_same_results_as_the_full_scan(
 ) -> None:
     expected = results(old_behaviour_index(driver), spec)
     recording = Recording(driver)
-    actual = results(Neo4jMatchIndex(recording), spec)
+    actual = results(indexed(Neo4jMatchIndex(recording)), spec)
     assert actual == expected
     statuses = {r[0] for r in expected}
     assert {"exact", "fuzzy", "ambiguous", "new", "possible_duplicate"} <= statuses  # golden spread
     assert not any("WHERE n.name IS NOT NULL" in s for s in recording.statements)  # no name scan
     # ASCII references never scan; non-ASCII *keys* are left to the scan on purpose
     ascii_only = Recording(driver)
-    _results(Neo4jMatchIndex(ascii_only), spec, [q for q in QUERIES if q.isascii()])
+    _results(indexed(Neo4jMatchIndex(ascii_only)), spec, [q for q in QUERIES if q.isascii()])
     assert any("db.index.fulltext.queryNodes" in s for s in ascii_only.statements)
     assert not any("toLower(" in s for s in ascii_only.statements)
 
 
 def test_case_insensitive_key_lookup_uses_the_index(driver: Driver) -> None:
     recording = Recording(driver)
-    view = Neo4jGraphView(recording)
+    view = indexed(Neo4jGraphView(recording))
     props = view.node_properties("Issuer", "ticker", f"{P}aurl")
     assert props is not None and props["ticker"] == f"{P}AURL"  # not the AUR prefix-match
     assert view.node_properties("Issuer", "ticker", f"{P}nope") is None
@@ -199,3 +216,10 @@ def test_without_the_index_it_falls_back_to_scanning(driver: Driver, spec: Ontol
     recording = Recording(driver)
     assert results(NoIndex(recording), spec) == expected
     assert not any("db.index.fulltext" in s for s in recording.statements)
+
+
+def test_small_classes_keep_the_old_scan(driver: Driver, spec: OntologySpec) -> None:
+    """With the default threshold this ~250-issuer graph is scanned: identical to before."""
+    recording = Recording(driver)
+    assert results(Neo4jMatchIndex(recording), spec) == results(old_behaviour_index(driver), spec)
+    assert not any("db.index.fulltext.queryNodes" in s for s in recording.statements)

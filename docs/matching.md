@@ -84,11 +84,23 @@ the fuzzy terms, which Lucene doesn't analyse, are ASCII-folded in Python.
   by the scan, as is a key whose result was capped at `TOP_K` without an exact hit. Identity
   keys are overwhelmingly ASCII codes, so this stays rare.
 
-The old scans are used without an ONLINE full-text index for the field (not synced yet,
-still populating, or a non-string identity key, which full-text indexes can't hold) and when
-a full-text query fails. **Limit:** name candidates are the index's best 50, so a name the
-full scan would have ranked highest can only be missed if more than 50 names share the
-reference's words and all outrank it in the index's own (BM25) scoring.
+The fuzzy terms are: each Latin/Greek/Cyrillic word of 4+ characters (lower-cased, with
+"ς" as "σ", and accent-folded) within one edit; adjacent words joined ("Sing Tel" ~ "SingTel")
+within one edit; and a 5-character prefix of each word of 8+ characters ("StarHubz" ~
+"Star Hubz").
+
+**Small classes keep the old scan.** A class with fewer than `SCAN_BELOW` = 5,000 nodes is
+matched exactly as before #28 (all names read, `toLower` key scan): cheap at that size, and
+identical results. The index takes over above it, where scanning is the problem. The old
+scans are also used without an ONLINE full-text index for the field (not synced yet, still
+populating, or a non-string identity key, which full-text indexes can't hold) and when a
+full-text query fails.
+
+**Limit (above 5,000 nodes only).** The index *retrieves* candidates that the matcher then
+ranks with `name_similarity`; it is a recall approximation, not a copy of the scan. A name the
+scan would have matched is missed if none of the clauses above retrieves it (e.g. a two-edit
+typo in every word of a one-word name, or words split differently than covered above), or if
+more than 50 names outrank it in the index's BM25 scoring.
 `tests/test_pipeline/test_fulltext_neo4j.py` checks against a real Neo4j, over the demo
 issuers, near-twins, 120 near-identical names, apostrophe/CJK/Hangul/kana/accented/all-caps
 Greek/NFD names, dotted-İ, Hangul, Greek, NFD and "™" keys and a key with more than 50 phrase
