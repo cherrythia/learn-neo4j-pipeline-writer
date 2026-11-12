@@ -113,6 +113,25 @@ test("a possible duplicate can be kept as a new entity", async () => {
   await waitFor(() => expect(calls.find((c) => c.path === "/api/review/7/approve")?.body).toEqual({ merge: false }));
 });
 
+test("a conflict that involves a possible duplicate shows both and can be merged", async () => {
+  const { calls } = renderWithApi(<ReviewPage />, {
+    "GET /api/review": [
+      {
+        ...DUPLICATE,
+        reason: "conflict",
+        conflict_with: { ...DUPLICATE.conflict_with, message: "FILED_BY is many_to_one: already points to APH" },
+      },
+    ],
+    "POST /api/review/7/approve": { status: "approved" },
+  });
+  fireEvent.click(await screen.findByTestId("review-row-7"));
+  expect(screen.getByText("FILED_BY is many_to_one: already points to APH")).toBeDefined();
+  expect(screen.getByTestId("duplicate-of").textContent).toContain("APH");
+  expect(screen.getByRole("button", { name: "Approve (replace)" })).toBeDefined();
+  fireEvent.click(screen.getByRole("button", { name: "Merge into APH" }));
+  await waitFor(() => expect(calls.find((c) => c.path === "/api/review/7/approve")?.body).toEqual({ merge: true }));
+});
+
 test("the duplicate filter asks for duplicate items", async () => {
   const { calls } = renderWithApi(<ReviewPage />, { "GET /api/review": [] });
   await screen.findByText("Nothing to review.");

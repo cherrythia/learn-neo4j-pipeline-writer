@@ -281,8 +281,14 @@ class WriterPipeline:
                 if routing.decision == "commit":
                     facts.append(to_fact(cand, spec, s.value))
                 elif routing.decision == "conflict":
+                    # a conflict can also involve a possible duplicate: keep it, so the
+                    # reviewer can merge instead of creating the duplicate (review #39)
                     row.review_item = ReviewItem(
-                        reason="conflict", conflict_with={"message": result.conflict}
+                        reason="conflict",
+                        conflict_with={
+                            "message": result.conflict,
+                            **({"duplicate_of": dup} if dup else {}),
+                        },
                     )
                 elif dup_message:
                     row.review_item = ReviewItem(
@@ -326,8 +332,12 @@ class WriterPipeline:
         """Commit a reviewed candidate (optionally edited).
 
         * For a ``duplicate`` item, approving keeps the candidate as a **new** entity;
-          ``merge=True`` instead rewrites its key (or the relation's endpoint) to the existing
-          entity it may duplicate, so its properties and evidence go onto that entity.
+          ``merge=True`` instead rewrites its key (or the relation's endpoints) to the existing
+          entity it may duplicate, so its properties and evidence go onto that entity. Merge
+          is allowed on any item that carries ``duplicate_of`` (a conflict can too), only into
+          an entity that is in the graph, and always re-runs the constraint gate.
+        * A relation to a possible duplicate kept as new needs that entity in the graph first
+          (approve its entity item), so approving the relation never creates it as a stub.
 
         * The schema gate runs again (edits must still fit the ontology).
         * For a ``score`` item the constraint gate runs again too: if the graph changed since
@@ -347,7 +357,7 @@ class WriterPipeline:
                 item = self._open_item(uow, item_id)
                 row = item.candidate
                 dup: dict[str, Any] = (item.conflict_with or {}).get("duplicate_of") or {}
-                if merge and (item.reason != "duplicate" or not dup):
+                if merge and not dup:
                     raise PipelineError(
                         f"only a possible duplicate can be merged (item {item_id} is a "
                         f"{item.reason} item)"
@@ -364,9 +374,30 @@ class WriterPipeline:
                 kept: dict[str, Any] = {}
                 if merge:
                     cand, kept = self._merged(cand, dup, spec)
-                if item.reason in ("score", "duplicate"):
+                elif dup:
+                    self._require_kept_entities(cand, dup, spec)
+                if merge or item.reason in ("score", "duplicate"):
                     (result,) = check_batch([cand], spec, self.graph)
-                    if result.status == "conflict":
+                    if result.status == "reject":
+                        raise PipelineError(
+                            "candidate fails the gates: " + "; ".join(result.failures)
+                        )
+                    if result.status == "conflict" and merge:
+                        # the merged fact contradicts the existing entity: nothing written,
+                        # the item stays a duplicate so keeping it as new is still possible
+                        item.conflict_with = {
+                            **(item.conflict_with or {}),
+                            "merge_conflict": result.conflict,
+                        }
+                        uow.audit(
+                            reviewer,
+                            "review.reconflict",
+                            "review_item",
+                            str(item_id),
+                            {"conflict": result.conflict, "merge": True},
+                        )
+                        reconflict = result.conflict
+                    elif result.status == "conflict":
                         item.reason = "conflict"
                         item.conflict_with = {
                             **(item.conflict_with or {}),
@@ -382,7 +413,10 @@ class WriterPipeline:
                         reconflict = result.conflict
                 if reconflict is None:
                     fact = to_fact(
-                        cand, spec, row.score or 0.0, replace_existing=item.reason == "conflict"
+                        cand,
+                        spec,
+                        row.score or 0.0,
+                        replace_existing=item.reason == "conflict" and not merge,
                     )
                     changed = edited is not None or merge
                     item.status = "edited" if changed else "approved"
@@ -416,22 +450,58 @@ class WriterPipeline:
                 except Exception as undo_exc:
                     exc.add_note(f"graph compensation also failed: {undo_exc}")
             raise
+        if reconflict is not None and merge:
+            raise PipelineError(f"merging item {item_id} contradicts the graph: {reconflict}")
         if reconflict is not None:
             raise PipelineError(
                 f"the graph changed since ingest; item {item_id} is now a conflict: {reconflict}"
             )
 
+    def _accepted(self, spec: OntologySpec, class_name: str, key: str) -> bool:
+        """Is this entity in the graph as an accepted (non-stub) node?"""
+        cls = next(c for c in spec.classes if c.name == class_name)
+        props = self.graph.node_properties(neo4j_label(cls), cls.identity_key, key)
+        return props is not None and not props.get("stub", False)
+
+    def _require_kept_entities(
+        self, cand: AnyCandidate, dup: dict[str, Any], spec: OntologySpec
+    ) -> None:
+        """Keeping a relation to a possible duplicate as new needs that entity accepted
+        first; otherwise writing the relation would create it as a stub (review #39)."""
+        if not isinstance(cand, CandidateRelation):
+            return
+        for side in _sides(dup):
+            ref: EntityRef = getattr(cand, side["side"])
+            if match_key(ref.key) != match_key(side["candidate_key"]):
+                continue  # edited to point elsewhere
+            if not self._accepted(spec, ref.class_name, ref.key):
+                raise PipelineError(
+                    f"{ref.class_name} {ref.key!r} is not in the graph: approve its entity "
+                    f"item first, or merge this relation into {side['key']!r}"
+                )
+
     def _merged(
         self, cand: AnyCandidate, dup: dict[str, Any], spec: OntologySpec
     ) -> tuple[AnyCandidate, dict[str, Any]]:
-        """Point the candidate at the existing entity instead of its new key.
+        """Point the candidate at the existing entity (every flagged endpoint, for a relation)
+        instead of the new key. The target must be an accepted entity in the graph: the
+        matcher also compares against new entities of the same batch, which may never have
+        been accepted.
 
         For an entity, where the existing entity already has a different value (the variant
         name that made it look like a duplicate, typically) the existing value is kept; those
         candidate values are returned so the audit log records what was not written."""
+        targets = _sides(dup) if isinstance(cand, CandidateRelation) else [dup]
+        for t in targets:
+            if not self._accepted(spec, t["class_name"], t["key"]):
+                raise PipelineError(
+                    f"cannot merge into {t['class_name']} {t['key']!r}: it is not in the graph"
+                )
         if isinstance(cand, CandidateRelation):
-            ref = EntityRef(class_name=dup["class_name"], key=dup["key"])
-            return cand.model_copy(update={dup.get("side", "target"): ref}), {}
+            update = {
+                t["side"]: EntityRef(class_name=t["class_name"], key=t["key"]) for t in targets
+            }
+            return cand.model_copy(update=update), {}
         cls = next(c for c in spec.classes if c.name == cand.class_name)
         key_prop = cls.identity_key
         existing = self.graph.node_properties(neo4j_label(cls), key_prop, dup["key"]) or {}
@@ -441,7 +511,8 @@ class WriterPipeline:
             if name == key_prop or value is None:
                 continue
             if existing.get(name) is not None and match_key(existing[name]) != match_key(value):
-                kept[name] = value  # the existing entity's value stays
+                kept[name] = value  # not written: the existing entity's value stays
+                props[name] = existing[name]
             else:
                 props[name] = value
         return cand.model_copy(update={"properties": props}), kept
@@ -504,11 +575,17 @@ def _duplicate_of(
             ),
             None,
         )
-    for side, ref in (("source", cand.source), ("target", cand.target)):
-        found = duplicates.get((ref.class_name, match_key(ref.key)))
-        if found is not None:
-            return {**found, "side": side}
-    return None
+    sides = [
+        {**found, "side": side}
+        for side, ref in (("source", cand.source), ("target", cand.target))
+        if (found := duplicates.get((ref.class_name, match_key(ref.key)))) is not None
+    ]
+    # the first flagged side at the top level (shown to the reviewer); all of them in "sides"
+    return {**sides[0], "sides": sides} if sides else None
+
+
+def _sides(dup: dict[str, Any]) -> list[dict[str, Any]]:
+    return list(dup.get("sides") or ([dup] if "side" in dup else []))
 
 
 def _duplicate_message(dup: dict[str, Any]) -> str:

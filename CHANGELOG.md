@@ -17,7 +17,14 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
     (audited as `merged_into` / `kept_existing`).
   - Migration `0004`: `review_items.reason` accepts `duplicate` (MySQL CHECK replaced; the
     downgrade turns duplicate items into score items).
-  - Admin UI: a Duplicate filter, a *Possible duplicate* panel, Merge into / Keep as new.
+  - Merge needs the target accepted in the graph, re-runs the constraint gate (a
+    contradiction leaves the item unchanged, with `merge_conflict`), and works on conflict
+    items that carry `duplicate_of`; a relation to a duplicate kept as new needs its entity
+    approved first. All 409 otherwise.
+  - Admin UI: a Duplicate filter, a *Possible duplicate* panel (also on conflicts involving
+    one), Merge into / Keep as new.
+  - `GET /api/review?reason=` only accepts `score`, `conflict` or `duplicate`: an unknown
+    reason is now 422 (it used to return `[]`).
 - **#17 README walkthrough and demo script**
   - README: architecture diagram, how a fact gets into Neo4j, scoring with worked examples,
     one-command demo, running the real service, switching LLM.

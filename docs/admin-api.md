@@ -40,7 +40,7 @@ An approved proposal reaches the graph when the draft is published.
 | Method | Path | Role | |
 |---|---|---|---|
 | GET | `/api/review?status=open&reason=conflict` | reviewer | candidate, evidence, score breakdown, conflict or `duplicate_of`, source; `reason` is `score`, `conflict` or `duplicate` |
-| POST | `/api/review/{id}/approve` | reviewer | `{edited?: candidate, merge?: bool}`: re-gated, written to Neo4j. `merge` (duplicate items only) writes into the existing entity instead of a new one. 422 if `edited` is malformed, 409 if it fails the gates, the item is not open, or `merge` is used on a non-duplicate (the item stays open) |
+| POST | `/api/review/{id}/approve` | reviewer | `{edited?: candidate, merge?: bool}`: re-gated, written to Neo4j. `merge` (items with `duplicate_of`) writes into the existing entity instead of a new one. 422 if `edited` is malformed; 409 if it fails the gates, the item is not open, `merge` is used without `duplicate_of` or into an entity not in the graph, or a relation kept as new points to an entity not yet approved (the item stays open) |
 | POST | `/api/review/{id}/reject` | reviewer | `{note?}` |
 
 ## Column mappings ([superset](superset-ingestion.md))

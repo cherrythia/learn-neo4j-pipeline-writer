@@ -73,6 +73,22 @@ def test_upgrade_downgrade_roundtrip_on_mysql(mysql_url: str) -> None:
                 )
             ).scalar_one()
         assert "duplicate" in clause
+        from writer_service.governance.models import Candidate, IngestionRun, ReviewItem
+
+        with UnitOfWork(engine) as uow:
+            run = IngestionRun(
+                source_type="superset", source_ref="d:1", ontology_version=1, started_by="it"
+            )
+            uow.session.add(run)
+            uow.session.flush()
+            cand = Candidate(
+                run_id=run.id, kind="entity", canonical_hash="h", payload={}, evidence=[]
+            )
+            cand.review_item = ReviewItem(reason="duplicate")
+            uow.session.add(cand)
+        downgrade(mysql_url, "0003")  # converts the duplicate row before restoring the CHECK
+        with engine.connect() as conn:
+            assert conn.execute(text("SELECT reason FROM review_items")).scalar_one() == "score"
     finally:
         engine.dispose()
         downgrade(mysql_url, "base")

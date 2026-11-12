@@ -731,3 +731,154 @@ def test_exact_and_unrelated_entities_are_not_flagged(engine: Engine, graph: InM
         actor="sync",
     )
     assert summary.counts["commit"] == 1 and dup_items(engine) == []
+
+
+# review #39 round 1
+
+
+def test_a_conflicting_relation_to_a_duplicate_can_be_merged(
+    engine: Engine, graph: InMemoryGraph
+) -> None:
+    """Finding 1: the graph has FILED_BY APH; FILED_BY AUR conflicts, and must still carry
+    duplicate_of so the reviewer can merge instead of replacing the edge with a new AUR."""
+    pipe = pipeline(engine, graph)
+    pipe.ingest(doc([APH, FILING, FILED]), actor="bot")
+    pipe.ingest(superset(AUR, AUR_FILED), actor="sync")
+    rel = next(i for i in rows(engine, ReviewItem) if i.reason == "conflict")
+    assert rel.conflict_with["duplicate_of"]["key"] == "APH"
+    (ent,) = dup_items(engine)
+    pipe.approve(ent["id"], reviewer="rita", merge=True)
+    pipe.approve(rel.id, reviewer="rita", merge=True)
+    assert graph.node_properties("Issuer", "ticker", "AUR") is None
+    assert graph.targets(
+        "FILED_BY", ("Filing", "filing_id", "AR-2025-APH"), {"Issuer": "ticker"}
+    ) == [{"Issuer": "APH"}]
+
+
+def test_a_relation_kept_as_new_needs_its_entity_accepted_first(
+    engine: Engine, graph: InMemoryGraph
+) -> None:
+    """Finding 2: keeping FILED_BY -> AUR while AUR was merged away (or rejected) would
+    create AUR as a stub."""
+    from writer_service.pipeline.orchestrator import PipelineError
+
+    pipe = pipeline(engine, graph)
+    pipe.ingest(doc([APH, FILING]), actor="bot")
+    pipe.ingest(superset(AUR, AUR_FILED), actor="sync")
+    ent = next(i for i in dup_items(engine) if i["kind"] == "entity")
+    rel = next(i for i in dup_items(engine) if i["kind"] == "relation")
+    pipe.reject(ent["id"], reviewer="rita")
+    with pytest.raises(PipelineError, match="approve its entity item first"):
+        pipe.approve(rel["id"], reviewer="rita")
+    assert graph.node_properties("Issuer", "ticker", "AUR") is None
+    pipe.approve(rel["id"], reviewer="rita", merge=True)  # merging is still possible
+    assert graph.node_properties("Issuer", "ticker", "AUR") is None
+
+
+def test_keeping_entity_and_relation_as_new_in_order_works(
+    engine: Engine, graph: InMemoryGraph
+) -> None:
+    pipe = pipeline(engine, graph)
+    pipe.ingest(doc([APH, FILING]), actor="bot")
+    pipe.ingest(superset(AUR_FILED, AUR), actor="sync")  # relation listed before its entity
+    items = dup_items(engine)
+    assert {i["kind"] for i in items} == {"entity", "relation"}
+    for kind in ("entity", "relation"):
+        pipe.approve(next(i["id"] for i in items if i["kind"] == kind), reviewer="rita")
+    aur = graph.node_properties("Issuer", "ticker", "AUR")
+    assert aur is not None and not aur["stub"]
+
+
+def test_merge_target_must_be_an_accepted_entity(engine: Engine, graph: InMemoryGraph) -> None:
+    """Finding 3: the matcher also compares against new entities of the same batch; merging
+    into one that was never accepted must not write it."""
+    from writer_service.pipeline.orchestrator import PipelineError
+
+    first = CandidateEntity(
+        class_name="Issuer",
+        confidence=0.9,
+        properties={"ticker": "APH", "name": "Aurora Pacific Holdings (Demo)"},
+        evidence=[ev("Aurora Pacific Holdings (Demo) (ticker APH)")],
+    )
+    twin = first.model_copy(
+        update={"properties": {"ticker": "AURX", "name": "Aurora Pacific Holdings (Demo)"}}
+    )
+    pipe = pipeline(engine, graph, judge(0.5))  # both land in review
+    pipe.ingest(doc([first, twin]), actor="bot")
+    score = next(i for i in rows(engine, ReviewItem) if i.reason == "score")
+    (dup,) = dup_items(engine)
+    assert dup["conflict_with"]["duplicate_of"]["key"] == "APH"
+    pipe.reject(score.id, reviewer="rita")
+    with pytest.raises(PipelineError, match="not in the graph"):
+        pipe.approve(dup["id"], reviewer="rita", merge=True)
+    assert graph.node_count() == 0
+
+
+def test_merge_that_contradicts_the_graph_stays_open_unchanged(
+    engine: Engine, graph: InMemoryGraph
+) -> None:
+    """Finding 5: AR-2025-APH is filed by BYL; merging FILED_BY -> AUR into APH contradicts
+    that. Nothing is written and the item keeps its reason and original fact."""
+    from writer_service.pipeline.orchestrator import PipelineError
+
+    pipe = pipeline(engine, graph)
+    pipe.ingest(doc([APH]), actor="bot")
+    graph.add_edge("FILED_BY", ("Filing", "filing_id", "AR-2025-APH"), ("Issuer", "ticker", "BYL"))
+    pipe.ingest(superset(AUR_FILED, AUR), actor="sync")
+    rel = next(i for i in rows(engine, ReviewItem) if i.candidate_id and i.reason == "conflict")
+    with pytest.raises(PipelineError, match="contradicts the graph"):
+        pipe.approve(rel.id, reviewer="rita", merge=True)
+    with UnitOfWork(engine) as uow:
+        item = uow.session.get(ReviewItem, rel.id)
+        assert item is not None and item.status == "open" and item.reason == "conflict"
+        assert item.candidate.payload["target"]["key"] == "AUR"
+        assert "BYL" in item.conflict_with["merge_conflict"]
+
+
+def test_merge_with_an_edit_and_case_insensitive_endpoints(
+    engine: Engine, graph: InMemoryGraph
+) -> None:
+    pipe = pipeline(engine, graph)
+    pipe.ingest(doc([APH, FILING]), actor="bot")
+    lower = AUR_FILED.model_copy(
+        update={"target": EntityRef(class_name="Issuer", key="aur")}
+    )  # same new entity, other case
+    pipe.ingest(superset(AUR, lower), actor="sync")
+    items = dup_items(engine)
+    rel = next(i for i in items if i["kind"] == "relation")
+    assert rel["conflict_with"]["duplicate_of"]["key"] == "APH"
+    ent = next(i for i in items if i["kind"] == "entity")
+    edited = AUR.model_copy(
+        update={"properties": {**AUR.properties, "sector": "Industrials"}}
+    ).model_dump(mode="json")
+    pipe.approve(ent["id"], reviewer="rita", edited=edited, merge=True)
+    aph = graph.node_properties("Issuer", "ticker", "APH")
+    assert aph is not None and aph["sector"] == "Industrials"
+    assert aph["name"] == "Aurora Pacific Holdings (Demo)"
+    assert graph.node_properties("Issuer", "ticker", "AUR") is None
+
+
+def test_rollback_closes_open_duplicate_items(engine: Engine, graph: InMemoryGraph) -> None:
+    pipe = pipeline(engine, graph)
+    pipe.ingest(doc([APH, FILING]), actor="bot")
+    summary = pipe.ingest(superset(AUR, AUR_FILED), actor="sync")
+    assert pipe.rollback(summary.run_id, actor="admin")["review_items_closed"] == 2
+    assert {i["status"] for i in dup_items(engine)} == {"rejected"}
+
+
+def test_both_flagged_endpoints_are_recorded() -> None:
+    """Finding 6: a relation whose two endpoints are both possible duplicates."""
+    from writer_service.pipeline.orchestrator import _duplicate_of
+
+    dups = {
+        ("Issuer", "aur"): {"class_name": "Issuer", "key": "APH", "candidate_key": "AUR"},
+        ("Issuer", "byx"): {"class_name": "Issuer", "key": "BYL", "candidate_key": "BYX"},
+    }
+    rel = CandidateRelation(
+        relation="PARTNERS_WITH",
+        source=EntityRef(class_name="Issuer", key="AUR"),
+        target=EntityRef(class_name="Issuer", key="BYX"),
+    )
+    dup = _duplicate_of(rel, dups)
+    assert dup is not None and dup["side"] == "source"
+    assert [(s["side"], s["key"]) for s in dup["sides"]] == [("source", "APH"), ("target", "BYL")]

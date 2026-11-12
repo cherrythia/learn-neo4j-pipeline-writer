@@ -68,5 +68,21 @@ def test_0004_allows_the_duplicate_review_reason(tmp_path: Path) -> None:
 
     upgrade(url)
     assert "'duplicate'" in reason_check()
-    downgrade(url, "0003")
+    from writer_service.governance.models import Candidate, IngestionRun, ReviewItem
+    from writer_service.governance.uow import UnitOfWork
+
+    eng = create_engine_for(url)
+    with UnitOfWork(eng) as uow:
+        run = IngestionRun(
+            source_type="superset", source_ref="d:1", ontology_version=1, started_by="t"
+        )
+        uow.session.add(run)
+        uow.session.flush()
+        cand = Candidate(run_id=run.id, kind="entity", canonical_hash="h", payload={}, evidence=[])
+        cand.review_item = ReviewItem(reason="duplicate", conflict_with={"duplicate_of": {}})
+        uow.session.add(cand)
+    eng.dispose()
+    downgrade(url, "0003")  # the duplicate row must not violate the old CHECK
     assert "'duplicate'" not in reason_check() and "'conflict'" in reason_check()
+    with sqlite3.connect(path) as conn:
+        assert conn.execute("SELECT reason FROM review_items").fetchall() == [("score",)]

@@ -87,11 +87,20 @@ pipeline.rollback(run_id, actor)
   cardinality requires: `many_to_one` drops the source's other targets, `one_to_many` the
   target's other sources, `one_to_one` both. The removed edges are recorded in the audit entry.
 - **Duplicates.** Approving a `duplicate` item keeps the candidate as a **new** entity.
-  `merge=True` instead rewrites its identity key (for a relation: the flagged endpoint) to the
+  `merge=True` instead rewrites its identity key (for a relation: every flagged endpoint) to the
   existing entity's key, so the fact lands on that node. Where the existing entity already has
   a different value (typically the variant name that made it look like a duplicate), the
   existing value is kept; the audit entry records `merged_into` and the values not written
-  (`kept_existing`). The item is stored as `edited`. Merging any other kind of item is an error.
+  (`kept_existing`). The item is stored as `edited`.
+  - Merge works on any item that carries `duplicate_of`: a relation to a possible duplicate
+    that also contradicts the graph is a `conflict` item with `duplicate_of`.
+  - The merge target must be an accepted (non-stub) entity in the graph: the matcher also
+    compares against new entities of the same batch, which may never be accepted (409).
+  - A merged fact always goes through the constraint gate; if it contradicts the graph,
+    nothing is written and the item stays as it was, with `merge_conflict` (409).
+  - Keeping a relation to a possible duplicate as new needs that entity accepted first
+    (approve its entity item); otherwise the relation would create it as a stub (409).
+  - Merging an item without `duplicate_of` is an error (409).
 - `write_run` returns **change records** for everything it destroyed: `edge` records for
   edges removed by conflict replacement, and `properties` records with the previous values of
   properties it overwrote on an existing entity (`null` = the property didn't exist).

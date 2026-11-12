@@ -145,7 +145,7 @@ export function ReviewDetail({ item, onDone }: { item: ReviewItem; onDone: () =>
     },
   });
   const evidence = item.evidence as EvidenceItem[];
-  const duplicate = item.reason === "duplicate" ? duplicateOf(item) : null;
+  const duplicate = duplicateOf(item); // duplicate items, and conflicts that involve one
 
   return (
     <Card withBorder>
@@ -156,19 +156,21 @@ export function ReviewDetail({ item, onDone }: { item: ReviewItem; onDone: () =>
           </Title>
           <StatusBadge status={item.reason} />
         </Group>
-        {duplicate ? (
-          <Alert color="yellow" title="Possible duplicate" data-testid="duplicate-of">
-            <Text size="sm">
-              This looks like the existing {duplicate.class_name} {duplicate.key_property} ={" "}
-              <b>{duplicate.key}</b> (name similarity {duplicate.similarity.toFixed(2)}), under the
-              new key {duplicate.candidate_key}
-              {duplicate.side ? ` (the relation's ${duplicate.side})` : ""}. Merge it into the
-              existing entity, or keep it as a new one.
-            </Text>
-          </Alert>
-        ) : item.conflict_with && (
+        {item.reason === "conflict" && item.conflict_with && (
           <Alert color="orange" title="Conflict">
             {String((item.conflict_with as { message?: unknown }).message ?? JSON.stringify(item.conflict_with))}
+          </Alert>
+        )}
+        {duplicate && (
+          <Alert color="yellow" title="Possible duplicate" data-testid="duplicate-of">
+            <Text size="sm">
+              This looks like {duplicate.class_name} {duplicate.key_property} ={" "}
+              <b>{duplicate.key}</b> (name similarity {duplicate.similarity.toFixed(2)}), under the
+              new key {duplicate.candidate_key}
+              {duplicate.side ? ` (the relation's ${duplicate.side})` : ""}. Merge it into{" "}
+              {duplicate.key} (which must already be in the graph), or keep it as a new one (a
+              relation needs its new entity approved first).
+            </Text>
           </Alert>
         )}
         <Text fw={600}>Candidate</Text>
@@ -195,7 +197,7 @@ export function ReviewDetail({ item, onDone }: { item: ReviewItem; onDone: () =>
                 Merge into {duplicate.key}
               </Button>
               <Button variant="light" color="green" onClick={() => approve.mutate({ merge: false })} loading={approve.isPending}>
-                Keep as new
+                {item.reason === "conflict" ? "Approve (replace)" : "Keep as new"}
               </Button>
             </>
           ) : (
