@@ -233,6 +233,34 @@ def test_review_and_rollback_work_without_an_llm_key(env: Env) -> None:
     env.app.state.neo4j_driver.close()
 
 
+def test_duplicate_property_names_are_422_not_500(env: Env) -> None:
+    """Review round 3: duplicates hit a unique constraint at commit time."""
+    c = env.client("alice")
+    v = c.post("/api/ontology/drafts", headers=CSRF).json()["version"]
+    two_ids = [{"name": "id"}, {"name": "id"}]
+    r = c.post(
+        f"/api/ontology/versions/{v}/classes",
+        json={"name": "Dup", "identity_key": "id", "properties": two_ids},
+        headers=CSRF,
+    )
+    assert r.status_code == 422 and "duplicate property names: id" in r.text
+    r = c.patch(
+        f"/api/ontology/versions/{v}/classes/Issuer",
+        json={"add_properties": [{"name": "zz"}, {"name": "zz"}]},
+        headers=CSRF,
+    )
+    assert r.status_code == 422 and "duplicate property names: zz" in r.text
+    r = c.post(
+        "/api/proposals",
+        json={
+            "kind": "class",
+            "payload": {"name": "Dup", "identity_key": "id", "properties": two_ids},
+        },
+        headers=CSRF,
+    )
+    assert r.status_code == 422
+
+
 def test_failed_proposal_approval_leaves_no_draft_and_stays_pending(env: Env) -> None:
     c = env.client("alice")
     bad = {

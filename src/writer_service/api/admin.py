@@ -11,7 +11,7 @@ from datetime import datetime
 from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, Field, ValidationError, field_validator
 from sqlalchemy import select
 
 from writer_service.api.deps import LLM_HINT, GraphSchemaDep, PipelineDep, ReaderDep, SupersetDep
@@ -73,6 +73,14 @@ class PropertyIn(BaseModel):
     description: str | None = None
 
 
+def _unique_names(props: list[PropertyIn]) -> list[PropertyIn]:
+    names = [p.name for p in props]
+    dupes = sorted({n for n in names if names.count(n) > 1})
+    if dupes:
+        raise ValueError(f"duplicate property names: {', '.join(dupes)}")
+    return props
+
+
 class ClassIn(BaseModel):
     name: str
     identity_key: str
@@ -81,11 +89,15 @@ class ClassIn(BaseModel):
     description: str | None = None
     properties: list[PropertyIn] = Field(min_length=1)
 
+    _no_dupes = field_validator("properties")(_unique_names)
+
 
 class ClassPatch(BaseModel):
     description: str | None = None
     deprecated: bool | None = None
     add_properties: list[PropertyIn] = Field(default_factory=list)
+
+    _no_dupes = field_validator("add_properties")(_unique_names)
 
 
 class RelationIn(BaseModel):
