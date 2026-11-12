@@ -79,3 +79,20 @@ test("reviewers cannot roll back", async () => {
   await screen.findByRole("table", { name: "Candidates" });
   expect(screen.queryByRole("button", { name: "Roll back run" })).toBeNull();
 });
+
+test("switching runs after a rollback clears the previous run's result (review round 2)", async () => {
+  const OTHER = { ...RUN, id: "22222222-0000-0000-0000-000000000000" };
+  renderWithApi(<RunsPage role="admin" />, {
+    "GET /api/runs": [RUN, OTHER],
+    [`GET /api/runs/${RUN_ID}`]: detail("completed"),
+    [`GET /api/runs/${OTHER.id}`]: { ...detail("completed"), id: OTHER.id },
+    [`POST /api/runs/${RUN_ID}/rollback`]: { nodes: 1, relationships: 0, evidence: 0, review_items_closed: 0 },
+  });
+  fireEvent.click(await screen.findByText(RUN_ID.slice(0, 8)));
+  fireEvent.click(await screen.findByRole("button", { name: "Roll back run" }));
+  fireEvent.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Confirm rollback" }));
+  await screen.findByTestId("rollback-result");
+  fireEvent.click(screen.getByText(OTHER.id.slice(0, 8)));
+  await screen.findByText(`Run ${OTHER.id.slice(0, 8)}`);
+  expect(screen.queryByTestId("rollback-result")).toBeNull();
+});

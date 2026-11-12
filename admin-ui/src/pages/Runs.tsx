@@ -63,7 +63,7 @@ export function RunsPage({ role }: { role: string }) {
           </Table>
         </Grid.Col>
         <Grid.Col span={{ base: 12, md: 6 }}>
-          {selected ? <RunView id={selected} admin={role === "admin"} /> : <Text c="dimmed">Select a run.</Text>}
+          {selected ? <RunView key={selected} id={selected} admin={role === "admin"} /> : <Text c="dimmed">Select a run.</Text>}
         </Grid.Col>
       </Grid>
     </Stack>

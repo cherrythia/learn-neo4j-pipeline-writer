@@ -129,3 +129,34 @@ test("switching items resets the edit form and reject note (review round 1)", as
     }),
   );
 });
+
+test("edit keeps untouched values typed, and an emptied field becomes null (review round 2)", async () => {
+  const typed: ReviewItem = {
+    ...ITEM,
+    id: 9,
+    candidate: {
+      kind: "entity",
+      class_name: "Issuer",
+      properties: { ticker: "APH", name: null, shares: 5, listed: true },
+    },
+  };
+  const { calls } = renderWithApi(<ReviewPage />, {
+    "GET /api/review": [typed],
+    "POST /api/review/9/approve": { status: "approved" },
+  });
+  fireEvent.click(await screen.findByTestId("review-row-9"));
+  fireEvent.click(screen.getByRole("button", { name: "Edit then approve" }));
+  expect(((await screen.findByLabelText("name")) as HTMLInputElement).value).toBe("");
+  fireEvent.change(screen.getByLabelText("ticker"), { target: { value: "APHX" } });
+  fireEvent.change(screen.getByLabelText("shares"), { target: { value: "" } });
+  fireEvent.change(screen.getByLabelText("listed"), { target: { value: "False" } });
+  fireEvent.click(screen.getByRole("button", { name: "Approve edited" }));
+  await waitFor(() =>
+    expect(calls.find((c) => c.path === "/api/review/9/approve")?.body).toEqual({
+      edited: {
+        ...typed.candidate,
+        properties: { ticker: "APHX", name: null, shares: null, listed: false },
+      },
+    }),
+  );
+});

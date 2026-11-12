@@ -209,13 +209,22 @@ export function ReviewDetail({ item, onDone }: { item: ReviewItem; onDone: () =>
   );
 }
 
-/** Keep the original scalar type when a property is edited as text. */
-function coerce(original: unknown, text: string): unknown {
+const asText = (v: unknown) => (v === null || v === undefined ? "" : String(v));
+
+/** Text from the form back to a property value. Untouched fields keep their original value
+ * (and type, including null); an emptied field is null; numbers and booleans are parsed,
+ * and anything unparseable is sent as typed so the server's schema gate reports it. */
+export function coerce(original: unknown, text: string): unknown {
+  if (text === asText(original)) return original;
+  if (text.trim() === "") return null;
   if (typeof original === "number") {
     const n = Number(text);
     return Number.isNaN(n) ? text : n;
   }
-  if (typeof original === "boolean") return text === "true";
+  if (typeof original === "boolean") {
+    const t = text.trim().toLowerCase();
+    return t === "true" ? true : t === "false" ? false : text;
+  }
   return text;
 }
 
@@ -234,7 +243,7 @@ function EditModal({
 }) {
   const props = (candidate.properties ?? {}) as Record<string, unknown>;
   const [values, setValues] = useState<Record<string, string>>(
-    Object.fromEntries(Object.entries(props).map(([k, v]) => [k, String(v)])),
+    Object.fromEntries(Object.entries(props).map(([k, v]) => [k, asText(v)])),
   );
   const [json, setJson] = useState(JSON.stringify(candidate, null, 2));
   const [tab, setTab] = useState<string | null>("properties");
