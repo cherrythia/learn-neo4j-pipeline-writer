@@ -131,15 +131,6 @@ def env(tmp_path: Path) -> Iterator[Env]:
 
 # --------------------------------------------------------------------------- permission matrix
 
-ADMIN_ONLY_PREFIXES = (
-    "/api/ontology/drafts",
-    "/api/ontology/rollback",
-    "/api/mappings",
-    "/api/audit",
-    "/api/users",
-)
-ADMIN_ONLY_SUFFIXES = ("/publish", "/approve", "/reject", "/rollback", "/classes", "/relations")
-
 
 def admin_routes(app: Any) -> list[tuple[str, str, str]]:
     """(method, path, required role) for every /api route except auth, from the OpenAPI schema
@@ -224,6 +215,21 @@ def test_ontology_admin_works_without_an_llm_key(env: Env) -> None:
     del env.app.dependency_overrides[get_graph_schema]
     c = env.client("alice")
     assert c.post("/api/ontology/drafts", headers=CSRF).status_code == 201
+    env.app.state.neo4j_driver.close()
+
+
+def test_review_and_rollback_work_without_an_llm_key(env: Env) -> None:
+    """Review round 2: only LLM-backed routes may 503 when no key is configured."""
+    item = env.review_item()
+    del env.app.dependency_overrides[get_pipeline]
+    c = env.client("rita")
+    r = c.post(f"/api/review/{item}/reject", json={"note": "no"}, headers=CSRF)
+    assert r.status_code == 200, r.text
+    admin = env.client("alice")
+    r = admin.post("/api/runs/no-such-run/rollback", headers=CSRF)
+    assert r.status_code not in (500, 503), r.text
+    r = admin.post("/api/mappings/suggest/1", headers=CSRF)
+    assert r.status_code == 503 and "LLM" in r.json()["detail"]
     env.app.state.neo4j_driver.close()
 
 

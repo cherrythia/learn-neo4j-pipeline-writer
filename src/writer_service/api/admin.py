@@ -14,7 +14,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field, ValidationError
 from sqlalchemy import select
 
-from writer_service.api.deps import GraphSchemaDep, PipelineDep, ReaderDep, SupersetDep
+from writer_service.api.deps import LLM_HINT, GraphSchemaDep, PipelineDep, ReaderDep, SupersetDep
 from writer_service.auth.deps import CurrentUser, EngineDep, require_role
 from writer_service.auth.users import create_user, get_user
 from writer_service.governance.models import (
@@ -532,7 +532,7 @@ def suggest(
     reader: ReaderDep,
 ) -> dict[str, Any]:
     if pipeline.llm is None:
-        raise HTTPException(503, "mapping suggestions need an LLM")
+        raise HTTPException(503, f"mapping suggestions need an LLM; {LLM_HINT}")
     ds = _dataset(superset, dataset_id)
     with UnitOfWork(engine) as uow:
         spec, version = _published_spec(uow)
