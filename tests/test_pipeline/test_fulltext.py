@@ -137,3 +137,13 @@ def test_small_labels_use_the_old_scan() -> None:
     look.__dict__["_label_counts"] = {"Issuer": 3}
     assert look._find_node("Issuer", "ticker", "aph") == {"ticker": "APH"}
     assert not any("queryNodes" in c for c in look.ran)
+
+
+def test_the_full_name_read_happens_once_per_batch() -> None:
+    """Review #40 round 5: small (scanned) classes read every name once, not per reference."""
+    look = Scripted([], scan=[{"k": "APH", "name": "Aurora"}])
+    look.scan_below = 10
+    look.__dict__["_label_counts"] = {"Issuer": 3}
+    for text in ("Aurora", "Banyan", "Zebra"):
+        assert look._name_candidates("Issuer", "ticker", "name", text) == [("APH", "Aurora")]
+    assert sum("IS NOT NULL" in c for c in look.ran) == 1

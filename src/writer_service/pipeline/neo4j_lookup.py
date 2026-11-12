@@ -11,12 +11,13 @@ key that missed the exact (uniqueness-indexed) match was looked up with
   use the old scan (see ``key_query``).
 * **name candidates**: the ``TOP_K`` best full-text hits for the reference: the whole text
   through the index's analyzer (so apostrophes, CJK and accents tokenise exactly as the
-  stored names did) OR fuzzy terms for its ASCII-folded words (typos); the matcher ranks the
+  stored names did) OR typo-tolerant fuzzy terms (``_fuzzy_terms``); the matcher ranks the
   hits with its own similarity.
 
 The indexes use the ``standard-folding`` analyzer (lower-case + ASCII folding: "Müller" is
 stored as "muller"). Analysed clauses are sent only lower-cased and the analyzer folds them;
-fuzzy terms, which Lucene doesn't analyse, are built in Python (``_fuzzy_terms``).
+fuzzy terms (Latin/Greek/Cyrillic words, joined pairs, prefixes), which Lucene doesn't
+analyse, are built in Python (``_fuzzy_terms``).
 
 The old scan is used for classes under ``SCAN_BELOW`` nodes (identical results where a scan
 is cheap), when the class has no ONLINE full-text index for the field (not yet synced, still
@@ -40,7 +41,7 @@ from writer_service.pipeline.candidates import canonical_text, match_key
 log = logging.getLogger(__name__)
 
 TOP_K = 50  # name candidates per reference; the matcher only needs the best few
-MAX_WORDS = 16  # fuzzy terms per query (Lucene caps a query at 1024 clauses)
+MAX_WORDS = 16  # fuzzy words per query; at most 4 terms each (Lucene caps clauses at 1024)
 MAX_TEXT_WORDS = 64  # words of the analysed clause
 _WORD = re.compile(r"\w+")
 _ASCII_WORD = re.compile(r"[a-z0-9]+")
@@ -138,7 +139,8 @@ def _fuzzy_terms(text: str) -> list[str]:
 
     * each alphabetic word of 4+ characters, lower-cased, with "ς" as "σ" and with accents
       folded (``Μυτιληναίος`` vs ``ΜΥΤΙΛΗΝΑΙΟΣ``), within one edit;
-    * adjacent words joined ("Sing Tel" ~ "SingTel"), within one edit;
+    * adjacent words of the reference joined (reference "Sing Tel" ~ stored "SingTel";
+      not the reverse), within one edit;
     * a prefix of each long word ("StarHubLtd" -> "starh*" ~ "StarHub Ltd").
     """
     words = [w for w in _WORD.findall(lower(text)) if _alphabetic(w)]
@@ -271,10 +273,16 @@ class Neo4jLookup:
         hits = self._fulltext(index, query) if index and query else None
         if hits is not None:
             pairs = [(h["node"].get(key_prop), h["node"].get(name_prop)) for h in hits]
-        else:  # no usable index: every name of the label
-            rows = self._query(
-                f"MATCH (n:{label}) WHERE n.{name_prop} IS NOT NULL "
-                f"RETURN n.{key_prop} AS k, n.{name_prop} AS name"
+        else:  # no usable index: every name of the label, read once per instance (one batch)
+            cache: dict[tuple[str, str, str], list[Any]] = self.__dict__.setdefault(
+                "_all_names", {}
             )
-            pairs = [(r["k"], r["name"]) for r in rows]
+            slot = (label, key_prop, name_prop)
+            if slot not in cache:
+                rows = self._query(
+                    f"MATCH (n:{label}) WHERE n.{name_prop} IS NOT NULL "
+                    f"RETURN n.{key_prop} AS k, n.{name_prop} AS name"
+                )
+                cache[slot] = [(r["k"], r["name"]) for r in rows]
+            pairs = cache[slot]
         return [(str(k), str(n)) for k, n in pairs if k is not None and n is not None]

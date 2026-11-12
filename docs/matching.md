@@ -69,13 +69,12 @@ stored as "muller"; English stop words are dropped). Analysed name clauses are o
 lower-cased in Python ("İ" mapped to "i"; with a final "ς" also sent as "σ", which is how the
 index stores an upper-case "Σ"), never normalised or decomposed, so the analyzer sees the
 text as it saw the stored names (Hangul syllables, kana voicing marks, "™", NFD text). Only
-the fuzzy terms, which Lucene doesn't analyse, are ASCII-folded in Python.
+the fuzzy terms, which Lucene doesn't analyse, are built in Python (below).
 
 - **Name candidates**: for each distinct reference (cached per batch) the index returns the
   `TOP_K` = 50 best hits for the whole reference, analysed like the stored names (apostrophes,
-  CJK, accents), **or** for its ASCII words of 4+ characters within one edit (typos; at most 16
-  words). The matcher ranks the hits with `name_similarity` as before. Nothing reads every
-  name.
+  CJK, accents), **or** for its fuzzy terms (below; at most 64). The matcher ranks the hits
+  with `name_similarity` as before. Above the threshold nothing reads every name.
 - **Keys**: the exact key is tried first (uniqueness index); on a miss, a phrase query on the
   key field, then an exact case-insensitive check of the hits in Python (`match_key`). The
   index is only trusted for keys it handles exactly like the old scan: **ASCII keys with at
@@ -85,13 +84,14 @@ the fuzzy terms, which Lucene doesn't analyse, are ASCII-folded in Python.
   keys are overwhelmingly ASCII codes, so this stays rare.
 
 The fuzzy terms are: each Latin/Greek/Cyrillic word of 4+ characters (lower-cased, with
-"ς" as "σ", and accent-folded) within one edit; adjacent words joined ("Sing Tel" ~ "SingTel")
-within one edit; and a 5-character prefix of each word of 8+ characters ("StarHubz" ~
-"Star Hubz").
+"ς" as "σ", and accent-folded) within one edit; adjacent words of the *reference* joined (a
+reference "Sing Tel" finds a stored "SingTel"; the reverse, reference "SingTel" vs stored
+"Sing Tel", is **not** covered) within one edit; and a 5-character prefix of each word of 8+
+characters (reference "StarHubLtd" finds a stored "StarHub Ltd").
 
 **Small classes keep the old scan.** A class with fewer than `SCAN_BELOW` = 5,000 nodes is
-matched exactly as before #28 (all names read, `toLower` key scan): cheap at that size, and
-identical results. The index takes over above it, where scanning is the problem. The old
+matched as before #28 (all names read once per batch, `toLower` key scan): cheap at that
+size, and identical results. The index takes over above it, where scanning is the problem. The old
 scans are also used without an ONLINE full-text index for the field (not synced yet, still
 populating, or a non-string identity key, which full-text indexes can't hold) and when a
 full-text query fails.
