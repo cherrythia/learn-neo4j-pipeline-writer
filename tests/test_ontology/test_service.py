@@ -321,3 +321,27 @@ def test_rollback_commit_failure_restores_current_constraints(
     monkeypatch.undo()
     assert statuses(engine) == {1: "superseded", 2: "published"}
     assert {n for n in graph.names if n.startswith("wsc_")} == set(desired_constraints(spec2))
+
+
+def test_publish_creates_fulltext_indexes(svc: OntologyService, graph: InMemoryGraphSchema) -> None:
+    svc.bootstrap("admin")
+    assert "wsf_issuer_ticker_name" in graph.names  # #28
+
+
+def test_sync_reapplies_the_published_schema(
+    svc: OntologyService, engine: Engine, graph: InMemoryGraphSchema
+) -> None:
+    """#28: an existing deployment gets the new full-text indexes without a publish."""
+    svc.bootstrap("admin")
+    graph.names.discard("wsf_issuer_ticker_name")  # as if published before #28
+    result = svc.sync("admin")
+    assert result.created == ["wsf_issuer_ticker_name"] and result.dropped == []
+    assert "wsf_issuer_ticker_name" in graph.names
+    with UnitOfWork(engine) as uow:
+        actions = [a.action for a in uow.session.scalars(select(AuditLog))]
+    assert actions[-1] == "ontology.sync"
+
+
+def test_sync_without_a_published_version_is_an_error(svc: OntologyService) -> None:
+    with pytest.raises(OntologyError, match="nothing is published"):
+        svc.sync("admin")

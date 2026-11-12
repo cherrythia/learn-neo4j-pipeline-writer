@@ -19,11 +19,11 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
-from typing import Any, Literal, Protocol
+from typing import Literal, Protocol
 
 from rapidfuzz import fuzz
 
-from writer_service.ontology.neo4j_schema import neo4j_label
+from writer_service.ontology.neo4j_schema import NAME_PROPERTIES, name_property, neo4j_label
 from writer_service.ontology.spec import ClassSpec, OntologySpec
 from writer_service.pipeline.candidates import (
     CandidateEntity,
@@ -32,8 +32,9 @@ from writer_service.pipeline.candidates import (
     canonical_text,
     match_key,
 )
+from writer_service.pipeline.neo4j_lookup import Neo4jLookup
 
-NAME_PROPERTIES = ("name", "title")
+__all__ = ["NAME_PROPERTIES"]  # re-exported: defined with the full-text indexes
 FUZZY_THRESHOLD = 0.90
 AMBIGUITY_FLOOR = 0.75  # a weaker partial match is not 'new': it needs a human
 AMBIGUITY_MARGIN = 0.05
@@ -65,8 +66,12 @@ class MatchIndex(Protocol):
         """The stored identity key equal to ``value`` (case-insensitive), if any."""
         ...
 
-    def names(self, label: str, key_prop: str, name_prop: str) -> list[tuple[str, str]]:
-        """(identity key, name) for every node of ``label`` that has ``name_prop``."""
+    def candidates(
+        self, label: str, key_prop: str, name_prop: str, text: str
+    ) -> list[tuple[str, str]]:
+        """(identity key, name) of nodes of ``label`` whose ``name_prop`` may match ``text``.
+        May return only the best few (Neo4j: full-text top-k) or every named node (in memory);
+        the matcher ranks them itself."""
         ...
 
 
@@ -82,40 +87,24 @@ class InMemoryMatchIndex:
             (k for k, _ in self._rows.get(label, []) if match_key(k) == match_key(value)), None
         )
 
-    def names(self, label: str, key_prop: str, name_prop: str) -> list[tuple[str, str]]:
+    def candidates(
+        self, label: str, key_prop: str, name_prop: str, text: str
+    ) -> list[tuple[str, str]]:
         return [(k, n) for k, n in self._rows.get(label, []) if n]
 
 
-class Neo4jMatchIndex:
-    """Labels and property names come from the validated ontology (safe to interpolate)."""
-
-    def __init__(self, driver: Any, database: str = "neo4j") -> None:
-        self.driver = driver
-        self.database = database
-
-    def _query(self, cypher: str, **params: Any) -> list[Any]:
-        records, _, _ = self.driver.execute_query(cypher, database_=self.database, **params)
-        return list(records)
+class Neo4jMatchIndex(Neo4jLookup):
+    """Key lookups and name candidates from Neo4j, via the ontology's full-text indexes
+    (falling back to label scans without them; see ``neo4j_lookup``)."""
 
     def find_key(self, label: str, key_prop: str, value: str) -> str | None:
-        rows = self._query(
-            f"MATCH (n:{label}) WHERE n.{key_prop} = $v RETURN n.{key_prop} AS k",
-            v=canonical_text(value),
-        )
-        if not rows:
-            rows = self._query(
-                f"MATCH (n:{label}) WHERE toLower(toString(n.{key_prop})) = $v "
-                f"RETURN n.{key_prop} AS k LIMIT 1",
-                v=match_key(value),
-            )
-        return str(rows[0]["k"]) if rows else None
+        node = self._find_node(label, key_prop, value)
+        return str(node[key_prop]) if node is not None else None
 
-    def names(self, label: str, key_prop: str, name_prop: str) -> list[tuple[str, str]]:
-        rows = self._query(
-            f"MATCH (n:{label}) WHERE n.{name_prop} IS NOT NULL "
-            f"RETURN n.{key_prop} AS k, n.{name_prop} AS name"
-        )
-        return [(str(r["k"]), str(r["name"])) for r in rows]
+    def candidates(
+        self, label: str, key_prop: str, name_prop: str, text: str
+    ) -> list[tuple[str, str]]:
+        return self._name_candidates(label, key_prop, name_prop, text)
 
 
 @dataclass(frozen=True)
@@ -142,7 +131,8 @@ class EntityMatcher:
         self.margin = margin
         self.floor = floor
         self._batch: dict[str, list[tuple[str, str | None]]] = {}
-        self._names: dict[str, list[tuple[str, str]]] = {}  # per-label cache for one batch
+        # (label, reference) -> name candidates, cached for one batch
+        self._names: dict[tuple[str, str], list[tuple[str, str]]] = {}
 
     def reset_batch(self) -> None:
         """Forget batch-local entities and cached names. Call between batches (or create one
@@ -153,8 +143,7 @@ class EntityMatcher:
 
     @staticmethod
     def _name_prop(cls: ClassSpec) -> str | None:
-        props = {p.name for p in cls.properties}
-        return next((n for n in NAME_PROPERTIES if n in props), None)
+        return name_property(cls)
 
     def add_batch_entity(self, candidate: CandidateEntity) -> None:
         """Make an entity proposed earlier in this batch resolvable by later candidates."""
@@ -173,9 +162,10 @@ class EntityMatcher:
         if name_prop is None:
             return []
         label = neo4j_label(cls)
-        if label not in self._names:  # one name scan per label per batch, not per reference
-            self._names[label] = self.index.names(label, cls.identity_key, name_prop)
-        pool = list(self._names[label])
+        slot = (label, match_key(text))
+        if slot not in self._names:  # one index query per distinct reference per batch
+            self._names[slot] = self.index.candidates(label, cls.identity_key, name_prop, text)
+        pool = list(self._names[slot])
         pool += [(k, n) for k, n in self._batch.get(cls.name, []) if n]
         best: dict[str, float] = {}
         for key, name in pool:

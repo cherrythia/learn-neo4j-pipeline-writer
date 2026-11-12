@@ -4,7 +4,8 @@ Key matching: the schema gate canonicalises every key (``canonical_text``: white
 collapsed) and the writer stores keys in that form, so lookups receive canonical keys. Both
 views then match case-insensitively using the same simple lower-casing (`match_key` uses
 `str.lower`, mirroring Cypher's `toLower`). ``Neo4jGraphView`` first tries an exact match (served by
-the identity-key uniqueness index) and only scans with ``toLower`` when that misses.
+the identity-key uniqueness index), then the class's full-text index, and only scans with
+``toLower`` when the class has no usable full-text index (see ``neo4j_lookup``).
 """
 
 from __future__ import annotations
@@ -12,7 +13,8 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any, Protocol
 
-from writer_service.pipeline.candidates import canonical_text, match_key
+from writer_service.pipeline.candidates import match_key
+from writer_service.pipeline.neo4j_lookup import Neo4jLookup
 
 NodeRef = tuple[str, str, str]  # (label, key property, key value)
 # One existing node at the far end of an edge: {label: identity-key value} for each of its
@@ -80,28 +82,12 @@ class InMemoryGraphView:
         ]
 
 
-class Neo4jGraphView:
+class Neo4jGraphView(Neo4jLookup):
     """Neo4j implementation. Labels, relation types and keys come from a *validated* ontology
     (safe identifiers), so interpolating them is injection-free; values are parameters."""
 
-    def __init__(self, driver: Any, database: str = "neo4j") -> None:
-        self.driver = driver
-        self.database = database
-
-    def _query(self, cypher: str, **params: Any) -> list[Any]:
-        records, _, _ = self.driver.execute_query(cypher, database_=self.database, **params)
-        return list(records)
-
     def _find(self, label: str, key: str, value: str) -> Any | None:
-        rows = self._query(
-            f"MATCH (n:{label}) WHERE n.{key} = $v RETURN n LIMIT 1", v=canonical_text(value)
-        )
-        if not rows:  # case differs from the stored key: fall back to a label scan
-            rows = self._query(
-                f"MATCH (n:{label}) WHERE toLower(toString(n.{key})) = $v RETURN n LIMIT 1",
-                v=match_key(value),
-            )
-        return rows[0]["n"] if rows else None
+        return self._find_node(label, key, value)
 
     def node_properties(self, label: str, key: str, value: str) -> dict[str, Any] | None:
         node = self._find(label, key, value)

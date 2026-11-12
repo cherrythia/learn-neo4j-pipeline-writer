@@ -80,7 +80,9 @@ def test_rollback_of_the_asserting_run_demotes_to_stub() -> None:
     assert aph["runs"] == ["run2"] and aph["run_id"] == "run2"
     assert not [lk for lk in g.supported if lk[0] == ("Issuer", "aph")]
     assert g.evidence == {}
-    assert g.names("Issuer", "ticker", "name") == []  # no stale name for fuzzy matching
+    assert (
+        g.candidates("Issuer", "ticker", "name", "Aurora") == []
+    )  # no stale name for fuzzy matching
 
 
 def test_shared_evidence_keeps_only_the_remaining_runs_links() -> None:
@@ -107,7 +109,7 @@ def test_property_overwrites_are_recorded_and_undone() -> None:
     g.undo(changes)
     aph = g.node_properties("Issuer", "ticker", "APH")
     assert aph is not None and (aph["name"], aph["run_id"], aph["score"]) == ("Aurora", "run1", 0.9)
-    assert g.names("Issuer", "ticker", "name") == [("APH", "Aurora")]
+    assert g.candidates("Issuer", "ticker", "name", "Aurora") == [("APH", "Aurora")]
 
 
 def test_new_entities_record_no_property_changes() -> None:

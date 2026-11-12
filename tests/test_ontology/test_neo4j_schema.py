@@ -50,3 +50,59 @@ def test_sync_is_idempotent() -> None:
     sync_constraints(graph, desired_constraints(CORE))
     again = sync_constraints(graph, desired_constraints(CORE))
     assert again.created == [] and again.dropped == []
+
+
+# ---------------------------------------------------------------- full-text indexes (#28)
+
+
+def test_fulltext_index_per_class_covers_string_key_and_name() -> None:
+    from writer_service.ontology.neo4j_schema import desired_indexes
+
+    idx = desired_indexes(CORE)
+    assert idx["wsf_issuer_ticker_name"] == (
+        "CREATE FULLTEXT INDEX wsf_issuer_ticker_name IF NOT EXISTS "
+        "FOR (n:Issuer) ON EACH [n.ticker, n.name] "
+        "OPTIONS {indexConfig: {`fulltext.analyzer`: 'standard-folding'}}"
+    )
+    # identity key *is* the name: one field
+    assert "FOR (n:Organisation) ON EACH [n.name]" in idx["wsf_organisation_name"]
+    assert "ON EACH [n.rule_code, n.title]" in idx["wsf_rule_rule_code_title"]
+    assert "ON EACH [n.finding_id]" in idx["wsf_finding_finding_id"]  # no name property
+
+
+def test_fulltext_index_skips_non_string_keys_and_deprecated_classes() -> None:
+    from writer_service.ontology.neo4j_schema import desired_indexes
+
+    spec = OntologySpec(
+        classes=(
+            ClassSpec("Num", "n", (PropertySpec("n", "int", True),), namespace="ext"),
+            ClassSpec(
+                "Named",
+                "n",
+                (PropertySpec("n", "int", True), PropertySpec("title", "string")),
+                namespace="ext",
+            ),
+            ClassSpec("Old", "id", (PropertySpec("id", "string", True),), deprecated=True),
+        ),
+        relations=(),
+    )
+    assert desired_indexes(spec) == {
+        "wsf_ext_named_title": (
+            "CREATE FULLTEXT INDEX wsf_ext_named_title IF NOT EXISTS "
+            "FOR (n:Ext_Named) ON EACH [n.title] "
+            "OPTIONS {indexConfig: {`fulltext.analyzer`: 'standard-folding'}}"
+        )
+    }
+
+
+def test_sync_manages_indexes_and_drops_stale_ones_as_indexes() -> None:
+    from writer_service.ontology.neo4j_schema import desired_schema
+
+    graph = InMemoryGraphSchema({"wsf_issuer_ticker", "wsc_stale_id", "foreign_index"})
+    result = sync_constraints(graph, desired_schema(CORE))
+    assert "wsf_issuer_ticker_name" in result.created and "wsc_issuer_ticker" in result.created
+    assert set(result.dropped) == {"wsf_issuer_ticker", "wsc_stale_id"}
+    assert "DROP INDEX wsf_issuer_ticker IF EXISTS" in graph.executed
+    assert "DROP CONSTRAINT wsc_stale_id IF EXISTS" in graph.executed
+    assert "foreign_index" in graph.names and "wsf_issuer_ticker_name" in graph.names
+    assert sync_constraints(graph, desired_schema(CORE)).created == []

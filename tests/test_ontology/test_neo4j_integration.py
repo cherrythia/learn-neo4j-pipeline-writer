@@ -3,7 +3,8 @@
     WRITER_TEST_NEO4J_URI=bolt://127.0.0.1:7687 WRITER_TEST_NEO4J_PASSWORD=... \\
         uv run pytest -m integration
 
-It creates the core ``wsc_*`` constraints (the ones the app wants anyway), checks that
+It creates the core ``wsc_*`` constraints and ``wsf_*`` full-text indexes (the ones the
+app wants anyway), checks that
 uniqueness is enforced, and removes only the throwaway node and constraint it adds.
 """
 
@@ -17,7 +18,7 @@ from neo4j.exceptions import ConstraintError
 from writer_service.ontology.core import CORE_CLASSES, CORE_RELATIONS
 from writer_service.ontology.neo4j_schema import (
     Neo4jGraphSchema,
-    desired_constraints,
+    desired_schema,
     sync_constraints,
 )
 from writer_service.ontology.spec import OntologySpec
@@ -44,14 +45,13 @@ def test_sync_enforces_uniqueness_and_drops_stale(driver: Driver) -> None:
         "CREATE CONSTRAINT wsc_zz_stale_test IF NOT EXISTS "
         "FOR (n:ZzStaleTest) REQUIRE n.k IS UNIQUE"
     )
-    result = sync_constraints(
-        graph, desired_constraints(OntologySpec(CORE_CLASSES, CORE_RELATIONS))
-    )
+    result = sync_constraints(graph, desired_schema(OntologySpec(CORE_CLASSES, CORE_RELATIONS)))
     names = graph.constraint_names()
     assert "wsc_zz_stale_test" in result.dropped and "wsc_zz_stale_test" not in names
     assert {"wsc_issuer_ticker", "wsc_filing_filing_id", "wsc_evidence_id"} <= names
+    assert "wsf_issuer_ticker_name" in graph.index_names()
 
-    again = sync_constraints(graph, desired_constraints(OntologySpec(CORE_CLASSES, CORE_RELATIONS)))
+    again = sync_constraints(graph, desired_schema(OntologySpec(CORE_CLASSES, CORE_RELATIONS)))
     assert again.created == [] and again.dropped == []
 
     ticker = "__writer_integration_test__"

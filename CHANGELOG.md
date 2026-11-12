@@ -6,6 +6,26 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Added
+- **#28 Full-text index for entity matching at scale**
+  - One Neo4j full-text index per active class over its string identity key and its
+    name/title (`wsf_<label>_<fields>`), created and dropped with the constraints
+    (`desired_schema`; sync manages `wsc_*` and `wsf_*`).
+  - Matching asks the index (`standard-folding` analyzer) for the 50 best name candidates per
+    reference instead of reading every name of the class, and finds keys case-insensitively
+    through it instead of a label scan (`pipeline/neo4j_lookup.py`, shared by the graph view
+    and the matcher). The old scans are used without an ONLINE index, when a full-text query
+    fails, for keys the index can't match exactly like the scan (non-ASCII or only stop
+    words), and when a key lookup was capped without an exact hit.
+  - `sync_schema(graph, spec)` syncs constraints and indexes together; `OntologyService.sync`
+    holds the version lock like publish.
+  - `MatchIndex.names(...)` became `candidates(..., text)`.
+  - `uv run writer-ontology sync`: re-apply the published schema to an existing graph
+    (audited as `ontology.sync`). **Upgrading: run it once** to create the indexes.
+  - Classes under 5,000 nodes keep the old scan (identical results); above that, the index
+    retrieves candidates (analysed text, typo-tolerant words incl. Greek/Cyrillic, joined
+    words, prefixes), a recall approximation documented in `docs/matching.md`.
+  - Golden test against Neo4j (demo issuers, near-twins, non-ASCII names and keys, typos,
+    one word vs two): same decisions as the full scan on the index path.
 - **#38 Possible duplicates go to review**
   - A new key whose name matches an existing entity (and any relation in the batch to that
     key) is routed to review with reason `duplicate`, whatever its score, so a strong

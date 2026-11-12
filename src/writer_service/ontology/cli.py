@@ -45,6 +45,7 @@ def main(argv: list[str] | None = None) -> None:
     sub.add_parser("draft")
     sub.add_parser("publish").add_argument("version", type=int)
     sub.add_parser("rollback")
+    sub.add_parser("sync", help="re-apply the published version's Neo4j constraints and indexes")
     sub.add_parser("show").add_argument("version", type=int, nargs="?")
     args = parser.parse_args(argv)
 
@@ -75,6 +76,10 @@ def main(argv: list[str] | None = None) -> None:
             elif args.cmd == "publish":
                 svc.publish(args.version, args.actor)
                 print(f"published v{args.version}")
+            elif args.cmd == "sync":
+                r = svc.sync(args.actor)
+                created, dropped = ", ".join(r.created) or "-", ", ".join(r.dropped) or "-"
+                print(f"created: {created}; dropped: {dropped}")
             else:
                 print(f"rolled back to v{svc.rollback(args.actor)}")
         except OntologyError as exc:  # domain errors are user errors: no traceback
