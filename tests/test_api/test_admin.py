@@ -401,6 +401,36 @@ def test_review_queue_list_approve(env: Env) -> None:
     assert c.post(f"/api/review/{item}/approve", headers=CSRF, json={}).status_code == 409
 
 
+def test_edit_then_approve(env: Env) -> None:
+    """Review round 4: the edit path. Malformed is 422 (item stays open), gate failure 409."""
+    from writer_service.governance.models import ReviewItem
+
+    item = env.review_item()
+    c = env.client("rita")
+    url = f"/api/review/{item}/approve"
+    for bad in ({"kind": "entity", "class_name": "Issuer"}, {"foo": 1}):
+        r = c.post(url, json={"edited": bad}, headers=CSRF)
+        assert r.status_code == 422, (bad, r.text)
+    unknown = {"kind": "entity", "class_name": "NoSuchClass", "properties": {"x": "1"}}
+    assert c.post(url, json={"edited": unknown}, headers=CSRF).status_code == 409
+    with UnitOfWork(env.engine) as uow:
+        assert uow.session.get(ReviewItem, item).status == "open"  # type: ignore[union-attr]
+    fixed = {
+        "kind": "entity",
+        "class_name": "Issuer",
+        "properties": {"ticker": "APH", "name": "APH Company"},
+        "evidence": [
+            {"source_type": "pdf", "source_ref": "a.pdf", "locator": "page 1", "quote": "APH Co"}
+        ],
+    }
+    r = c.post(url, json={"edited": fixed}, headers=CSRF)
+    assert r.status_code == 200, r.text
+    aph = env.graph.node_properties("Issuer", "ticker", "APH")
+    assert aph is not None and aph["name"] == "APH Company"
+    with UnitOfWork(env.engine) as uow:
+        assert uow.session.get(ReviewItem, item).status == "edited"  # type: ignore[union-attr]
+
+
 def test_review_reject_with_note(env: Env) -> None:
     item = env.review_item()
     c = env.client("rita")

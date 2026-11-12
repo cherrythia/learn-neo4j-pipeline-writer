@@ -465,7 +465,9 @@ def approve_review(
 ) -> dict[str, str]:
     try:
         pipeline.approve(item_id, user.username, body.edited)
-    except PipelineError as exc:
+    except ValidationError as exc:  # `edited` isn't a well-formed candidate fact
+        raise HTTPException(422, f"edited fact is invalid: {exc}") from exc
+    except PipelineError as exc:  # not open, or the edit fails the gates
         raise HTTPException(409, str(exc)) from exc
     return {"status": "approved"}
 
