@@ -104,11 +104,21 @@ pipeline.rollback(run_id, actor)
     whose new entity was kept as new (that would split the entity).
   - Keeping a relation as new rewrites the endpoint to the entity's stored key (Neo4j keys are
     case-sensitive).
-  - **Merges stick.** An approved merge records `merged_into` on its item; later ingests
-    rewrite that key to the merged entity before matching (an entity keeps the merged
-    entity's differing values, as in the merge), with a note "… was merged into …", so
-    re-syncing the same dataset doesn't re-open the duplicate. (The merged items are read
-    once per ingest.)
+  - **Merges stick.** An approved merge records the keys it rewrote (`merged`) on its item.
+    Later ingests rewrite such a key to the merged entity before matching, the way the merge
+    did (differing values of the merged entity are kept; the note lists them), so re-syncing
+    the same dataset doesn't re-open the duplicate. An alias is used only while
+    - its target is still an accepted entity and the merged-away key is *not* one (once a
+      reviewer keeps that key as a real entity, the alias is ignored), and
+    - the incoming entity's name still matches the target (similarity ≥ 0.90). Otherwise (a
+      reused key, or no name to compare) it is **not** rewritten: it goes to review as a
+      duplicate marked `previously_merged`, and relations to it follow. Keeping that item as
+      new is the reviewer's decision that the key now names a different entity.
+  - Keeping an entity as new under a key that has a valid merge alias is refused (409),
+    except on a `previously_merged` item: in any order, one key can't be both merged and kept
+    (relation merged first, or two items for the same key).
+  - With `merge` and `edited` together, only endpoints that still point at the flagged key
+    are rewritten; if none do, 409 "nothing to merge".
   - The approval audit records `merged_into`, every rewritten side (`merged`) and
     `kept_existing`.
 - `write_run` returns **change records** for everything it destroyed: `edge` records for

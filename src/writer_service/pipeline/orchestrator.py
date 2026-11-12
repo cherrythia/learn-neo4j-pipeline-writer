@@ -50,7 +50,12 @@ from writer_service.pipeline.candidates import (
 from writer_service.pipeline.gates import check_batch, schema_gate
 from writer_service.pipeline.graph_store import GraphWriter, audit_view, to_fact
 from writer_service.pipeline.graph_view import GraphView
-from writer_service.pipeline.matching import EntityMatcher, MatchIndex
+from writer_service.pipeline.matching import (
+    FUZZY_THRESHOLD,
+    EntityMatcher,
+    MatchIndex,
+    name_similarity,
+)
 from writer_service.pipeline.verification import (
     BackTranslator,
     DictSourceText,
@@ -192,13 +197,24 @@ class WriterPipeline:
         notes: list[list[str]] = []
         # (class, match key of the new entity) -> the existing entity it may duplicate
         duplicates: dict[tuple[str, str], dict[str, Any]] = {}
-        aliases = self._merge_aliases(uow)
+        aliases = self._merge_aliases(uow, spec)
+        # merged-away keys whose incoming entity no longer looks like the merge target (e.g. a
+        # reused key): not rewritten, sent to review instead (and so are relations to them)
+        blocked = {
+            slot
+            for v in voted
+            if isinstance(v.candidate, CandidateEntity)
+            and (slot := _slot(v.candidate, spec)) in aliases
+            and not self._alias_fits(v.candidate, aliases[slot][0], spec)
+        }
         for v in voted:
-            c, alias_note = self._apply_aliases(v.candidate, aliases, spec)
+            c, alias_note, forced = self._apply_aliases(v.candidate, aliases, blocked, spec)
             if isinstance(c, CandidateEntity):
                 m = matcher.match_entity(c) if c.class_name in matcher.classes else None
                 conf = m.confidence if m else None
                 note = list(alias_note)
+                if forced is not None:
+                    duplicates[(c.class_name, match_key(forced["candidate_key"]))] = forced
                 if m is not None and m.status == "possible_duplicate" and m.key is not None:
                     note.append(f"possible duplicate of {c.class_name} {m.key!r}")
                     cls = matcher.classes[c.class_name]
@@ -342,7 +358,8 @@ class WriterPipeline:
           (approve its entity item), so approving the relation never creates it as a stub.
 
         * The schema gate runs again (edits must still fit the ontology).
-        * For a ``score`` item the constraint gate runs again too: if the graph changed since
+        * For a ``score`` or ``duplicate`` item (and any merge) the constraint gate runs again
+          too: if the graph changed since
           ingest and the fact now contradicts it, the item becomes a ``conflict`` (still open)
           and nothing is written.
         * For a ``conflict`` item, approving means the new fact **replaces** the old one; the
@@ -374,10 +391,13 @@ class WriterPipeline:
                         "edited candidate fails the schema gate: " + "; ".join(failures)
                     )
                 kept: dict[str, Any] = {}
+                merged_sides: list[dict[str, Any]] = []
                 if merge:
-                    cand, kept = self._merged(cand, dup, spec)
-                elif dup:
-                    cand = self._require_kept_entities(cand, dup, spec)
+                    cand, kept, merged_sides = self._merged(cand, dup, spec)
+                else:
+                    self._refuse_keeping_a_merged_key(uow, cand, dup, spec)
+                    if dup:
+                        cand = self._require_kept_entities(cand, dup, spec)
                 if merge or item.reason in ("score", "duplicate"):
                     (result,) = check_batch([cand], spec, self.graph)
                     if result.status == "reject":
@@ -421,10 +441,11 @@ class WriterPipeline:
                         replace_existing=item.reason == "conflict" and not merge,
                     )
                     changed = edited is not None or merge
-                    if merge:  # later ingests of the same key go straight to the merged entity
+                    if merge:  # later ingests of the same key go to the merged entity (if it fits)
                         item.conflict_with = {
                             **(item.conflict_with or {}),
                             "merged_into": dup["key"],
+                            "merged": merged_sides,
                         }
                     item.status = "edited" if changed else "approved"
                     item.reviewer, item.decided_at = reviewer, utcnow()
@@ -444,10 +465,7 @@ class WriterPipeline:
                             **(
                                 {
                                     "merged_into": dup["key"],
-                                    "merged": [
-                                        {"side": t.get("side"), "key": t["key"]}
-                                        for t in (_sides(dup) or [dup])
-                                    ],
+                                    "merged": merged_sides,
                                     "kept_existing": kept,
                                 }
                                 if merge
@@ -512,7 +530,7 @@ class WriterPipeline:
 
     def _merged(
         self, cand: AnyCandidate, dup: dict[str, Any], spec: OntologySpec
-    ) -> tuple[AnyCandidate, dict[str, Any]]:
+    ) -> tuple[AnyCandidate, dict[str, Any], list[dict[str, Any]]]:
         """Point the candidate at the existing entity (every flagged endpoint, for a relation)
         instead of the new key. The target must be an accepted entity in the graph: the
         matcher also compares against new entities of the same batch, which may never have
@@ -520,8 +538,20 @@ class WriterPipeline:
 
         For an entity, where the existing entity already has a different value (the variant
         name that made it look like a duplicate, typically) the existing value is kept; those
-        candidate values are returned so the audit log records what was not written."""
-        targets = _sides(dup) if isinstance(cand, CandidateRelation) else [dup]
+        candidate values are returned so the audit log records what was not written. Also
+        returned: the rewritten keys (``{class_name, candidate_key, key, side?}``), which later
+        ingests use as aliases."""
+        if isinstance(cand, CandidateRelation):
+            # only sides that still point at the flagged new key (an edit may have changed one)
+            targets = [
+                t
+                for t in _sides(dup)
+                if match_key(getattr(cand, t["side"]).key) == match_key(t["candidate_key"])
+            ]
+            if not targets:
+                raise PipelineError("nothing to merge: no endpoint points at the flagged key")
+        else:
+            targets = [dup]
         for t in targets:
             if not self._accepted(spec, t["class_name"], t["key"]):
                 raise PipelineError(
@@ -541,9 +571,13 @@ class WriterPipeline:
             update = {
                 t["side"]: EntityRef(class_name=t["class_name"], key=t["key"]) for t in targets
             }
-            return cand.model_copy(update=update), {}
+            sides = [
+                {k: t[k] for k in ("class_name", "candidate_key", "key", "side")} for t in targets
+            ]
+            return cand.model_copy(update=update), {}, sides
         cls = next(c for c in spec.classes if c.name == cand.class_name)
         key_prop = cls.identity_key
+        own_key = str(cand.properties.get(key_prop, ""))
         existing = self.graph.node_properties(neo4j_label(cls), key_prop, dup["key"]) or {}
         props: dict[str, Any] = {key_prop: dup["key"]}
         kept: dict[str, Any] = {}
@@ -555,62 +589,116 @@ class WriterPipeline:
                 props[name] = existing[name]
             else:
                 props[name] = value
-        return cand.model_copy(update={"properties": props}), kept
+        side = {"class_name": cand.class_name, "candidate_key": own_key, "key": dup["key"]}
+        return cand.model_copy(update={"properties": props}), kept, [side]
 
-    @staticmethod
-    def _merge_aliases(uow: UnitOfWork) -> dict[tuple[str, str], tuple[str, int]]:
+    def _merge_aliases(
+        self, uow: UnitOfWork, spec: OntologySpec
+    ) -> dict[tuple[str, str], tuple[str, int]]:
         """(class, match key of a merged-away key) -> (entity it was merged into, item id),
-        from approved merges, so re-ingesting a source doesn't re-open the same duplicate."""
+        from approved merges. An alias is only valid while its target is an accepted entity
+        and the merged-away key is *not* (once someone keeps that key as a real entity, the
+        merge no longer says anything about it)."""
         out: dict[tuple[str, str], tuple[str, int]] = {}
         q = select(ReviewItem).where(
             ReviewItem.status == "edited", ReviewItem.reason.in_(("duplicate", "conflict"))
         )
+        known = {c.name for c in spec.classes}
         for item in uow.session.scalars(q.order_by(ReviewItem.id)):
-            info = item.conflict_with or {}
-            into, dup = info.get("merged_into"), info.get("duplicate_of") or {}
-            for side in _sides(dup) or [dup]:
-                if into and side.get("candidate_key"):
-                    slot = (side["class_name"], match_key(side["candidate_key"]))
-                    out[slot] = (side["key"], item.id)
-        return out
+            for side in (item.conflict_with or {}).get("merged") or []:
+                if side.get("class_name") not in known or not side.get("candidate_key"):
+                    continue
+                out[(side["class_name"], match_key(side["candidate_key"]))] = (
+                    side["key"],
+                    item.id,
+                )
+        return {
+            slot: (key, item_id)
+            for slot, (key, item_id) in out.items()
+            if self._accepted(spec, slot[0], key) and not self._accepted(spec, slot[0], slot[1])
+        }
+
+    def _alias_fits(self, cand: CandidateEntity, target: str, spec: OntologySpec) -> bool:
+        """Does an incoming entity under a merged-away key still look like the merge target?
+        (Same name, as far as the matcher is concerned.) Without names it can't tell: no."""
+        cls = next(c for c in spec.classes if c.name == cand.class_name)
+        name_prop = EntityMatcher._name_prop(cls)
+        name = cand.properties.get(name_prop) if name_prop else None
+        existing = self.graph.node_properties(neo4j_label(cls), cls.identity_key, target) or {}
+        if not name or not name_prop or not existing.get(name_prop):
+            return False
+        return name_similarity(str(name), str(existing[name_prop])) >= FUZZY_THRESHOLD
 
     def _apply_aliases(
         self,
         cand: AnyCandidate,
         aliases: dict[tuple[str, str], tuple[str, int]],
+        blocked: set[tuple[str, str]],
         spec: OntologySpec,
-    ) -> tuple[AnyCandidate, list[str]]:
+    ) -> tuple[AnyCandidate, list[str], dict[str, Any] | None]:
         """Rewrite keys a reviewer already merged into another entity, the way the merge did
-        (an entity keeps the existing entity's differing values)."""
+        (an entity keeps the existing entity's differing values). A blocked key (the entity
+        no longer fits the target) is not rewritten: the entity is returned with a forced
+        ``duplicate_of`` so it goes to review, and relations to it follow (via the batch's
+        duplicates)."""
         if not aliases:
-            return cand, []
-        notes: list[str] = []
-        classes = {c.name: c for c in spec.classes}
+            return cand, [], None
         if isinstance(cand, CandidateEntity):
-            cls = classes.get(cand.class_name)
-            if cls is None:
-                return cand, []
+            slot = _slot(cand, spec)
+            hit = aliases.get(slot) if slot else None
+            if slot is None or hit is None:
+                return cand, [], None
+            cls = next(c for c in spec.classes if c.name == cand.class_name)
             key = str(cand.properties.get(cls.identity_key, ""))
-            hit = aliases.get((cand.class_name, match_key(key)))
-            if hit is None or not self._accepted(spec, cand.class_name, hit[0]):
-                return cand, []
+            if slot in blocked:
+                note = (
+                    f"{key!r} was merged into {hit[0]!r} earlier (review item {hit[1]}), but "
+                    "this entity doesn't match it: needs review"
+                )
+                forced = {
+                    "class_name": cand.class_name,
+                    "key_property": cls.identity_key,
+                    "candidate_key": key,
+                    "key": hit[0],
+                    "similarity": 0.0,
+                    "previously_merged": hit[1],
+                }
+                return cand, [note], forced
             dup = {"class_name": cand.class_name, "key_property": cls.identity_key, "key": hit[0]}
-            merged, _ = self._merged(cand, dup, spec)
-            return merged, [f"{key!r} was merged into {hit[0]!r} (review item {hit[1]})"]
+            merged, kept, _ = self._merged(cand, dup, spec)
+            note = f"{key!r} was merged into {hit[0]!r} (review item {hit[1]})"
+            if kept:
+                note += f"; kept the existing values of: {', '.join(sorted(kept))}"
+            return merged, [note], None
+        notes: list[str] = []
         update: dict[str, EntityRef] = {}
         for side in ("source", "target"):
             ref: EntityRef = getattr(cand, side)
-            hit = aliases.get((ref.class_name, match_key(ref.key)))
-            if (
-                hit is not None
-                and ref.class_name in classes
-                and self._accepted(spec, ref.class_name, hit[0])
-            ):
+            slot = (ref.class_name, match_key(ref.key))
+            hit = aliases.get(slot)
+            if hit is not None and slot not in blocked:
                 update[side] = EntityRef(class_name=ref.class_name, key=hit[0])
                 notes.append(
                     f"{side} {ref.key!r} was merged into {hit[0]!r} (review item {hit[1]})"
                 )
-        return (cand.model_copy(update=update) if update else cand), notes
+        return (cand.model_copy(update=update) if update else cand), notes, None
+
+    def _refuse_keeping_a_merged_key(
+        self, uow: UnitOfWork, cand: AnyCandidate, dup: dict[str, Any], spec: OntologySpec
+    ) -> None:
+        """Keeping an entity as new under a key a reviewer already merged away would split
+        it (the relations went to the merge target). Allowed only on an item that was sent to
+        review *because* it no longer matches the merge (``previously_merged``): the reviewer
+        then decides the key now names a different entity."""
+        if not isinstance(cand, CandidateEntity) or dup.get("previously_merged"):
+            return
+        slot = _slot(cand, spec)
+        hit = self._merge_aliases(uow, spec).get(slot) if slot else None
+        if hit is not None:
+            raise PipelineError(
+                f"{cand.class_name} {slot[1] if slot else ''!r} was merged into {hit[0]!r} "
+                f"(review item {hit[1]}): merge this one too, or reject it"
+            )
 
     def reject(self, item_id: int, reviewer: str, note: str | None = None) -> None:
         with UnitOfWork(self.engine) as uow:
@@ -687,7 +775,19 @@ def _duplicate_message(dup: dict[str, Any]) -> str:
     what = f"{dup['class_name']} {dup['candidate_key']!r}"
     if "side" in dup:
         what = f"{dup['side']} {what}"
+    if dup.get("previously_merged"):
+        return (
+            f"{what} was merged into {dup['key']!r} earlier (review item "
+            f"{dup['previously_merged']}), but this entity doesn't match it: needs review"
+        )
     return (
         f"{what} is a possible duplicate of {dup['class_name']} {dup['key']!r} "
         f"(name similarity {dup['similarity']:.2f}): needs review"
     )
+
+
+def _slot(cand: CandidateEntity, spec: OntologySpec) -> tuple[str, str] | None:
+    cls = next((c for c in spec.classes if c.name == cand.class_name), None)
+    if cls is None:
+        return None
+    return cand.class_name, match_key(str(cand.properties.get(cls.identity_key, "")))
