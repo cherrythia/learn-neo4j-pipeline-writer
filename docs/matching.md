@@ -57,7 +57,10 @@ In Neo4j (`pipeline/neo4j_lookup.py`, #28) both lookups use the class's **full-t
 (`wsf_<label>_<fields>`, created with the ontology's constraints, see [ontology](ontology.md)):
 
 The indexes use the `standard-folding` analyzer (lower-case + ASCII folding, so "Müller" is
-stored as "muller"); queries are folded the same way in Python.
+stored as "muller"). Analysed query clauses are only lower-cased in Python (and "İ" mapped to
+"i") so the analyzer folds them exactly as it folded the stored names; decomposing in Python
+would break what the analyzer keeps whole (Hangul syllables, kana voicing marks, "™"). Only the
+fuzzy terms, which Lucene doesn't analyse, are ASCII-folded in Python.
 
 - **Name candidates**: for each distinct reference (cached per batch) the index returns the
   `TOP_K` = 50 best hits for the whole reference, analysed like the stored names (apostrophes,
@@ -74,8 +77,8 @@ a full-text query fails. **Limit:** name candidates are the index's best 50, so 
 full scan would have ranked highest can only be missed if more than 50 names share the
 reference's words and all outrank it in the index's own (BM25) scoring.
 `tests/test_pipeline/test_fulltext_neo4j.py` checks against a real Neo4j, over the demo
-issuers, near-twins, 120 near-identical names, apostrophe/CJK/accented names, a dotted-İ key and
-a key with more than 50 phrase hits, that the full-text path gives the same decisions as the
+issuers, near-twins, 120 near-identical names, apostrophe/CJK/Hangul/kana/accented names,
+dotted-İ, Hangul and "™" keys and a key with more than 50 phrase hits, that the full-text path gives the same decisions as the
 full scan (status, key, confidence, best alternative and the alternatives' scores; among
 *equally* scored names the listed keys may differ) and that no scan runs.
 

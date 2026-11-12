@@ -40,6 +40,13 @@ ISSUERS = {
     f"{P}ZHB": "中华银行",
     f"{P}MUL": "Müller",
     f"{P}İŞBANK": "Zqx Isbank Turkiye",
+    # review #40 round 2: what Python's NFKD would break (Hangul, kana voicing, ™)
+    f"{P}SAM": "삼성전자",
+    f"{P}HYU": "현대",
+    f"{P}BRI": "ブリヂストン",
+    f"{P}GAR": "ｶﾞﾙｰﾀﾞ",
+    f"{P}삼성": "Zqx Samsung Key",
+    f"{P}ACME™": "Zqx Acme Trademark",
     # the demo issuers, under throwaway keys
     **{f"{P}D{i.ticker}": i.name for i in DEMO_ISSUERS},
     # a key whose token many longer keys share (more than TOP_K phrase hits)
@@ -62,6 +69,12 @@ QUERIES = [
     "Mueller",
     "Muller",
     f"{P}i̇şbank",
+    "삼성전자",
+    "현대",
+    "ブリヂストン",
+    "ｶﾞﾙｰﾀﾞ",
+    f"{P.lower()}삼성",
+    f"{P.lower()}acme™",
     f"{P}topk",
     *[i.name for i in DEMO_ISSUERS],
     *[i.name.replace(" (Demo)", "") for i in DEMO_ISSUERS],

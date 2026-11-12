@@ -3,11 +3,14 @@
 from writer_service.pipeline.neo4j_lookup import MAX_WORDS, fold, key_query, name_query
 
 
-def test_key_query_is_a_folded_field_scoped_phrase() -> None:
+def test_key_query_is_a_lower_cased_field_scoped_phrase() -> None:
     assert key_query("ticker", "APH") == 'ticker:"aph"'
     assert key_query("filing_id", "AR-2025-APH") == 'filing_id:"ar-2025-aph"'
-    # folded like the index: both spellings of the dotted capital I become "i"
-    assert key_query("ticker", "İŞBANK") == key_query("ticker", "i̇şbank") == 'ticker:"isbank"'
+    # both spellings of the dotted capital I become a plain "i"; "ş" is left to the analyzer
+    assert key_query("ticker", "İŞBANK") == key_query("ticker", "i̇şbank") == 'ticker:"işbank"'
+    # not decomposed: the analyzer keeps these whole (review #40 round 2)
+    assert key_query("ticker", "삼성") == 'ticker:"삼성"'
+    assert key_query("ticker", "Acme™") == 'ticker:"acme™"'
 
 
 def test_key_query_escapes_phrase_metacharacters() -> None:
@@ -28,7 +31,8 @@ def test_name_query_keeps_what_only_the_analyzer_tokenises() -> None:
     """Review #40: apostrophes, CJK and accents must reach the analyzer."""
     assert name_query("name", "McQuillan's") == "name:(mcquillan's) OR name:(mcquillan~1)"
     assert name_query("name", "中华银行") == "name:(中华银行)"  # no ASCII words: no fuzzy
-    assert name_query("name", "Müller Bank") == "name:(muller bank) OR name:(muller~1 OR bank~1)"
+    assert name_query("name", "ブリヂストン") == "name:(ブリヂストン)"  # voicing marks kept
+    assert name_query("name", "Müller Bank") == "name:(müller bank) OR name:(muller~1 OR bank~1)"
 
 
 def test_name_query_operators_and_specials_are_harmless() -> None:

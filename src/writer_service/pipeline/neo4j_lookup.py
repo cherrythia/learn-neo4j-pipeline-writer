@@ -14,8 +14,8 @@ key that missed the exact (uniqueness-indexed) match was looked up with
   hits with its own similarity.
 
 The indexes use the ``standard-folding`` analyzer (lower-case + ASCII folding: "Müller" is
-stored as "muller"), so fuzzy terms, which Lucene doesn't analyse, are folded the same way
-in Python.
+stored as "muller"). Analysed clauses are sent only lower-cased and the analyzer folds them;
+fuzzy terms, which Lucene doesn't analyse, are folded in Python (ASCII words only).
 
 The old scan is used when the class has no ONLINE full-text index for the field (not yet
 synced, still populating, or a non-string identity key), when the query fails (e.g. too many
@@ -49,8 +49,17 @@ _FUZZY_MIN_LEN = 4
 _LUCENE_SPECIAL = re.compile(r'([+\-&|!(){}\[\]^"~*?:\\/])')
 
 
+def lower(text: str) -> str:
+    """Lower-case for a query the analyzer will see. Only lower-cased (so ``AND``/``OR`` are
+    never operators): the analyzer does its own folding, and decomposing here would break
+    what it keeps whole (Hangul syllables, kana voicing marks, "™"). Python lower-cases "İ"
+    to "i" + a combining dot, which the index never stores, so that becomes "i"."""
+    return unicodedata.normalize("NFC", text.lower().replace("i\u0307", "i"))
+
+
 def fold(text: str) -> str:
-    """Lower-case and strip accents, like the ``standard-folding`` analyzer."""
+    """Lower-case and strip accents, approximating ``standard-folding`` for the ASCII fuzzy
+    terms only (Lucene doesn't analyse fuzzy terms)."""
     decomposed = unicodedata.normalize("NFKD", text.lower())
     return "".join(ch for ch in decomposed if not unicodedata.combining(ch))
 
@@ -59,9 +68,8 @@ def key_query(field: str, value: str) -> str | None:
     """Lucene phrase query for ``value`` in ``field`` (None if it has no word characters)."""
     if not _WORD.search(value):
         return None
-    # folded like the analyzer (plain lower() turns "İ" into "i" + a combining dot, which
-    # the index never stored); the caller checks the hits exactly with match_key
-    escaped = fold(value).replace("\\", "\\\\").replace('"', '\\"')
+    # the analyzer folds; the caller checks the hits exactly with match_key
+    escaped = lower(value).replace("\\", "\\\\").replace('"', '\\"')
     return f'{field}:"{escaped}"'
 
 
@@ -72,7 +80,7 @@ def name_query(field: str, text: str) -> str | None:
     operators."""
     if not _WORD.search(text):
         return None
-    head = " ".join(fold(canonical_text(text)).split()[:MAX_TEXT_WORDS])
+    head = " ".join(lower(canonical_text(text)).split()[:MAX_TEXT_WORDS])
     clauses = [f"{field}:({_LUCENE_SPECIAL.sub(r'\\\1', head)})"]
     words = list(
         dict.fromkeys(w for w in _ASCII_WORD.findall(fold(text)) if len(w) >= _FUZZY_MIN_LEN)

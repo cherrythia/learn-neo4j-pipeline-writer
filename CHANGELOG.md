@@ -20,7 +20,9 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   - `MatchIndex.names(...)` became `candidates(..., text)`.
   - `uv run writer-ontology sync`: re-apply the published schema to an existing graph
     (audited as `ontology.sync`). **Upgrading: run it once** to create the indexes.
-  - Golden test against Neo4j: same decisions as the full scan.
+  - Golden test against Neo4j (demo issuers, near-twins, non-ASCII names and keys): same
+    decisions as the full scan. Limit: name candidates are the index's best 50, so a name
+    could only be missed if more than 50 names share the reference's words and outrank it.
 - **#17 README walkthrough and demo script**
   - README: architecture diagram, how a fact gets into Neo4j, scoring with worked examples,
     one-command demo, running the real service, switching LLM.
