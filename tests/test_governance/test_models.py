@@ -28,28 +28,32 @@ def version(session: Session, n: int = 1) -> OntologyVersion:
 
 def test_ontology_class_with_properties_and_taxonomy(session: Session) -> None:
     v = version(session)
-    org = OntologyClass(version=v, namespace="core", name="Organisation", identity_key="name")
-    issuer = OntologyClass(
-        version=v, namespace="core", name="Issuer", identity_key="ticker", parent=org
+    asset = OntologyClass(version=v, namespace="core", name="Asset", identity_key="asset_tag")
+    hardware = OntologyClass(
+        version=v, namespace="core", name="HardwareAsset", identity_key="asset_tag", parent=asset
     )
-    issuer.properties = [
-        PropertyDef(name="ticker", datatype="string", required=True),
-        PropertyDef(name="board", datatype="string"),
+    hardware.properties = [
+        PropertyDef(name="asset_tag", datatype="string", required=True),
+        PropertyDef(name="hardware_type", datatype="string"),
     ]
-    session.add_all([org, issuer])
+    session.add_all([asset, hardware])
     session.commit()
-    got = session.scalars(select(OntologyClass).where(OntologyClass.name == "Issuer")).one()
-    assert got.parent is not None and got.parent.name == "Organisation"
-    assert {p.name for p in got.properties} == {"ticker", "board"}
+    got = session.scalars(select(OntologyClass).where(OntologyClass.name == "HardwareAsset")).one()
+    assert got.parent is not None and got.parent.name == "Asset"
+    assert {p.name for p in got.properties} == {"asset_tag", "hardware_type"}
     assert got.deprecated is False
 
 
 def test_class_name_unique_per_version_and_namespace(session: Session) -> None:
     v = version(session)
-    session.add(OntologyClass(version=v, namespace="core", name="Issuer", identity_key="ticker"))
-    session.add(OntologyClass(version=v, namespace="ext", name="Issuer", identity_key="ticker"))
+    session.add(
+        OntologyClass(version=v, namespace="core", name="Department", identity_key="dept_code")
+    )
+    session.add(
+        OntologyClass(version=v, namespace="ext", name="Department", identity_key="dept_code")
+    )
     session.flush()  # same name in another namespace is fine
-    session.add(OntologyClass(version=v, namespace="core", name="Issuer", identity_key="id"))
+    session.add(OntologyClass(version=v, namespace="core", name="Department", identity_key="id"))
     with pytest.raises(IntegrityError):
         session.flush()
 
@@ -84,9 +88,9 @@ def test_relation_type(session: Session) -> None:
         RelationType(
             version=v,
             namespace="core",
-            name="FILED_BY",
-            domain_class="Filing",
-            range_class="Issuer",
+            name="ASSIGNED_TO",
+            domain_class="HardwareAsset",
+            range_class="Department",
             cardinality="many_to_one",
         )
     )
@@ -106,7 +110,7 @@ def test_run_candidates_and_review_item(session: Session) -> None:
         run=run,
         kind="relation",
         canonical_hash="abc",
-        payload={"type": "FILED_BY"},
+        payload={"type": "ASSIGNED_TO"},
         evidence=[{"page": 1, "span": "..."}],
         score=0.7,
         breakdown={"grounding": 0.9},
@@ -137,7 +141,7 @@ def test_one_review_item_per_candidate(session: Session) -> None:
 
 
 def test_extension_proposal_defaults(session: Session) -> None:
-    p = ExtensionProposal(kind="class", payload={"name": "ESGMetric"}, proposed_by="llm")
+    p = ExtensionProposal(kind="class", payload={"name": "Warranty"}, proposed_by="llm")
     session.add(p)
     session.commit()
     assert p.status == "pending" and p.created_at is not None
@@ -161,7 +165,7 @@ def test_scoring_config_json_roundtrip(session: Session) -> None:
 def test_column_mapping_and_user_and_audit(session: Session) -> None:
     session.add(
         ColumnMapping(
-            dataset_id=1, dataset_name="issuers", mapping={"rows": []}, suggested_by="llm"
+            dataset_id=1, dataset_name="departments", mapping={"rows": []}, suggested_by="llm"
         )
     )
     session.add(User(username="alice", password_hash="x", role="reviewer"))

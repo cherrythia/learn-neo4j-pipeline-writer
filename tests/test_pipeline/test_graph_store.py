@@ -16,8 +16,8 @@ SEED = (("A", "F1"), ("A", "F2"), ("B", "F1"))
 def link(src: str, tgt: str) -> CandidateRelation:
     return CandidateRelation(
         relation="LINK",
-        source=EntityRef(class_name="Issuer", key=src),
-        target=EntityRef(class_name="Filing", key=tgt),
+        source=EntityRef(class_name="Application", key=src),
+        target=EntityRef(class_name="HardwareAsset", key=tgt),
     )
 
 
@@ -41,7 +41,8 @@ def test_replacement_removes_only_what_the_cardinality_forbids(
     expected_replaced: set[tuple[str, str]],
 ) -> None:
     spec = OntologySpec(
-        CORE_CLASSES, (*CORE_RELATIONS, RelationSpec("LINK", "Issuer", "Filing", cardinality))
+        CORE_CLASSES,
+        (*CORE_RELATIONS, RelationSpec("LINK", "Application", "HardwareAsset", cardinality)),
     )  # type: ignore[arg-type]
     g = InMemoryGraph()
     g.write_run("seed", 1, [to_fact(link(s, t), spec, 1.0) for s, t in SEED])
@@ -56,8 +57,8 @@ def entity(key: str, name: str) -> object:
     from writer_service.pipeline.candidates import CandidateEntity, Evidence
 
     return CandidateEntity(
-        class_name="Issuer",
-        properties={"ticker": key, "name": name},
+        class_name="HardwareAsset",
+        properties={"asset_tag": key, "name": name},
         evidence=[
             Evidence(source_type="pdf", source_ref="a.pdf", locator="page 1", quote=f"{name} quote")
         ],
@@ -67,52 +68,62 @@ def entity(key: str, name: str) -> object:
 def test_rollback_of_the_asserting_run_demotes_to_stub() -> None:
     spec = OntologySpec(CORE_CLASSES, CORE_RELATIONS)
     g = InMemoryGraph()
-    g.write_run("run1", 1, [to_fact(entity("APH", "Aurora"), spec, 0.9)])  # asserts APH
-    filed = CandidateRelation(
-        relation="FILED_BY",
-        source=EntityRef(class_name="Filing", key="F1"),
-        target=EntityRef(class_name="Issuer", key="APH"),
+    g.write_run(
+        "run1", 1, [to_fact(entity("HW-0001", "Finance Laptop"), spec, 0.9)]
+    )  # asserts HW-0001
+    assigned = CandidateRelation(
+        relation="ASSIGNED_TO",
+        source=EntityRef(class_name="HardwareAsset", key="HW-0001"),
+        target=EntityRef(class_name="Department", key="FIN"),
     )
-    g.write_run("run2", 1, [to_fact(filed, spec, 0.9)])  # only references APH
+    g.write_run("run2", 1, [to_fact(assigned, spec, 0.9)])  # only references HW-0001
     g.rollback_run("run1")
-    aph = g.node_properties("Issuer", "ticker", "APH")
-    assert aph is not None and aph["stub"] is True and "name" not in aph
-    assert aph["runs"] == ["run2"] and aph["run_id"] == "run2"
-    assert not [lk for lk in g.supported if lk[0] == ("Issuer", "aph")]
+    hw = g.node_properties("HardwareAsset", "asset_tag", "HW-0001")
+    assert hw is not None and hw["stub"] is True and "name" not in hw
+    assert hw["runs"] == ["run2"] and hw["run_id"] == "run2"
+    assert not [lk for lk in g.supported if lk[0] == ("HardwareAsset", "hw-0001")]
     assert g.evidence == {}
     assert (
-        g.candidates("Issuer", "ticker", "name", "Aurora") == []
+        g.candidates("HardwareAsset", "asset_tag", "name", "Finance Laptop") == []
     )  # no stale name for fuzzy matching
 
 
 def test_shared_evidence_keeps_only_the_remaining_runs_links() -> None:
     spec = OntologySpec(CORE_CLASSES, CORE_RELATIONS)
     g = InMemoryGraph()
-    g.write_run("run1", 1, [to_fact(entity("APH", "Aurora"), spec, 0.9)])
-    g.write_run("run2", 1, [to_fact(entity("APH", "Aurora"), spec, 0.9)])
+    g.write_run("run1", 1, [to_fact(entity("HW-0001", "Finance Laptop"), spec, 0.9)])
+    g.write_run("run2", 1, [to_fact(entity("HW-0001", "Finance Laptop"), spec, 0.9)])
     g.rollback_run("run1")
     (item,) = g.evidence.values()
     assert item["runs"] == ["run2"] and item["run_id"] == "run2"
     assert all(runs == ["run2"] for runs in g.supported.values())
-    assert g.node_properties("Issuer", "ticker", "APH")["stub"] is False  # type: ignore[index]
+    assert g.node_properties("HardwareAsset", "asset_tag", "HW-0001")["stub"] is False  # type: ignore[index]
 
 
 def test_property_overwrites_are_recorded_and_undone() -> None:
     spec = OntologySpec(CORE_CLASSES, CORE_RELATIONS)
     g = InMemoryGraph()
-    g.write_run("run1", 1, [to_fact(entity("APH", "Aurora"), spec, 0.9)])
-    changes = g.write_run("run2", 1, [to_fact(entity("APH", "Aurora Renamed"), spec, 0.8)])
-    (change,) = [c for c in changes if c["node"]["label"] == "Issuer"]  # one per label
-    assert change["node"] == {"label": "Issuer", "key": "APH"}
-    assert change["before"] == {"name": "Aurora", "run_id": "run1", "score": 0.9}
+    g.write_run("run1", 1, [to_fact(entity("HW-0001", "Finance Laptop"), spec, 0.9)])
+    changes = g.write_run(
+        "run2", 1, [to_fact(entity("HW-0001", "Finance Laptop Renamed"), spec, 0.8)]
+    )
+    (change,) = [c for c in changes if c["node"]["label"] == "HardwareAsset"]  # one per label
+    assert change["node"] == {"label": "HardwareAsset", "key": "HW-0001"}
+    assert change["before"] == {"name": "Finance Laptop", "run_id": "run1", "score": 0.9}
     assert "restore" not in audit_view(changes)[0]
     g.undo(changes)
-    aph = g.node_properties("Issuer", "ticker", "APH")
-    assert aph is not None and (aph["name"], aph["run_id"], aph["score"]) == ("Aurora", "run1", 0.9)
-    assert g.candidates("Issuer", "ticker", "name", "Aurora") == [("APH", "Aurora")]
+    hw = g.node_properties("HardwareAsset", "asset_tag", "HW-0001")
+    assert hw is not None and (hw["name"], hw["run_id"], hw["score"]) == (
+        "Finance Laptop",
+        "run1",
+        0.9,
+    )
+    assert g.candidates("HardwareAsset", "asset_tag", "name", "Finance Laptop") == [
+        ("HW-0001", "Finance Laptop")
+    ]
 
 
 def test_new_entities_record_no_property_changes() -> None:
     spec = OntologySpec(CORE_CLASSES, CORE_RELATIONS)
     g = InMemoryGraph()
-    assert g.write_run("run1", 1, [to_fact(entity("APH", "Aurora"), spec, 0.9)]) == []
+    assert g.write_run("run1", 1, [to_fact(entity("HW-0001", "Finance Laptop"), spec, 0.9)]) == []

@@ -16,21 +16,27 @@ PDF / XLSX ──► chunks (one per page / row, with a locator)
 | Source | Chunk | Locator |
 |---|---|---|
 | PDF | each non-empty page (`pypdf` text) | `page 3` |
-| Excel | each non-empty data row, rendered `header: value; …` | `sheet Checklist row 5` (as Excel numbers rows, header = row 1) |
+| Excel | each non-empty data row, rendered `header: value; …` | `sheet Register row 5` (as Excel numbers rows, header = row 1) |
 
 Unreadable input raises a clear `ValueError` (`… is not a readable PDF`).
 
 ## Extraction
 
-The prompt (`document_extraction` v1) contains the ontology rendered as text, for example:
+The prompt (`document_extraction` v2) contains the ontology rendered as text, for example:
 
 ```
-- Issuer (key: ticker; properties: ticker*, name*, sector, board, country) is-a Organisation
-- (Filing)-[:FILED_BY]->(Issuer) many_to_one
+- HardwareAsset (key: asset_tag; properties: asset_tag*: string, name: string, status: string (one of: in_stock, in_use, in_repair, retired), purchase_date: date, cost: float (purchase cost of the asset (for a licence: the line total), in the document's currency), hardware_type: string (one of: laptop, desktop, server, network), manufacturer: string, model: string, serial_number: string) is-a Asset
+- (HardwareAsset)-[:ASSIGNED_TO]->(Department) many_to_one
 ```
 
-followed by the window text with `[page N]` markers. The model must cite the marker and a
-verbatim quote for every fact.
+Each property shows its datatype and, from the ontology's property description, its notes or
+allowed values (`one of: …`). Followed by the window text with `[page N]` markers. The model
+must cite the marker and a verbatim quote for every fact, and give property values
+**normalised to their datatype**: dates as `YYYY-MM-DD`, numbers as plain digits without
+thousands separators or currency, and one of the listed values where the property has them.
+The quote stays verbatim (`1 x 2,150.00`); the value is `2150.00`. The schema gate doesn't
+guess these formats itself (`1,234` is a thousand in one locale and a decimal in another), so
+an unnormalised value is rejected rather than misread.
 
 **The vocabulary is enforced, not just requested.** The structured-output schema is generated
 from the published ontology: `class_name`, `relation` and property names are JSON-schema

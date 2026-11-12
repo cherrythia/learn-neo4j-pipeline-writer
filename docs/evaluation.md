@@ -15,13 +15,20 @@ uv run writer-eval --json report.json
 `evaluation/golden/*.json`: hand-labelled expected facts for a document:
 
 ```json
-{"document": "samples/aurora_pacific_annual_report_2025.pdf",
- "entities":  [{"class_name": "Issuer", "key": "APH", "properties": {"board": "mainboard"}}],
- "relations": [{"relation": "FILED_BY", "source": "AR-2025-APH", "target": "APH"}]}
+{"document": "samples/zorblax_invoice_INV-2025-0418.pdf",
+ "entities":  [{"class_name": "Department", "key": "FIN", "properties": {"name": "Finance"}}],
+ "relations": [{"relation": "ASSIGNED_TO", "source": "HW-25-0101", "target": "FIN"},
+               {"relation": "BILLED_ON", "source_class": "HardwareAsset",
+                "source": "HW-25-0101", "target": "INV-2025-0418"}]}
 ```
 
-Only facts the text actually states are labelled. Findings are left out because the sample
-gives them no identity key.
+Only facts the text actually states are labelled. The golden set
+`evaluation/golden/zorblax_invoice_2025_0418.json` (issue #41) labels the sample vendor
+invoice: 14 entities (the vendor, the invoice, 3 departments, 5 hardware assets, 2 software
+licences, 2 software products) and 17 relations (`ISSUED_BY`, 7 × `BILLED_ON`,
+5 × `ASSIGNED_TO`, 2 × `LICENSES`, 2 × `ALLOCATED_TO`). Hostnames, purchase dates and
+publishers are not in the text, so they are not labelled. `BILLED_ON`'s domain is `Asset`,
+so its golden relations name the subclass (`source_class`) the invoice line really is.
 
 ## Metrics
 
@@ -43,15 +50,16 @@ The report shows every run and the **voted** result (self-consistency, the same 
 the pipeline uses):
 
 ```
-aurora_annual_report_2025.json  (runs: 3, run-to-run agreement: 0.85)
+zorblax_invoice_2025_0418.json  (runs: 3, run-to-run agreement: 0.92)
              precision  recall     f1   attr  tp fp fn
-  run 0           0.93    1.00   0.96   1.00  13  1  0
-  run 1           1.00    0.85   0.92   1.00  11  0  2
-  run 2           1.00    1.00   1.00   1.00  13  0  0
-  voted           1.00    1.00   1.00   1.00  13  0  0
+  run 0           0.97    1.00   0.98   1.00  31  1  0
+  run 1           1.00    0.90   0.95   1.00  28  0  3
+  run 2           1.00    1.00   1.00   1.00  31  0  0
+  voted           1.00    1.00   1.00   1.00  31  0  0
 ```
 
-Run 0 invented a rule and run 1 missed one; the 2-of-3 vote removes both errors.
+Run 0 invented a laptop (`HW-25-0104`) and run 1 missed one (`HW-25-0103` with its two
+relations); the 2-of-3 vote removes both errors.
 
 ## Recordings: read this
 
@@ -68,16 +76,18 @@ What that means for CI:
   or ontology change the scripted answers are regenerated
   (`uv run python -m writer_service.evaluation.scripted`; a test fails until you do), which
   gives the same scores by construction.
-- Real protection needs **live recordings**:
+- Real protection needs **live recordings**. **None are committed at the moment**: the demo
+  domain switched to ITAM in issue #41 (any answers recorded for the old annual-report sample
+  are void), so the owner re-records against the invoice:
   1. set `WRITER_ANTHROPIC_API_KEY` and run `uv run writer-eval --mode live --runs 3`.
      Live mode writes to `evaluation/recordings-live/` and refuses a folder that already has
      entries (the cache is read first, so old answers would be reported as a live run);
      delete the folder to re-record.
   2. review the report and commit `evaluation/recordings-live/`.
   3. CI then also runs *"Accuracy (golden set, committed live recordings)"*, which replays
-     them with `--min-f1 0.95`. After a prompt, ontology or model change the replay misses and
-     the step fails, so the change can't merge until someone records and reviews a new live
-     run.
+     them with `--min-f1 0.95` (replay only: CI never calls a real LLM). After a prompt,
+     ontology or model change the replay misses and the step fails, so the change can't
+     merge until someone records and reviews a new live run.
 
 The scripted recordings are keyed under the default `llm_model`. With `WRITER_LLM_MODEL` set
 to another model, replay misses and fails loudly rather than scoring stale answers.

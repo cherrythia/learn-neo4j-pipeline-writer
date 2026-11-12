@@ -49,9 +49,12 @@ def test_upgrade_downgrade_roundtrip_on_mysql(mysql_url: str) -> None:
         with UnitOfWork(engine) as uow:
             v = uow.ontology_versions.get_by_number(1)
             assert v is not None
-            parent = OntologyClass(version=v, name="Organisation", identity_key="name")
+            parent = OntologyClass(version=v, name="Asset", identity_key="asset_tag")
             uow.session.add_all(
-                [parent, OntologyClass(version=v, name="Issuer", identity_key="t", parent=parent)]
+                [
+                    parent,
+                    OntologyClass(version=v, name="HardwareAsset", identity_key="t", parent=parent),
+                ]
             )
         with engine.begin() as conn:
             conn.execute(text("DELETE FROM ontology_versions WHERE version = 1"))

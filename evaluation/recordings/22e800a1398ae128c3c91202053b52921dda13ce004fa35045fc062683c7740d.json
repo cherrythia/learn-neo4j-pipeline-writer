@@ -1,0 +1,647 @@
+{
+  "data": {
+    "entities": [
+      {
+        "class_name": "Vendor",
+        "confidence": 0.9,
+        "evidence": [
+          {
+            "locator": "page 1",
+            "quote": "Zorblax Systems Supply (Demo), 1 Example Way, Demo City 000000, Singapore"
+          }
+        ],
+        "properties": [
+          {
+            "name": "name",
+            "value": "Zorblax Systems Supply (Demo)"
+          },
+          {
+            "name": "country",
+            "value": "Singapore"
+          }
+        ]
+      },
+      {
+        "class_name": "Invoice",
+        "confidence": 0.9,
+        "evidence": [
+          {
+            "locator": "page 1",
+            "quote": "Invoice number: INV-2025-0418"
+          },
+          {
+            "locator": "page 1",
+            "quote": "Invoice date: 3 November 2025"
+          },
+          {
+            "locator": "page 2",
+            "quote": "Total amount due: SGD 44,482.90"
+          }
+        ],
+        "properties": [
+          {
+            "name": "invoice_number",
+            "value": "INV-2025-0418"
+          },
+          {
+            "name": "invoice_date",
+            "value": "2025-11-03"
+          },
+          {
+            "name": "total_amount",
+            "value": "44482.90"
+          },
+          {
+            "name": "currency",
+            "value": "SGD"
+          }
+        ]
+      },
+      {
+        "class_name": "Department",
+        "confidence": 0.9,
+        "evidence": [
+          {
+            "locator": "page 3",
+            "quote": "Finance (FIN)"
+          }
+        ],
+        "properties": [
+          {
+            "name": "dept_code",
+            "value": "FIN"
+          },
+          {
+            "name": "name",
+            "value": "Finance"
+          }
+        ]
+      },
+      {
+        "class_name": "Department",
+        "confidence": 0.9,
+        "evidence": [
+          {
+            "locator": "page 3",
+            "quote": "Engineering (ENG)"
+          }
+        ],
+        "properties": [
+          {
+            "name": "dept_code",
+            "value": "ENG"
+          },
+          {
+            "name": "name",
+            "value": "Engineering"
+          }
+        ]
+      },
+      {
+        "class_name": "Department",
+        "confidence": 0.9,
+        "evidence": [
+          {
+            "locator": "page 3",
+            "quote": "IT Services (ITS)"
+          }
+        ],
+        "properties": [
+          {
+            "name": "dept_code",
+            "value": "ITS"
+          },
+          {
+            "name": "name",
+            "value": "IT Services"
+          }
+        ]
+      },
+      {
+        "class_name": "HardwareAsset",
+        "confidence": 0.9,
+        "evidence": [
+          {
+            "locator": "page 1",
+            "quote": "HW-25-0101 Laptop, Corvane (Demo) Strata 14, S/N CVS14-8F2K91, 1 x 2,150.00"
+          },
+          {
+            "locator": "page 3",
+            "quote": "All items on invoice INV-2025-0418 were delivered and tagged on 3 November 2025"
+          }
+        ],
+        "properties": [
+          {
+            "name": "asset_tag",
+            "value": "HW-25-0101"
+          },
+          {
+            "name": "hardware_type",
+            "value": "laptop"
+          },
+          {
+            "name": "manufacturer",
+            "value": "Corvane (Demo)"
+          },
+          {
+            "name": "model",
+            "value": "Strata 14"
+          },
+          {
+            "name": "serial_number",
+            "value": "CVS14-8F2K91"
+          },
+          {
+            "name": "cost",
+            "value": "2150.00"
+          },
+          {
+            "name": "purchase_date",
+            "value": "2025-11-03"
+          }
+        ]
+      },
+      {
+        "class_name": "HardwareAsset",
+        "confidence": 0.9,
+        "evidence": [
+          {
+            "locator": "page 1",
+            "quote": "HW-25-0102 Laptop, Corvane (Demo) Strata 14, S/N CVS14-8F2K94, 1 x 2,150.00"
+          },
+          {
+            "locator": "page 3",
+            "quote": "All items on invoice INV-2025-0418 were delivered and tagged on 3 November 2025"
+          }
+        ],
+        "properties": [
+          {
+            "name": "asset_tag",
+            "value": "HW-25-0102"
+          },
+          {
+            "name": "hardware_type",
+            "value": "laptop"
+          },
+          {
+            "name": "manufacturer",
+            "value": "Corvane (Demo)"
+          },
+          {
+            "name": "model",
+            "value": "Strata 14"
+          },
+          {
+            "name": "serial_number",
+            "value": "CVS14-8F2K94"
+          },
+          {
+            "name": "cost",
+            "value": "2150.00"
+          },
+          {
+            "name": "purchase_date",
+            "value": "2025-11-03"
+          }
+        ]
+      },
+      {
+        "class_name": "HardwareAsset",
+        "confidence": 0.9,
+        "evidence": [
+          {
+            "locator": "page 1",
+            "quote": "HW-25-0110 Server, Haldrix Compute (Demo) HX-2U, S/N HDR-77120-A, 1 x 14,800.00"
+          },
+          {
+            "locator": "page 3",
+            "quote": "All items on invoice INV-2025-0418 were delivered and tagged on 3 November 2025"
+          }
+        ],
+        "properties": [
+          {
+            "name": "asset_tag",
+            "value": "HW-25-0110"
+          },
+          {
+            "name": "hardware_type",
+            "value": "server"
+          },
+          {
+            "name": "manufacturer",
+            "value": "Haldrix Compute (Demo)"
+          },
+          {
+            "name": "model",
+            "value": "HX-2U"
+          },
+          {
+            "name": "serial_number",
+            "value": "HDR-77120-A"
+          },
+          {
+            "name": "cost",
+            "value": "14800.00"
+          },
+          {
+            "name": "purchase_date",
+            "value": "2025-11-03"
+          }
+        ]
+      },
+      {
+        "class_name": "HardwareAsset",
+        "confidence": 0.9,
+        "evidence": [
+          {
+            "locator": "page 1",
+            "quote": "HW-25-0120 Network switch, Tesselqo Networks (Demo) SW-48, S/N TSW48-00931, 1 x 3,420.00"
+          },
+          {
+            "locator": "page 3",
+            "quote": "All items on invoice INV-2025-0418 were delivered and tagged on 3 November 2025"
+          }
+        ],
+        "properties": [
+          {
+            "name": "asset_tag",
+            "value": "HW-25-0120"
+          },
+          {
+            "name": "hardware_type",
+            "value": "network"
+          },
+          {
+            "name": "manufacturer",
+            "value": "Tesselqo Networks (Demo)"
+          },
+          {
+            "name": "model",
+            "value": "SW-48"
+          },
+          {
+            "name": "serial_number",
+            "value": "TSW48-00931"
+          },
+          {
+            "name": "cost",
+            "value": "3420.00"
+          },
+          {
+            "name": "purchase_date",
+            "value": "2025-11-03"
+          }
+        ]
+      },
+      {
+        "class_name": "SoftwareLicense",
+        "confidence": 0.9,
+        "evidence": [
+          {
+            "locator": "page 2",
+            "quote": "SL-25-0201 Quillstack Docs (SW-QDOC), subscription licence, 50 seats x 180.00 = 9,000.00"
+          },
+          {
+            "locator": "page 3",
+            "quote": "Licence SL-25-0201 is allocated to Engineering (ENG) and expires on 31 October 2026"
+          }
+        ],
+        "properties": [
+          {
+            "name": "asset_tag",
+            "value": "SL-25-0201"
+          },
+          {
+            "name": "license_type",
+            "value": "subscription"
+          },
+          {
+            "name": "seats",
+            "value": "50"
+          },
+          {
+            "name": "expiry_date",
+            "value": "2026-10-31"
+          },
+          {
+            "name": "cost",
+            "value": "9000.00"
+          }
+        ]
+      },
+      {
+        "class_name": "SoftwareLicense",
+        "confidence": 0.9,
+        "evidence": [
+          {
+            "locator": "page 2",
+            "quote": "SL-25-0202 Ledgerwisp Accounting (SW-LEDG), subscription licence, 10 seats x 640.00 = 6,400.00"
+          },
+          {
+            "locator": "page 3",
+            "quote": "Licence SL-25-0202 is allocated to Finance (FIN) and expires on 31 October 2026"
+          }
+        ],
+        "properties": [
+          {
+            "name": "asset_tag",
+            "value": "SL-25-0202"
+          },
+          {
+            "name": "license_type",
+            "value": "subscription"
+          },
+          {
+            "name": "seats",
+            "value": "10"
+          },
+          {
+            "name": "expiry_date",
+            "value": "2026-10-31"
+          },
+          {
+            "name": "cost",
+            "value": "6400.00"
+          }
+        ]
+      },
+      {
+        "class_name": "Software",
+        "confidence": 0.9,
+        "evidence": [
+          {
+            "locator": "page 2",
+            "quote": "Quillstack Docs (SW-QDOC)"
+          }
+        ],
+        "properties": [
+          {
+            "name": "software_id",
+            "value": "SW-QDOC"
+          },
+          {
+            "name": "name",
+            "value": "Quillstack Docs"
+          }
+        ]
+      },
+      {
+        "class_name": "Software",
+        "confidence": 0.9,
+        "evidence": [
+          {
+            "locator": "page 2",
+            "quote": "Ledgerwisp Accounting (SW-LEDG)"
+          }
+        ],
+        "properties": [
+          {
+            "name": "software_id",
+            "value": "SW-LEDG"
+          },
+          {
+            "name": "name",
+            "value": "Ledgerwisp Accounting"
+          }
+        ]
+      }
+    ],
+    "relations": [
+      {
+        "confidence": 0.85,
+        "evidence": [
+          {
+            "locator": "page 1",
+            "quote": "Tax Invoice INV-2025-0418 Zorblax Systems Supply (Demo)"
+          }
+        ],
+        "relation": "ISSUED_BY",
+        "source_class": "Invoice",
+        "source_key": "INV-2025-0418",
+        "target_class": "Vendor",
+        "target_key": "Zorblax Systems Supply (Demo)"
+      },
+      {
+        "confidence": 0.85,
+        "evidence": [
+          {
+            "locator": "page 1",
+            "quote": "HW-25-0101 Laptop, Corvane (Demo) Strata 14, S/N CVS14-8F2K91, 1 x 2,150.00"
+          },
+          {
+            "locator": "page 1",
+            "quote": "Invoice number: INV-2025-0418"
+          }
+        ],
+        "relation": "BILLED_ON",
+        "source_class": "HardwareAsset",
+        "source_key": "HW-25-0101",
+        "target_class": "Invoice",
+        "target_key": "INV-2025-0418"
+      },
+      {
+        "confidence": 0.85,
+        "evidence": [
+          {
+            "locator": "page 1",
+            "quote": "HW-25-0102 Laptop, Corvane (Demo) Strata 14, S/N CVS14-8F2K94, 1 x 2,150.00"
+          },
+          {
+            "locator": "page 1",
+            "quote": "Invoice number: INV-2025-0418"
+          }
+        ],
+        "relation": "BILLED_ON",
+        "source_class": "HardwareAsset",
+        "source_key": "HW-25-0102",
+        "target_class": "Invoice",
+        "target_key": "INV-2025-0418"
+      },
+      {
+        "confidence": 0.85,
+        "evidence": [
+          {
+            "locator": "page 1",
+            "quote": "HW-25-0110 Server, Haldrix Compute (Demo) HX-2U, S/N HDR-77120-A, 1 x 14,800.00"
+          },
+          {
+            "locator": "page 1",
+            "quote": "Invoice number: INV-2025-0418"
+          }
+        ],
+        "relation": "BILLED_ON",
+        "source_class": "HardwareAsset",
+        "source_key": "HW-25-0110",
+        "target_class": "Invoice",
+        "target_key": "INV-2025-0418"
+      },
+      {
+        "confidence": 0.85,
+        "evidence": [
+          {
+            "locator": "page 1",
+            "quote": "HW-25-0120 Network switch, Tesselqo Networks (Demo) SW-48, S/N TSW48-00931, 1 x 3,420.00"
+          },
+          {
+            "locator": "page 1",
+            "quote": "Invoice number: INV-2025-0418"
+          }
+        ],
+        "relation": "BILLED_ON",
+        "source_class": "HardwareAsset",
+        "source_key": "HW-25-0120",
+        "target_class": "Invoice",
+        "target_key": "INV-2025-0418"
+      },
+      {
+        "confidence": 0.85,
+        "evidence": [
+          {
+            "locator": "page 2",
+            "quote": "SL-25-0201 Quillstack Docs (SW-QDOC), subscription licence, 50 seats x 180.00 = 9,000.00"
+          },
+          {
+            "locator": "page 1",
+            "quote": "Invoice number: INV-2025-0418"
+          }
+        ],
+        "relation": "BILLED_ON",
+        "source_class": "SoftwareLicense",
+        "source_key": "SL-25-0201",
+        "target_class": "Invoice",
+        "target_key": "INV-2025-0418"
+      },
+      {
+        "confidence": 0.85,
+        "evidence": [
+          {
+            "locator": "page 2",
+            "quote": "SL-25-0202 Ledgerwisp Accounting (SW-LEDG), subscription licence, 10 seats x 640.00 = 6,400.00"
+          },
+          {
+            "locator": "page 1",
+            "quote": "Invoice number: INV-2025-0418"
+          }
+        ],
+        "relation": "BILLED_ON",
+        "source_class": "SoftwareLicense",
+        "source_key": "SL-25-0202",
+        "target_class": "Invoice",
+        "target_key": "INV-2025-0418"
+      },
+      {
+        "confidence": 0.85,
+        "evidence": [
+          {
+            "locator": "page 3",
+            "quote": "Laptop HW-25-0101 is assigned to Finance (FIN)"
+          }
+        ],
+        "relation": "ASSIGNED_TO",
+        "source_class": "HardwareAsset",
+        "source_key": "HW-25-0101",
+        "target_class": "Department",
+        "target_key": "FIN"
+      },
+      {
+        "confidence": 0.85,
+        "evidence": [
+          {
+            "locator": "page 3",
+            "quote": "Laptop HW-25-0102 is assigned to Engineering (ENG)"
+          }
+        ],
+        "relation": "ASSIGNED_TO",
+        "source_class": "HardwareAsset",
+        "source_key": "HW-25-0102",
+        "target_class": "Department",
+        "target_key": "ENG"
+      },
+      {
+        "confidence": 0.85,
+        "evidence": [
+          {
+            "locator": "page 3",
+            "quote": "Server HW-25-0110 is assigned to IT Services (ITS)"
+          }
+        ],
+        "relation": "ASSIGNED_TO",
+        "source_class": "HardwareAsset",
+        "source_key": "HW-25-0110",
+        "target_class": "Department",
+        "target_key": "ITS"
+      },
+      {
+        "confidence": 0.85,
+        "evidence": [
+          {
+            "locator": "page 3",
+            "quote": "Network switch HW-25-0120 is assigned to IT Services (ITS)"
+          }
+        ],
+        "relation": "ASSIGNED_TO",
+        "source_class": "HardwareAsset",
+        "source_key": "HW-25-0120",
+        "target_class": "Department",
+        "target_key": "ITS"
+      },
+      {
+        "confidence": 0.85,
+        "evidence": [
+          {
+            "locator": "page 2",
+            "quote": "SL-25-0201 Quillstack Docs (SW-QDOC), subscription licence, 50 seats x 180.00 = 9,000.00"
+          }
+        ],
+        "relation": "LICENSES",
+        "source_class": "SoftwareLicense",
+        "source_key": "SL-25-0201",
+        "target_class": "Software",
+        "target_key": "SW-QDOC"
+      },
+      {
+        "confidence": 0.85,
+        "evidence": [
+          {
+            "locator": "page 2",
+            "quote": "SL-25-0202 Ledgerwisp Accounting (SW-LEDG), subscription licence, 10 seats x 640.00 = 6,400.00"
+          }
+        ],
+        "relation": "LICENSES",
+        "source_class": "SoftwareLicense",
+        "source_key": "SL-25-0202",
+        "target_class": "Software",
+        "target_key": "SW-LEDG"
+      },
+      {
+        "confidence": 0.85,
+        "evidence": [
+          {
+            "locator": "page 3",
+            "quote": "Licence SL-25-0201 is allocated to Engineering (ENG) and expires on 31 October 2026"
+          }
+        ],
+        "relation": "ALLOCATED_TO",
+        "source_class": "SoftwareLicense",
+        "source_key": "SL-25-0201",
+        "target_class": "Department",
+        "target_key": "ENG"
+      },
+      {
+        "confidence": 0.85,
+        "evidence": [
+          {
+            "locator": "page 3",
+            "quote": "Licence SL-25-0202 is allocated to Finance (FIN) and expires on 31 October 2026"
+          }
+        ],
+        "relation": "ALLOCATED_TO",
+        "source_class": "SoftwareLicense",
+        "source_key": "SL-25-0202",
+        "target_class": "Department",
+        "target_key": "FIN"
+      }
+    ]
+  },
+  "model": "claude-sonnet-5-5"
+}

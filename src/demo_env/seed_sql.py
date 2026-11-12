@@ -14,39 +14,69 @@ from demo_env.data import ROWS, columns_of
 SEED_PATH = Path("infra/mysql/init/01_seed.sql")
 
 _DDL = {
-    "issuers": """CREATE TABLE issuers (
-  issuer_id INT PRIMARY KEY,
-  name VARCHAR(200) NOT NULL,
-  ticker VARCHAR(10) NOT NULL UNIQUE,
-  sector VARCHAR(100) NOT NULL,
-  board VARCHAR(20) NOT NULL,
-  country CHAR(2) NOT NULL
+    "departments": """CREATE TABLE departments (
+  dept_code VARCHAR(10) PRIMARY KEY,
+  name VARCHAR(100) NOT NULL UNIQUE
 );""",
-    "rules": """CREATE TABLE rules (
-  rule_code VARCHAR(20) PRIMARY KEY,
-  title VARCHAR(200) NOT NULL,
-  text TEXT NOT NULL,
-  filing_type VARCHAR(30) NOT NULL
-);""",
-    "obligations": """CREATE TABLE obligations (
-  obligation_id INT PRIMARY KEY,
-  rule_code VARCHAR(20) NOT NULL,
-  board VARCHAR(20) NOT NULL,
-  deadline_days INT NOT NULL,
-  FOREIGN KEY (rule_code) REFERENCES rules(rule_code)
-);""",
-    "filings": """CREATE TABLE filings (
-  filing_id VARCHAR(40) PRIMARY KEY,
-  issuer_id INT NOT NULL,
-  filing_type VARCHAR(30) NOT NULL,
-  fiscal_year INT NOT NULL,
-  due_on DATE NOT NULL,
-  filed_on DATE NOT NULL,
+    "assets": """CREATE TABLE assets (
+  asset_tag VARCHAR(20) PRIMARY KEY,
+  name VARCHAR(100) NOT NULL,
+  hardware_type VARCHAR(20) NOT NULL,
+  manufacturer VARCHAR(100) NOT NULL,
+  model VARCHAR(100) NOT NULL,
+  serial_number VARCHAR(50) NOT NULL UNIQUE,
+  status VARCHAR(20) NOT NULL,
+  purchase_date DATE NOT NULL,
+  cost DECIMAL(10, 2) NOT NULL,
+  dept_code VARCHAR(10) NOT NULL,
   -- table-level form: MySQL silently ignores column-level REFERENCES
-  FOREIGN KEY (issuer_id) REFERENCES issuers(issuer_id)
+  FOREIGN KEY (dept_code) REFERENCES departments(dept_code)
+);""",
+    "software": """CREATE TABLE software (
+  software_id VARCHAR(20) PRIMARY KEY,
+  name VARCHAR(200) NOT NULL,
+  publisher VARCHAR(200) NOT NULL,
+  version VARCHAR(30) NOT NULL
+);""",
+    "applications": """CREATE TABLE applications (
+  app_code VARCHAR(20) PRIMARY KEY,
+  name VARCHAR(200) NOT NULL,
+  criticality VARCHAR(10) NOT NULL,
+  status VARCHAR(20) NOT NULL,
+  owner_dept VARCHAR(10) NOT NULL,
+  FOREIGN KEY (owner_dept) REFERENCES departments(dept_code)
+);""",
+    "software_installs": """CREATE TABLE software_installs (
+  install_id INT PRIMARY KEY,
+  software_id VARCHAR(20) NOT NULL,
+  asset_tag VARCHAR(20) NOT NULL,
+  FOREIGN KEY (software_id) REFERENCES software(software_id),
+  FOREIGN KEY (asset_tag) REFERENCES assets(asset_tag)
+);""",
+    "application_hosts": """CREATE TABLE application_hosts (
+  app_code VARCHAR(20) NOT NULL,
+  asset_tag VARCHAR(20) NOT NULL,
+  PRIMARY KEY (app_code, asset_tag),
+  FOREIGN KEY (app_code) REFERENCES applications(app_code),
+  FOREIGN KEY (asset_tag) REFERENCES assets(asset_tag)
+);""",
+    "application_software": """CREATE TABLE application_software (
+  app_code VARCHAR(20) NOT NULL,
+  software_id VARCHAR(20) NOT NULL,
+  PRIMARY KEY (app_code, software_id),
+  FOREIGN KEY (app_code) REFERENCES applications(app_code),
+  FOREIGN KEY (software_id) REFERENCES software(software_id)
 );""",
 }
-_ORDER = ["issuers", "rules", "obligations", "filings"]
+_ORDER = [
+    "departments",
+    "assets",
+    "software",
+    "applications",
+    "software_installs",
+    "application_hosts",
+    "application_software",
+]
 
 
 def _literal(value: object) -> str:
@@ -54,6 +84,8 @@ def _literal(value: object) -> str:
         return "1" if value else "0"
     if isinstance(value, int):
         return str(value)
+    if isinstance(value, float):
+        return f"{value:.2f}"
     if isinstance(value, date):
         return f"'{value.isoformat()}'"
     text = str(value).replace("\\", "\\\\").replace("'", "''")
@@ -80,7 +112,7 @@ def render_seed_sql() -> str:
 
 -- Databases and users are created by 00_users.sh (passwords come from the environment).
 
-USE demo_compliance;
+USE demo_itam;
 
 {render_demo_inserts()}"""
 

@@ -17,9 +17,9 @@ const DETAIL = {
   ...version(2, "draft"),
   classes: [
     {
-      name: "Issuer",
-      identity_key: "ticker",
-      properties: [{ name: "ticker", datatype: "string", required: true }],
+      name: "Department",
+      identity_key: "dept_code",
+      properties: [{ name: "dept_code", datatype: "string", required: true }],
       parent: null,
       namespace: "core",
       deprecated: false,

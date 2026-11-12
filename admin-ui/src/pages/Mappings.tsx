@@ -8,8 +8,8 @@ import { ErrorAlert, Json, StatusBadge, when } from "../components/common";
 export const EXAMPLE_MAPPING = {
   entities: [
     {
-      class_name: "Issuer",
-      columns: { ticker: "ticker", name: "name" }, // ontology property -> dataset column
+      class_name: "Department",
+      columns: { dept_code: "dept_code", name: "name" }, // ontology property -> dataset column
     },
   ],
   relations: [],

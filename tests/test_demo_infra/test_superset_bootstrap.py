@@ -4,15 +4,15 @@ from demo_env.superset_bootstrap import database_payload, dataset_payloads
 
 def test_database_payload_uses_read_only_user() -> None:
     p = database_payload(host="mysql", password="pw")
-    assert p["database_name"] == "demo_compliance"
-    assert p["sqlalchemy_uri"] == "mysql+pymysql://reader:pw@mysql:3306/demo_compliance"
+    assert p["database_name"] == "demo_itam"
+    assert p["sqlalchemy_uri"] == "mysql+pymysql://reader:pw@mysql:3306/demo_itam"
     assert p["expose_in_sqllab"] is True
 
 
 def test_dataset_payloads_cover_every_mock_dataset() -> None:
     payloads = dataset_payloads(database_id=7)
     assert [p["table_name"] for p in payloads] == [d.table_name for d in DATASETS]
-    assert all(p["database"] == 7 and p["schema"] == "demo_compliance" for p in payloads)
+    assert all(p["database"] == 7 and p["schema"] == "demo_itam" for p in payloads)
 
 
 def test_client_sends_session_cookie_back() -> None:

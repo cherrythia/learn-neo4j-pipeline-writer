@@ -27,13 +27,16 @@ HEADERS = {"X-API-Key": KEY}
 EXTRACTED = {
     "entities": [
         {
-            "class_name": "Issuer",
+            "class_name": "Vendor",
             "properties": [
-                {"name": "ticker", "value": "APH"},
-                {"name": "name", "value": "Aurora Pacific Holdings (Demo)"},
+                {"name": "name", "value": "Zorblax Systems Supply (Demo)"},
+                {"name": "country", "value": "Singapore"},
             ],
             "evidence": [
-                {"locator": "page 1", "quote": "Aurora Pacific Holdings (Demo) (ticker APH)"}
+                {
+                    "locator": "page 1",
+                    "quote": "Zorblax Systems Supply (Demo), 1 Example Way, Demo City 000000",
+                }
             ],
             "confidence": 0.95,
         }
@@ -89,7 +92,7 @@ def test_pdf_upload_runs_the_pipeline(client: TestClient) -> None:
     body = r.json()
     assert body["status"] == "completed" and body["counts"]["commit"] == 1
     graph = client.app.state.test_graph  # type: ignore[attr-defined]
-    assert graph.node_properties("Issuer", "ticker", "APH") is not None
+    assert graph.node_properties("Vendor", "name", "Zorblax Systems Supply (Demo)") is not None
 
 
 def test_excel_upload_is_accepted(client: TestClient) -> None:
@@ -115,10 +118,10 @@ def test_unreadable_pdf(client: TestClient, tmp_path: Path) -> None:
 
 
 def test_client_path_is_stripped(client: TestClient) -> None:
-    r = upload(client, ROOT / PDF_PATH, name="../../etc/report.pdf")
+    r = upload(client, ROOT / PDF_PATH, name="../../etc/invoice.pdf")
     assert r.status_code == 200
     graph = client.app.state.test_graph  # type: ignore[attr-defined]
-    assert {v["source"] for v in graph.evidence.values()} == {"report.pdf"}
+    assert {v["source"] for v in graph.evidence.values()} == {"invoice.pdf"}
 
 
 def test_too_large(tmp_path: Path) -> None:

@@ -10,9 +10,9 @@ from writer_service.ontology.spec import OntologySpec
 
 def test_render_shows_taxonomy_keys_and_relations() -> None:
     out = render(OntologySpec(CORE_CLASSES, CORE_RELATIONS))
-    assert ":Issuer key=ticker is-a Organisation" in out
-    assert "ticker: string (required)" in out
-    assert "(Filing)-[:FILED_BY]->(Issuer) many_to_one" in out
+    assert ":HardwareAsset key=asset_tag is-a Asset" in out
+    assert "asset_tag: string (required)" in out
+    assert "(HardwareAsset)-[:ASSIGNED_TO]->(Department) many_to_one" in out
 
 
 def test_domain_errors_exit_cleanly(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -62,7 +62,7 @@ def test_sync_command(
     upgrade(url)
     graph = InMemoryGraphSchema()
     OntologyService(create_engine_for(url), graph).bootstrap("t")
-    graph.names.discard("wsf_issuer_ticker_name")
+    graph.names.discard("wsf_department_dept_code_name")
     monkeypatch.setenv("WRITER_GOVERNANCE_DB_URL", url)
     monkeypatch.chdir(tmp_path)
 
@@ -76,4 +76,4 @@ def test_sync_command(
     monkeypatch.setattr(cli.GraphDatabase, "driver", lambda *a, **k: FakeDriver())
     monkeypatch.setattr(cli, "Neo4jGraphSchema", lambda driver: graph)
     main(["sync"])
-    assert capsys.readouterr().out.strip() == "created: wsf_issuer_ticker_name; dropped: -"
+    assert capsys.readouterr().out.strip() == "created: wsf_department_dept_code_name; dropped: -"

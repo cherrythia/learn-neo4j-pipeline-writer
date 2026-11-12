@@ -13,77 +13,161 @@ from pathlib import Path
 from fpdf import FPDF
 from openpyxl import Workbook
 
-from demo_env.data import FILINGS, ISSUERS, filing_by_id, timing_rule_for
+from demo_env.data import (
+    CURRENCY,
+    CUSTOMER_NAME,
+    GST_RATE,
+    HARDWARE,
+    INVOICE_DATE,
+    INVOICE_NUMBER,
+    INVOICED_HARDWARE,
+    INVOICED_LICENSES,
+    VENDOR_COUNTRY,
+    VENDOR_NAME,
+    department_by_code,
+    invoice_subtotal,
+    invoice_total,
+    software_by_id,
+)
 
-PDF_PATH = Path("samples/aurora_pacific_annual_report_2025.pdf")
-XLSX_PATH = Path("samples/disclosure_checklist_2025.xlsx")
+PDF_PATH = Path("samples/zorblax_invoice_INV-2025-0418.pdf")
+XLSX_PATH = Path("samples/asset_register_2025.xlsx")
 # Fixed timestamp so regenerated files are byte-identical (no spurious git diffs).
 _FIXED_TS = datetime(2026, 1, 1, tzinfo=UTC)
-
-_APH_ANNUAL = filing_by_id("AR-2025-APH")
-_APH_ESG = filing_by_id("ESG-2025-APH")
+_KIND = {"laptop": "Laptop", "desktop": "Desktop", "server": "Server", "network": "Network switch"}
 
 
-def _long_date(d: date) -> str:
+def long_date(d: date) -> str:
     return f"{d.day} {d.strftime('%B %Y')}"
 
 
-_PAGES = [
-    (
-        "Annual Report 2025 - Aurora Pacific Holdings (Demo)",
-        [
-            "Aurora Pacific Holdings (Demo) (ticker APH) is listed on the Mainboard and is "
-            "incorporated in Singapore. This document is fictional and for demonstration only.",
-            f"Aurora Pacific Holdings (Demo) issued this annual report (filing "
-            f"{_APH_ANNUAL.filing_id}) for the financial year ended 31 December 2025 on "
-            f"{_long_date(_APH_ANNUAL.filed_on)}, in accordance with Listing Rule LR-705.",
-            "The annual report includes the independent auditor's report and the directors' "
-            "statement as required by Listing Rule LR-707.",
-        ],
-    ),
-    (
-        "Sustainability (ESG) Statement",
-        [
-            f"Aurora Pacific Holdings (Demo) published its ESG sustainability report (filing "
-            f"{_APH_ESG.filing_id}) for 2025 on {_long_date(_APH_ESG.filed_on)} under Listing "
-            "Rule LR-711A.",
-            "Climate-related disclosures aligned with LR-711B are included, covering Scope 1 and "
-            "Scope 2 emissions.",
-            "The board identified one finding: Scope 3 emissions data was not yet assured.",
-        ],
-    ),
-]
+def money(amount: float) -> str:
+    return f"{amount:,.2f}"
+
+
+def _dept(code: str) -> str:
+    return f"{department_by_code(code).name} ({code})"
+
+
+def hardware_line(i: int) -> str:
+    a = INVOICED_HARDWARE[i]
+    return (
+        f"{a.asset_tag} {_KIND[a.hardware_type]}, {a.manufacturer} {a.model}, "
+        f"S/N {a.serial_number}, 1 x {money(a.cost)}"
+    )
+
+
+def license_line(i: int) -> str:
+    x = INVOICED_LICENSES[i]
+    sw = software_by_id(x.software_id)
+    return (
+        f"{x.asset_tag} {sw.name} ({x.software_id}), {x.license_type} licence, "
+        f"{x.seats} seats x {money(x.unit_price)} = {money(x.amount)}"
+    )
+
+
+def assignment_line(i: int) -> str:
+    a = INVOICED_HARDWARE[i]
+    return f"{_KIND[a.hardware_type]} {a.asset_tag} is assigned to {_dept(a.dept_code)}."
+
+
+def allocation_line(i: int) -> str:
+    x = INVOICED_LICENSES[i]
+    return (
+        f"Licence {x.asset_tag} is allocated to {_dept(x.dept_code)} and expires on "
+        f"{long_date(x.expiry_date)}."
+    )
+
+
+def _pages() -> list[tuple[str, list[str]]]:
+    hw = [hardware_line(i) for i in range(len(INVOICED_HARDWARE))]
+    sl = [license_line(i) for i in range(len(INVOICED_LICENSES))]
+    gst = invoice_total() - invoice_subtotal()
+    return [
+        (
+            f"Tax Invoice {INVOICE_NUMBER}",
+            [
+                f"{VENDOR_NAME}, 1 Example Way, Demo City 000000, {VENDOR_COUNTRY}. "
+                "This invoice is fictional and for demonstration only.",
+                f"Invoice number: {INVOICE_NUMBER}",
+                f"Invoice date: {long_date(INVOICE_DATE)}",
+                f"Bill to: {CUSTOMER_NAME}, attention IT Services (ITS)",
+                f"Currency: {CURRENCY}",
+                "Section A - Hardware (each item carries the asset tag shown):",
+                *hw,
+            ],
+        ),
+        (
+            "Section B - Software licences",
+            [
+                "Each licence is recorded as an asset under the tag shown:",
+                *sl,
+                f"Subtotal: {CURRENCY} {money(invoice_subtotal())}",
+                f"GST {GST_RATE:.0%}: {CURRENCY} {money(gst)}",
+                f"Total amount due: {CURRENCY} {money(invoice_total())}",
+                "Payment terms: 30 days from the invoice date.",
+            ],
+        ),
+        (
+            "Delivery and asset tagging notes",
+            [
+                f"All items on invoice {INVOICE_NUMBER} were delivered and tagged on "
+                f"{long_date(INVOICE_DATE)}.",
+                *[assignment_line(i) for i in range(len(INVOICED_HARDWARE))],
+                *[allocation_line(i) for i in range(len(INVOICED_LICENSES))],
+                "Remit to Zorblax Systems Supply (Demo). Questions: accounts@zorblax.example.",
+            ],
+        ),
+    ]
 
 
 def build_pdf(path: Path) -> None:
     pdf = FPDF()
     pdf.set_creation_date(_FIXED_TS)
     pdf.set_font("Helvetica", size=11)
-    for title, paragraphs in _PAGES:
+    for title, paragraphs in _pages():
         pdf.add_page()
         pdf.set_font("Helvetica", style="B", size=14)
         pdf.multi_cell(0, 8, title)
         pdf.ln(4)
-        pdf.set_font("Helvetica", size=11)
+        pdf.set_font("Helvetica", size=10)
         for para in paragraphs:
             pdf.multi_cell(0, 6, para)
-            pdf.ln(3)
+            pdf.ln(2)
     path.parent.mkdir(parents=True, exist_ok=True)
     pdf.output(str(path))
 
 
+REGISTER_HEADER = (
+    "asset_tag",
+    "hardware_type",
+    "manufacturer",
+    "model",
+    "serial_number",
+    "department",
+    "status",
+)
+
+
 def build_xlsx(path: Path) -> None:
+    """The asset register: one row per hardware asset (existing fleet and the new invoice)."""
     wb = Workbook()
     ws = wb.active
     assert ws is not None
-    ws.title = "Checklist"
-    ws.append(["issuer", "rule_code", "requirement", "status"])
-    names = {i.issuer_id: i.name for i in ISSUERS}
-    for f in FILINGS[:12]:
-        # Each row checks the filing against the *timing* rule for its issuer's board.
-        rule = timing_rule_for(f)
-        status = "late" if f.filed_on > f.due_on else "filed on time"
-        ws.append([names[f.issuer_id], rule.rule_code, rule.title, status])
+    ws.title = "Register"
+    ws.append(list(REGISTER_HEADER))
+    for a in HARDWARE:
+        ws.append(
+            [
+                a.asset_tag,
+                a.hardware_type,
+                a.manufacturer,
+                a.model,
+                a.serial_number,
+                department_by_code(a.dept_code).name,
+                a.status,
+            ]
+        )
     wb.properties.created = _FIXED_TS.replace(tzinfo=None)
     path.parent.mkdir(parents=True, exist_ok=True)
     wb.save(path)

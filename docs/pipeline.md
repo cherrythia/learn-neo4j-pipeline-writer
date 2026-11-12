@@ -26,9 +26,9 @@ Code: `src/writer_service/pipeline/orchestrator.py`, `graph_store.py`. Design: [
 Only accepted facts ([ADR-0010](adr/0010-neo4j-accepted-facts-only.md)):
 
 ```
-(:Issuer:Organisation {ticker, name, …, ontology_version, score, run_id, ingested_at})
+(:HardwareAsset:Asset {asset_tag, hardware_type, …, ontology_version, score, run_id, ingested_at})
    -[:SUPPORTED_BY]->(:Evidence {id, locator, quote, run_id})-[:FROM]->(:Source {id, type, ref})
-(:Filing)-[:FILED_BY {score, run_id, ontology_version, evidence_ids: [...]}]->(:Issuer)
+(:HardwareAsset)-[:ASSIGNED_TO {score, run_id, ontology_version, evidence_ids: [...]}]->(:Department)
 (:IngestionRun {id, ontology_version})
 ```
 
@@ -55,8 +55,8 @@ the run from those lists and:
 - deletes **only what no other run still owns**, so rolling back an old run never deletes an
   entity, edge or quote a later run (or an approval) also stated;
 - **demotes an entity to a key-only stub** when no asserting run remains. If run1 stated
-  *Issuer APH, name …* and run2 only filed something by APH, rolling back run1 keeps APH as
-  run2's endpoint but drops run1's name and evidence links;
+  *Department FIN, name Finance* and run2 only assigned a laptop to FIN, rolling back run1
+  keeps FIN as run2's endpoint but drops run1's name and evidence links;
 - repairs provenance: `evidence_ids` are pruned to evidence that still exists, and `run_id` on
   nodes, relationships and evidence falls back to the latest remaining run.
 
@@ -113,13 +113,13 @@ pipeline.rollback(run_id, actor)
     - the incoming entity's name still matches the target (similarity ≥ 0.90). Otherwise (a
       reused key, or no name to compare) it is **not** rewritten: it goes to review as a
       duplicate marked `previously_merged`. While that item is open the key stays blocked,
-      so relations to it go to review too, in the same run or a later one (issuers and
-      filings are usually separate datasets). Keeping that item as new is the reviewer's
+      so relations to it go to review too, in the same run or a later one (departments and
+      assets are usually separate datasets). Keeping that item as new is the reviewer's
       decision that the key now names a different entity; it is allowed only if no newer
       merge of the key happened since (e.g. one of its relations merged into the target).
     - **Relations** are rewritten through an alias only when the same batch carries the
-      entity under that key and it still fits the target. A relation on its own (e.g. a
-      filings dataset synced separately) has no name to check, so it goes to review pointing
+      entity under that key and it still fits the target. A relation on its own (e.g. an
+      assets dataset synced separately) has no name to check, so it goes to review pointing
       at the target (`merged_earlier`): the reviewer merges it (one click) or, once the key's
       entity has been kept as new, keeps it. Nothing is ever rewritten onto the target unseen.
     - When the name also matches another entity, a `previously_merged` item records it as
@@ -151,7 +151,7 @@ Every action is in the audit log (`run.start`, `run.complete`, `run.failed`, `ru
 default 20) and returns `{run_id, status, counts}` when the run finishes:
 
 ```sh
-curl -H "X-API-Key: $WRITER_INGEST_API_KEY" -F file=@samples/aurora_pacific_annual_report_2025.pdf \
+curl -H "X-API-Key: $WRITER_INGEST_API_KEY" -F file=@samples/zorblax_invoice_INV-2025-0418.pdf \
      http://localhost:8000/ingest/documents
 ```
 

@@ -69,7 +69,7 @@ the principle *"the LLM reads, the checks prove; it can miss, never invent"*.
 
 | Layer | Contents | Gate |
 |---|---|---|
-| Core | Issuer, Filing, Rule, Obligation, Finding; identity keys; provenance | Versioned migrations, tested |
+| Core | ITAM: Asset (HardwareAsset, SoftwareLicense), Software, Application, Department, Vendor, Invoice; identity keys; provenance | Versioned migrations, tested |
 | Extension | New classes/relations proposed by LLM or admin; own namespace; deprecate, never delete | Human approval |
 | Instances | Entities and relations with evidence, timestamps, confidence | Automatic after checks |
 

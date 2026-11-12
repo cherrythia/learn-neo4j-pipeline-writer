@@ -48,16 +48,16 @@ def test_sync_enforces_uniqueness_and_drops_stale(driver: Driver) -> None:
     result = sync_constraints(graph, desired_schema(OntologySpec(CORE_CLASSES, CORE_RELATIONS)))
     names = graph.constraint_names()
     assert "wsc_zz_stale_test" in result.dropped and "wsc_zz_stale_test" not in names
-    assert {"wsc_issuer_ticker", "wsc_filing_filing_id", "wsc_evidence_id"} <= names
-    assert "wsf_issuer_ticker_name" in graph.index_names()
+    assert {"wsc_department_dept_code", "wsc_hardwareasset_asset_tag", "wsc_evidence_id"} <= names
+    assert "wsf_department_dept_code_name" in graph.index_names()
 
     again = sync_constraints(graph, desired_schema(OntologySpec(CORE_CLASSES, CORE_RELATIONS)))
     assert again.created == [] and again.dropped == []
 
-    ticker = "__writer_integration_test__"
+    dept_code = "__writer_integration_test__"
     try:
-        driver.execute_query("CREATE (:Issuer {ticker: $t})", t=ticker)
+        driver.execute_query("CREATE (:Department {dept_code: $t})", t=dept_code)
         with pytest.raises(ConstraintError):
-            driver.execute_query("CREATE (:Issuer {ticker: $t})", t=ticker)
+            driver.execute_query("CREATE (:Department {dept_code: $t})", t=dept_code)
     finally:
-        driver.execute_query("MATCH (n:Issuer {ticker: $t}) DETACH DELETE n", t=ticker)
+        driver.execute_query("MATCH (n:Department {dept_code: $t}) DETACH DELETE n", t=dept_code)

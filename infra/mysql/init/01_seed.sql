@@ -3,119 +3,178 @@
 
 -- Databases and users are created by 00_users.sh (passwords come from the environment).
 
-USE demo_compliance;
+USE demo_itam;
 
-CREATE TABLE issuers (
-  issuer_id INT PRIMARY KEY,
-  name VARCHAR(200) NOT NULL,
-  ticker VARCHAR(10) NOT NULL UNIQUE,
-  sector VARCHAR(100) NOT NULL,
-  board VARCHAR(20) NOT NULL,
-  country CHAR(2) NOT NULL
+CREATE TABLE departments (
+  dept_code VARCHAR(10) PRIMARY KEY,
+  name VARCHAR(100) NOT NULL UNIQUE
 );
 
-INSERT INTO issuers (issuer_id, name, ticker, sector, board, country) VALUES
-  (1, 'Aurora Pacific Holdings (Demo)', 'APH', 'Energy', 'mainboard', 'SG'),
-  (2, 'Banyan Logistics (Demo)', 'BYL', 'Industrials', 'mainboard', 'SG'),
-  (3, 'Cobalt Ridge Mining (Demo)', 'CRM', 'Materials', 'catalist', 'AU'),
-  (4, 'Delta Harbour REIT (Demo)', 'DHR', 'Real Estate', 'mainboard', 'SG'),
-  (5, 'Evergreen Agritech (Demo)', 'EGA', 'Consumer Staples', 'catalist', 'MY'),
-  (6, 'Falcon Microsystems (Demo)', 'FMS', 'Technology', 'mainboard', 'SG'),
-  (7, 'Granite Bay Bank (Demo)', 'GBB', 'Financials', 'mainboard', 'SG'),
-  (8, 'Horizon Health Group (Demo)', 'HHG', 'Healthcare', 'mainboard', 'SG'),
-  (9, 'Iris Water Solutions (Demo)', 'IWS', 'Utilities', 'catalist', 'ID'),
-  (10, 'Jade Lotus Foods (Demo)', 'JLF', 'Consumer Staples', 'catalist', 'SG'),
-  (11, 'Kestrel Aviation Services (Demo)', 'KAS', 'Industrials', 'mainboard', 'SG'),
-  (12, 'Lumen Solar (Demo)', 'LMS', 'Energy', 'catalist', 'VN'),
-  (13, 'Monsoon Textiles (Demo)', 'MNT', 'Consumer Discretionary', 'catalist', 'TH'),
-  (14, 'Nimbus Cloud Networks (Demo)', 'NCN', 'Technology', 'mainboard', 'SG'),
-  (15, 'Orchid Insurance (Demo)', 'ORI', 'Financials', 'mainboard', 'SG'),
-  (16, 'Pearl Shipping Lines (Demo)', 'PSL', 'Industrials', 'mainboard', 'HK'),
-  (17, 'Quartz Semiconductor (Demo)', 'QZS', 'Technology', 'mainboard', 'SG'),
-  (18, 'Rainforest Timber (Demo)', 'RFT', 'Materials', 'catalist', 'MY'),
-  (19, 'Saffron Hospitality (Demo)', 'SFH', 'Consumer Discretionary', 'catalist', 'SG'),
-  (20, 'Tidewater Ports (Demo)', 'TWP', 'Industrials', 'mainboard', 'SG');
+INSERT INTO departments (dept_code, name) VALUES
+  ('ITS', 'IT Services'),
+  ('FIN', 'Finance'),
+  ('ENG', 'Engineering'),
+  ('HRM', 'Human Resources'),
+  ('SAL', 'Sales'),
+  ('MKT', 'Marketing'),
+  ('OPS', 'Operations'),
+  ('LEG', 'Legal'),
+  ('EXO', 'CEO''s Office');
 
-CREATE TABLE rules (
-  rule_code VARCHAR(20) PRIMARY KEY,
-  title VARCHAR(200) NOT NULL,
-  text TEXT NOT NULL,
-  filing_type VARCHAR(30) NOT NULL
-);
-
-INSERT INTO rules (rule_code, title, text, filing_type) VALUES
-  ('LR-705', 'Annual report timing', 'An issuer must issue its annual report within 4 months of its financial year end.', 'annual_report'),
-  ('LR-707', 'Annual report contents', 'The annual report must include the auditor''s report and the directors'' statement.', 'annual_report'),
-  ('LR-711A', 'Sustainability report', 'An issuer must issue a sustainability report for each financial year within 4 months of year end.', 'esg_report'),
-  ('LR-711B', 'Climate disclosures', 'The sustainability report must include climate-related disclosures.', 'esg_report'),
-  ('CR-705', 'Catalist annual report timing', 'A Catalist issuer must issue its annual report within 4 months of year end, with its sponsor''s review.', 'annual_report'),
-  ('CR-711A', 'Catalist sustainability report', 'A Catalist issuer must issue a sustainability report within 150 days of year end.', 'esg_report');
-
-CREATE TABLE obligations (
-  obligation_id INT PRIMARY KEY,
-  rule_code VARCHAR(20) NOT NULL,
-  board VARCHAR(20) NOT NULL,
-  deadline_days INT NOT NULL,
-  FOREIGN KEY (rule_code) REFERENCES rules(rule_code)
-);
-
-INSERT INTO obligations (obligation_id, rule_code, board, deadline_days) VALUES
-  (1, 'LR-705', 'mainboard', 120),
-  (2, 'LR-707', 'mainboard', 120),
-  (3, 'LR-711A', 'mainboard', 120),
-  (4, 'LR-711B', 'mainboard', 120),
-  (5, 'CR-705', 'catalist', 120),
-  (6, 'CR-711A', 'catalist', 150);
-
-CREATE TABLE filings (
-  filing_id VARCHAR(40) PRIMARY KEY,
-  issuer_id INT NOT NULL,
-  filing_type VARCHAR(30) NOT NULL,
-  fiscal_year INT NOT NULL,
-  due_on DATE NOT NULL,
-  filed_on DATE NOT NULL,
+CREATE TABLE assets (
+  asset_tag VARCHAR(20) PRIMARY KEY,
+  name VARCHAR(100) NOT NULL,
+  hardware_type VARCHAR(20) NOT NULL,
+  manufacturer VARCHAR(100) NOT NULL,
+  model VARCHAR(100) NOT NULL,
+  serial_number VARCHAR(50) NOT NULL UNIQUE,
+  status VARCHAR(20) NOT NULL,
+  purchase_date DATE NOT NULL,
+  cost DECIMAL(10, 2) NOT NULL,
+  dept_code VARCHAR(10) NOT NULL,
   -- table-level form: MySQL silently ignores column-level REFERENCES
-  FOREIGN KEY (issuer_id) REFERENCES issuers(issuer_id)
+  FOREIGN KEY (dept_code) REFERENCES departments(dept_code)
 );
 
-INSERT INTO filings (filing_id, issuer_id, filing_type, fiscal_year, due_on, filed_on) VALUES
-  ('AR-2025-APH', 1, 'annual_report', 2025, '2026-04-30', '2026-04-28'),
-  ('ESG-2025-APH', 1, 'esg_report', 2025, '2026-04-30', '2026-04-28'),
-  ('AR-2025-BYL', 2, 'annual_report', 2025, '2026-04-30', '2026-04-27'),
-  ('ESG-2025-BYL', 2, 'esg_report', 2025, '2026-04-30', '2026-04-27'),
-  ('AR-2025-CRM', 3, 'annual_report', 2025, '2026-04-30', '2026-04-26'),
-  ('ESG-2025-CRM', 3, 'esg_report', 2025, '2026-05-30', '2026-06-11'),
-  ('AR-2025-DHR', 4, 'annual_report', 2025, '2026-04-30', '2026-04-25'),
-  ('ESG-2025-DHR', 4, 'esg_report', 2025, '2026-04-30', '2026-04-25'),
-  ('AR-2025-EGA', 5, 'annual_report', 2025, '2026-04-30', '2026-04-24'),
-  ('ESG-2025-EGA', 5, 'esg_report', 2025, '2026-05-30', '2026-05-24'),
-  ('AR-2025-FMS', 6, 'annual_report', 2025, '2026-04-30', '2026-04-23'),
-  ('ESG-2025-FMS', 6, 'esg_report', 2025, '2026-04-30', '2026-04-23'),
-  ('AR-2025-GBB', 7, 'annual_report', 2025, '2026-04-30', '2026-04-22'),
-  ('ESG-2025-GBB', 7, 'esg_report', 2025, '2026-04-30', '2026-04-22'),
-  ('AR-2025-HHG', 8, 'annual_report', 2025, '2026-04-30', '2026-04-21'),
-  ('ESG-2025-HHG', 8, 'esg_report', 2025, '2026-04-30', '2026-04-21'),
-  ('AR-2025-IWS', 9, 'annual_report', 2025, '2026-04-30', '2026-05-12'),
-  ('ESG-2025-IWS', 9, 'esg_report', 2025, '2026-05-30', '2026-05-20'),
-  ('AR-2025-JLF', 10, 'annual_report', 2025, '2026-04-30', '2026-04-19'),
-  ('ESG-2025-JLF', 10, 'esg_report', 2025, '2026-05-30', '2026-05-19'),
-  ('AR-2025-KAS', 11, 'annual_report', 2025, '2026-04-30', '2026-04-18'),
-  ('ESG-2025-KAS', 11, 'esg_report', 2025, '2026-04-30', '2026-04-18'),
-  ('AR-2025-LMS', 12, 'annual_report', 2025, '2026-04-30', '2026-04-17'),
-  ('ESG-2025-LMS', 12, 'esg_report', 2025, '2026-05-30', '2026-05-17'),
-  ('AR-2025-MNT', 13, 'annual_report', 2025, '2026-04-30', '2026-04-16'),
-  ('ESG-2025-MNT', 13, 'esg_report', 2025, '2026-05-30', '2026-06-11'),
-  ('AR-2025-NCN', 14, 'annual_report', 2025, '2026-04-30', '2026-04-15'),
-  ('ESG-2025-NCN', 14, 'esg_report', 2025, '2026-04-30', '2026-04-15'),
-  ('AR-2025-ORI', 15, 'annual_report', 2025, '2026-04-30', '2026-04-14'),
-  ('ESG-2025-ORI', 15, 'esg_report', 2025, '2026-04-30', '2026-04-14'),
-  ('AR-2025-PSL', 16, 'annual_report', 2025, '2026-04-30', '2026-04-13'),
-  ('ESG-2025-PSL', 16, 'esg_report', 2025, '2026-04-30', '2026-04-13'),
-  ('AR-2025-QZS', 17, 'annual_report', 2025, '2026-04-30', '2026-04-12'),
-  ('ESG-2025-QZS', 17, 'esg_report', 2025, '2026-04-30', '2026-04-12'),
-  ('AR-2025-RFT', 18, 'annual_report', 2025, '2026-04-30', '2026-04-11'),
-  ('ESG-2025-RFT', 18, 'esg_report', 2025, '2026-05-30', '2026-05-11'),
-  ('AR-2025-SFH', 19, 'annual_report', 2025, '2026-04-30', '2026-04-10'),
-  ('ESG-2025-SFH', 19, 'esg_report', 2025, '2026-05-30', '2026-05-10'),
-  ('AR-2025-TWP', 20, 'annual_report', 2025, '2026-04-30', '2026-04-29'),
-  ('ESG-2025-TWP', 20, 'esg_report', 2025, '2026-04-30', '2026-04-29');
+INSERT INTO assets (asset_tag, name, hardware_type, manufacturer, model, serial_number, status, purchase_date, cost, dept_code) VALUES
+  ('HW-23-0001', 'altair', 'laptop', 'Corvane (Demo)', 'Strata 14', 'CVS14-00000A', 'in_use', '2023-01-01', 2150.00, 'ITS'),
+  ('HW-23-0002', 'bellatrix', 'laptop', 'Corvane (Demo)', 'Strata 14', 'CVS14-07919B', 'in_use', '2023-06-12', 2150.00, 'FIN'),
+  ('HW-23-0003', 'capella', 'desktop', 'Corvane (Demo)', 'Tower 5', 'CVT5-15838C', 'retired', '2023-11-23', 1480.00, 'ENG'),
+  ('HW-23-0004', 'deneb', 'laptop', 'Corvane (Demo)', 'Strata 14', 'CVS14-23757D', 'in_use', '2023-04-06', 2150.00, 'HRM'),
+  ('HW-23-0005', 'electra', 'server', 'Haldrix Compute (Demo)', 'HX-2U', 'HDR-31676E', 'in_use', '2023-09-17', 14800.00, 'ITS'),
+  ('HW-23-0006', 'fomalhaut', 'network', 'Tesselqo Networks (Demo)', 'SW-48', 'TSW48-39595F', 'in_use', '2023-02-28', 3420.00, 'ITS'),
+  ('HW-23-0007', 'gacrux', 'laptop', 'Corvane (Demo)', 'Strata 14', 'CVS14-47514G', 'in_use', '2023-07-11', 2150.00, 'OPS'),
+  ('HW-23-0008', 'hadar', 'laptop', 'Corvane (Demo)', 'Strata 14', 'CVS14-55433H', 'in_repair', '2023-12-22', 2150.00, 'LEG'),
+  ('HW-23-0009', 'izar', 'desktop', 'Corvane (Demo)', 'Tower 5', 'CVT5-63352I', 'in_use', '2023-05-05', 1480.00, 'EXO'),
+  ('HW-23-0010', 'kochab', 'laptop', 'Corvane (Demo)', 'Strata 14', 'CVS14-71271J', 'retired', '2023-10-16', 2150.00, 'ITS'),
+  ('HW-23-0011', 'lesath', 'server', 'Haldrix Compute (Demo)', 'HX-2U', 'HDR-79190K', 'in_use', '2023-03-27', 14800.00, 'ITS'),
+  ('HW-23-0012', 'mirach', 'network', 'Tesselqo Networks (Demo)', 'SW-48', 'TSW48-87109L', 'in_use', '2023-08-10', 3420.00, 'ITS'),
+  ('HW-24-0013', 'nunki', 'laptop', 'Corvane (Demo)', 'Strata 14', 'CVS14-95028M', 'in_use', '2024-01-21', 2150.00, 'HRM'),
+  ('HW-24-0014', 'polaris', 'laptop', 'Corvane (Demo)', 'Strata 14', 'CVS14-02947N', 'in_use', '2024-06-04', 2150.00, 'SAL'),
+  ('HW-24-0015', 'rigel', 'desktop', 'Corvane (Demo)', 'Tower 5', 'CVT5-10866O', 'in_use', '2024-11-15', 1480.00, 'MKT'),
+  ('HW-24-0016', 'sirius', 'laptop', 'Corvane (Demo)', 'Strata 14', 'CVS14-18785P', 'retired', '2024-04-26', 2150.00, 'OPS'),
+  ('HW-24-0017', 'thuban', 'server', 'Haldrix Compute (Demo)', 'HX-2U', 'HDR-26704Q', 'in_use', '2024-09-09', 14800.00, 'ITS'),
+  ('HW-24-0018', 'vega', 'network', 'Tesselqo Networks (Demo)', 'SW-48', 'TSW48-34623R', 'in_use', '2024-02-20', 3420.00, 'ITS'),
+  ('HW-24-0019', 'wezen', 'laptop', 'Corvane (Demo)', 'Strata 14', 'CVS14-42542S', 'in_use', '2024-07-03', 2150.00, 'ITS'),
+  ('HW-24-0020', 'zosma', 'laptop', 'Corvane (Demo)', 'Strata 14', 'CVS14-50461T', 'in_use', '2024-12-14', 2150.00, 'FIN'),
+  ('HW-24-0021', 'merak', 'desktop', 'Corvane (Demo)', 'Tower 5', 'CVT5-58380U', 'in_use', '2024-05-25', 1480.00, 'ENG'),
+  ('HW-24-0022', 'alnilam', 'laptop', 'Corvane (Demo)', 'Strata 14', 'CVS14-66299V', 'in_use', '2024-10-08', 2150.00, 'HRM'),
+  ('HW-24-0023', 'castor', 'server', 'Haldrix Compute (Demo)', 'HX-2U', 'HDR-74218W', 'in_use', '2024-03-19', 14800.00, 'ITS'),
+  ('HW-24-0024', 'regulus', 'network', 'Tesselqo Networks (Demo)', 'SW-48', 'TSW48-82137X', 'in_use', '2024-08-02', 3420.00, 'ITS'),
+  ('HW-25-0101', 'spica', 'laptop', 'Corvane (Demo)', 'Strata 14', 'CVS14-8F2K91', 'in_use', '2025-11-03', 2150.00, 'FIN'),
+  ('HW-25-0102', 'tarazed', 'laptop', 'Corvane (Demo)', 'Strata 14', 'CVS14-8F2K94', 'in_use', '2025-11-03', 2150.00, 'ENG'),
+  ('HW-25-0103', 'menkar', 'laptop', 'Corvane (Demo)', 'Strata 16', 'CVS16-3M7Q05', 'in_use', '2025-11-03', 2890.00, 'ENG'),
+  ('HW-25-0110', 'zubenelgenubi', 'server', 'Haldrix Compute (Demo)', 'HX-2U', 'HDR-77120-A', 'in_use', '2025-11-03', 14800.00, 'ITS'),
+  ('HW-25-0120', 'achernar', 'network', 'Tesselqo Networks (Demo)', 'SW-48', 'TSW48-00931', 'in_use', '2025-11-03', 3420.00, 'ITS');
+
+CREATE TABLE software (
+  software_id VARCHAR(20) PRIMARY KEY,
+  name VARCHAR(200) NOT NULL,
+  publisher VARCHAR(200) NOT NULL,
+  version VARCHAR(30) NOT NULL
+);
+
+INSERT INTO software (software_id, name, publisher, version) VALUES
+  ('SW-QDOC', 'Quillstack Docs', 'Quillstack (Demo)', '2025.2'),
+  ('SW-LEDG', 'Ledgerwisp Accounting', 'Ledgerwisp (Demo)', '11.4'),
+  ('SW-PGDB', 'Pelloquin Database', 'Pelloquin (Demo)', '16.3'),
+  ('SW-ORBT', 'Orbwyn Endpoint Guard', 'Orbwyn Security (Demo)', '8.1'),
+  ('SW-CNVS', 'Canvazio Design', 'Canvazio (Demo)', '4.0'),
+  ('SW-TKTR', 'Tickwhistle Service Desk', 'Tickwhistle (Demo)', '3.7');
+
+CREATE TABLE applications (
+  app_code VARCHAR(20) PRIMARY KEY,
+  name VARCHAR(200) NOT NULL,
+  criticality VARCHAR(10) NOT NULL,
+  status VARCHAR(20) NOT NULL,
+  owner_dept VARCHAR(10) NOT NULL,
+  FOREIGN KEY (owner_dept) REFERENCES departments(dept_code)
+);
+
+INSERT INTO applications (app_code, name, criticality, status, owner_dept) VALUES
+  ('APP-ERP', 'Finance ERP', 'high', 'live', 'FIN'),
+  ('APP-HRP', 'HR Self-Service Portal', 'medium', 'live', 'HRM'),
+  ('APP-CRM', 'Sales CRM', 'high', 'live', 'SAL'),
+  ('APP-SDK', 'IT Service Desk', 'medium', 'live', 'ITS'),
+  ('APP-WEB', 'Public Website', 'high', 'live', 'MKT'),
+  ('APP-BIW', 'Analytics Warehouse', 'medium', 'pilot', 'ENG'),
+  ('APP-LGL', 'Contract Register', 'low', 'retiring', 'LEG');
+
+CREATE TABLE software_installs (
+  install_id INT PRIMARY KEY,
+  software_id VARCHAR(20) NOT NULL,
+  asset_tag VARCHAR(20) NOT NULL,
+  FOREIGN KEY (software_id) REFERENCES software(software_id),
+  FOREIGN KEY (asset_tag) REFERENCES assets(asset_tag)
+);
+
+INSERT INTO software_installs (install_id, software_id, asset_tag) VALUES
+  (1, 'SW-ORBT', 'HW-23-0001'),
+  (2, 'SW-ORBT', 'HW-23-0002'),
+  (3, 'SW-LEDG', 'HW-23-0002'),
+  (4, 'SW-ORBT', 'HW-23-0004'),
+  (5, 'SW-ORBT', 'HW-23-0005'),
+  (6, 'SW-PGDB', 'HW-23-0005'),
+  (7, 'SW-ORBT', 'HW-23-0007'),
+  (8, 'SW-ORBT', 'HW-23-0008'),
+  (9, 'SW-ORBT', 'HW-23-0009'),
+  (10, 'SW-ORBT', 'HW-23-0011'),
+  (11, 'SW-PGDB', 'HW-23-0011'),
+  (12, 'SW-ORBT', 'HW-24-0013'),
+  (13, 'SW-ORBT', 'HW-24-0014'),
+  (14, 'SW-ORBT', 'HW-24-0015'),
+  (15, 'SW-ORBT', 'HW-24-0017'),
+  (16, 'SW-PGDB', 'HW-24-0017'),
+  (17, 'SW-ORBT', 'HW-24-0019'),
+  (18, 'SW-ORBT', 'HW-24-0020'),
+  (19, 'SW-LEDG', 'HW-24-0020'),
+  (20, 'SW-ORBT', 'HW-24-0021'),
+  (21, 'SW-ORBT', 'HW-24-0022'),
+  (22, 'SW-ORBT', 'HW-24-0023'),
+  (23, 'SW-PGDB', 'HW-24-0023'),
+  (24, 'SW-ORBT', 'HW-25-0101'),
+  (25, 'SW-LEDG', 'HW-25-0101'),
+  (26, 'SW-ORBT', 'HW-25-0102'),
+  (27, 'SW-QDOC', 'HW-25-0102'),
+  (28, 'SW-ORBT', 'HW-25-0103'),
+  (29, 'SW-QDOC', 'HW-25-0103'),
+  (30, 'SW-ORBT', 'HW-25-0110'),
+  (31, 'SW-PGDB', 'HW-25-0110'),
+  (32, 'SW-TKTR', 'HW-25-0110');
+
+CREATE TABLE application_hosts (
+  app_code VARCHAR(20) NOT NULL,
+  asset_tag VARCHAR(20) NOT NULL,
+  PRIMARY KEY (app_code, asset_tag),
+  FOREIGN KEY (app_code) REFERENCES applications(app_code),
+  FOREIGN KEY (asset_tag) REFERENCES assets(asset_tag)
+);
+
+INSERT INTO application_hosts (app_code, asset_tag) VALUES
+  ('APP-ERP', 'HW-23-0005'),
+  ('APP-HRP', 'HW-23-0011'),
+  ('APP-CRM', 'HW-24-0017'),
+  ('APP-SDK', 'HW-25-0110'),
+  ('APP-WEB', 'HW-24-0023'),
+  ('APP-BIW', 'HW-23-0011'),
+  ('APP-BIW', 'HW-24-0023'),
+  ('APP-LGL', 'HW-23-0005');
+
+CREATE TABLE application_software (
+  app_code VARCHAR(20) NOT NULL,
+  software_id VARCHAR(20) NOT NULL,
+  PRIMARY KEY (app_code, software_id),
+  FOREIGN KEY (app_code) REFERENCES applications(app_code),
+  FOREIGN KEY (software_id) REFERENCES software(software_id)
+);
+
+INSERT INTO application_software (app_code, software_id) VALUES
+  ('APP-ERP', 'SW-LEDG'),
+  ('APP-ERP', 'SW-PGDB'),
+  ('APP-HRP', 'SW-PGDB'),
+  ('APP-CRM', 'SW-PGDB'),
+  ('APP-SDK', 'SW-TKTR'),
+  ('APP-SDK', 'SW-PGDB'),
+  ('APP-BIW', 'SW-PGDB'),
+  ('APP-BIW', 'SW-QDOC'),
+  ('APP-LGL', 'SW-QDOC');

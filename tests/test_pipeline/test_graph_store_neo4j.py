@@ -20,7 +20,7 @@ from writer_service.pipeline.graph_store import Neo4jGraph, to_fact
 
 pytestmark = pytest.mark.integration
 SPEC = OntologySpec(CORE_CLASSES, CORE_RELATIONS)
-TICKER, FILING, OTHER = "__T_W_ISS__", "__T_W_FIL__", "__T_W_OTH__"
+DEPT, HW, OTHER = "__T_W_DEPT__", "__T_W_HW__", "__T_W_OTH__"
 
 
 @pytest.fixture
@@ -37,10 +37,10 @@ def driver() -> Iterator[Driver]:
             yield d
         finally:
             d.execute_query(
-                "MATCH (n) WHERE n.ticker IN $t OR n.filing_id = $f OR n.source_ref = 't.pdf' "
+                "MATCH (n) WHERE n.dept_code IN $d OR n.asset_tag = $h OR n.source_ref = 't.pdf' "
                 "DETACH DELETE n",
-                t=[TICKER, OTHER],
-                f=FILING,
+                d=[DEPT, OTHER],
+                h=HW,
             )
             d.execute_query("MATCH (n:Evidence) WHERE n.quote STARTS WITH '__T_' DETACH DELETE n")
             d.execute_query("MATCH (n:Source {ref: 't.pdf'}) DETACH DELETE n")
@@ -52,18 +52,18 @@ def ev(quote: str) -> Evidence:
 
 
 def facts() -> list:  # type: ignore[type-arg]
-    issuer = CandidateEntity(
-        class_name="Issuer",
-        properties={"ticker": TICKER, "name": "Test Co"},
-        evidence=[ev("__T_ issuer quote")],
+    dept = CandidateEntity(
+        class_name="Department",
+        properties={"dept_code": DEPT, "name": "Test Dept"},
+        evidence=[ev("__T_ department quote")],
     )
-    filed = CandidateRelation(
-        relation="FILED_BY",
-        source=EntityRef(class_name="Filing", key=FILING),
-        target=EntityRef(class_name="Issuer", key=TICKER),
-        evidence=[ev("__T_ filed quote")],
+    assigned = CandidateRelation(
+        relation="ASSIGNED_TO",
+        source=EntityRef(class_name="HardwareAsset", key=HW),
+        target=EntityRef(class_name="Department", key=DEPT),
+        evidence=[ev("__T_ assigned quote")],
     )
-    return [to_fact(issuer, SPEC, 0.9), to_fact(filed, SPEC, 0.88)]
+    return [to_fact(dept, SPEC, 0.9), to_fact(assigned, SPEC, 0.88)]
 
 
 def count(driver: Driver, cypher: str, **params: object) -> int:
@@ -73,34 +73,42 @@ def count(driver: Driver, cypher: str, **params: object) -> int:
 
 def test_write_is_idempotent_with_provenance_and_taxonomy(driver: Driver) -> None:
     graph, run = Neo4jGraph(driver), f"test-{uuid.uuid4()}"
-    graph.write_run(run, 1, facts())
-    graph.write_run(run, 1, facts())  # same facts again: no duplicates
+    hardware = CandidateEntity(
+        class_name="HardwareAsset",
+        properties={"asset_tag": HW, "name": "Test Laptop"},
+        evidence=[ev("__T_ hardware quote")],
+    )
+    batch = [*facts(), to_fact(hardware, SPEC, 0.9)]
+    graph.write_run(run, 1, batch)
+    graph.write_run(run, 1, batch)  # same facts again: no duplicates
+    assert count(driver, "MATCH (n:Department {dept_code: $d}) RETURN count(n) AS c", d=DEPT) == 1
+    # taxonomy: a HardwareAsset entity also carries its parent's Asset label
     assert (
-        count(driver, "MATCH (n:Issuer:Organisation {ticker: $t}) RETURN count(n) AS c", t=TICKER)
+        count(driver, "MATCH (n:HardwareAsset:Asset {asset_tag: $h}) RETURN count(n) AS c", h=HW)
         == 1
     )
     assert (
         count(
             driver,
-            "MATCH (:Filing {filing_id: $f})-[r:FILED_BY]->(:Issuer {ticker: $t}) "
+            "MATCH (:HardwareAsset {asset_tag: $h})-[r:ASSIGNED_TO]->(:Department {dept_code: $d}) "
             "RETURN count(r) AS c",
-            f=FILING,
-            t=TICKER,
+            h=HW,
+            d=DEPT,
         )
         == 1
     )
     assert (
         count(
             driver,
-            "MATCH (:Issuer {ticker: $t})-[:SUPPORTED_BY]->(:Evidence)-[:FROM]->"
+            "MATCH (:Department {dept_code: $d})-[:SUPPORTED_BY]->(:Evidence)-[:FROM]->"
             "(:Source {ref: 't.pdf'}) RETURN count(*) AS c",
-            t=TICKER,
+            d=DEPT,
         )
         == 1
     )
     records, _, _ = driver.execute_query(
-        "MATCH (n:Issuer {ticker: $t}) RETURN n.run_id AS run, n.score AS s, n.stub AS stub",
-        t=TICKER,
+        "MATCH (n:Department {dept_code: $d}) RETURN n.run_id AS run, n.score AS s, n.stub AS stub",
+        d=DEPT,
     )
     assert (records[0]["run"], records[0]["s"], records[0]["stub"]) == (run, 0.9, False)
     graph.rollback_run(run)
@@ -114,9 +122,9 @@ def test_rollback_removes_only_what_the_run_created(driver: Driver) -> None:
     assert (
         count(
             driver,
-            "MATCH (n) WHERE n.ticker = $t OR n.filing_id = $f RETURN count(n) AS c",
-            t=TICKER,
-            f=FILING,
+            "MATCH (n) WHERE n.dept_code = $d OR n.asset_tag = $h RETURN count(n) AS c",
+            d=DEPT,
+            h=HW,
         )
         == 0
     )
@@ -126,14 +134,16 @@ def test_replace_existing_swaps_the_target(driver: Driver) -> None:
     graph, run = Neo4jGraph(driver), f"test-{uuid.uuid4()}"
     graph.write_run(run, 1, facts())
     replacement = CandidateRelation(
-        relation="FILED_BY",
-        source=EntityRef(class_name="Filing", key=FILING),
-        target=EntityRef(class_name="Issuer", key=OTHER),
+        relation="ASSIGNED_TO",
+        source=EntityRef(class_name="HardwareAsset", key=HW),
+        target=EntityRef(class_name="Department", key=OTHER),
         evidence=[ev("__T_ replacement quote")],
     )
     graph.write_run(run, 1, [to_fact(replacement, SPEC, 0.9, replace_existing=True)])
     records, _, _ = driver.execute_query(
-        "MATCH (:Filing {filing_id: $f})-[:FILED_BY]->(i:Issuer) RETURN i.ticker AS t", f=FILING
+        "MATCH (:HardwareAsset {asset_tag: $h})-[:ASSIGNED_TO]->(i:Department) "
+        "RETURN i.dept_code AS t",
+        h=HW,
     )
     assert [r["t"] for r in records] == [OTHER]
     graph.rollback_run(run)
@@ -142,53 +152,55 @@ def test_replace_existing_swaps_the_target(driver: Driver) -> None:
 def test_rollback_keeps_what_another_run_owns(driver: Driver) -> None:
     graph = Neo4jGraph(driver)
     run1, run2 = f"test-{uuid.uuid4()}", f"test-{uuid.uuid4()}"
-    issuer_fact, filed_fact = facts()
-    graph.write_run(run1, 1, [filed_fact])  # Issuer T exists only as a stub endpoint
-    graph.write_run(run2, 1, [issuer_fact])  # a later run states the full entity
+    dept_fact, assigned_fact = facts()
+    graph.write_run(run1, 1, [assigned_fact])  # Department DEPT exists only as a stub endpoint
+    graph.write_run(run2, 1, [dept_fact])  # a later run states the full entity
     graph.rollback_run(run1)
     records, _, _ = driver.execute_query(
-        "MATCH (n:Issuer {ticker: $t}) RETURN n.name AS name, n.runs AS runs, n.run_id AS run",
-        t=TICKER,
+        "MATCH (n:Department {dept_code: $d}) "
+        "RETURN n.name AS name, n.runs AS runs, n.run_id AS run",
+        d=DEPT,
     )
-    assert records and records[0]["name"] == "Test Co"
+    assert records and records[0]["name"] == "Test Dept"
     assert records[0]["runs"] == [run2] and records[0]["run"] == run2
     assert (
         count(
             driver,
-            "MATCH (:Filing {filing_id: $f})-[r:FILED_BY]->() RETURN count(r) AS c",
-            f=FILING,
+            "MATCH (:HardwareAsset {asset_tag: $h})-[r:ASSIGNED_TO]->() RETURN count(r) AS c",
+            h=HW,
         )
         == 0
     )
     assert (
         count(
             driver,
-            "MATCH (:Issuer {ticker: $t})-[:SUPPORTED_BY]->(x:Evidence) RETURN count(x) AS c",
-            t=TICKER,
+            "MATCH (:Department {dept_code: $d})-[:SUPPORTED_BY]->(x:Evidence) "
+            "RETURN count(x) AS c",
+            d=DEPT,
         )
         == 1
     )
     graph.rollback_run(run2)
-    assert count(driver, "MATCH (n:Issuer {ticker: $t}) RETURN count(n) AS c", t=TICKER) == 0
+    assert count(driver, "MATCH (n:Department {dept_code: $d}) RETURN count(n) AS c", d=DEPT) == 0
 
 
 def test_rollback_repairs_relationship_provenance(driver: Driver) -> None:
     graph = Neo4jGraph(driver)
     run1, run2 = f"test-{uuid.uuid4()}", f"test-{uuid.uuid4()}"
-    _, filed_fact = facts()
-    graph.write_run(run1, 1, [filed_fact])
+    _, assigned_fact = facts()
+    graph.write_run(run1, 1, [assigned_fact])
     again = CandidateRelation(
-        relation="FILED_BY",
-        source=EntityRef(class_name="Filing", key=FILING),
-        target=EntityRef(class_name="Issuer", key=TICKER),
+        relation="ASSIGNED_TO",
+        source=EntityRef(class_name="HardwareAsset", key=HW),
+        target=EntityRef(class_name="Department", key=DEPT),
         evidence=[ev("__T_ second quote")],
     )
     graph.write_run(run2, 1, [to_fact(again, SPEC, 0.7)])
     graph.rollback_run(run2)
     records, _, _ = driver.execute_query(
-        "MATCH (:Filing {filing_id: $f})-[r:FILED_BY]->() "
+        "MATCH (:HardwareAsset {asset_tag: $h})-[r:ASSIGNED_TO]->() "
         "RETURN r.run_id AS run, r.runs AS runs, size(r.evidence_ids) AS n",
-        f=FILING,
+        h=HW,
     )
     assert (records[0]["run"], records[0]["runs"], records[0]["n"]) == (run1, [run1], 1)
     graph.rollback_run(run1)
@@ -198,38 +210,40 @@ def test_one_to_many_replacement_clears_the_targets_other_sources(driver: Driver
     from writer_service.ontology.spec import RelationSpec
 
     spec = OntologySpec(
-        CORE_CLASSES, (*CORE_RELATIONS, RelationSpec("ZZ_LINK", "Issuer", "Filing", "one_to_many"))
+        CORE_CLASSES,
+        (*CORE_RELATIONS, RelationSpec("ZZ_LINK", "Department", "HardwareAsset", "one_to_many")),
     )
     graph, run = Neo4jGraph(driver), f"test-{uuid.uuid4()}"
 
     def link(src: str) -> CandidateRelation:
         return CandidateRelation(
             relation="ZZ_LINK",
-            source=EntityRef(class_name="Issuer", key=src),
-            target=EntityRef(class_name="Filing", key=FILING),
+            source=EntityRef(class_name="Department", key=src),
+            target=EntityRef(class_name="HardwareAsset", key=HW),
         )
 
-    graph.write_run(run, 1, [to_fact(link(TICKER), spec, 1.0)])
+    graph.write_run(run, 1, [to_fact(link(DEPT), spec, 1.0)])
     replaced = graph.write_run(run, 1, [to_fact(link(OTHER), spec, 1.0, replace_existing=True)])
     records, _, _ = driver.execute_query(
-        "MATCH (i:Issuer)-[:ZZ_LINK]->(:Filing {filing_id: $f}) RETURN i.ticker AS t", f=FILING
+        "MATCH (i:Department)-[:ZZ_LINK]->(:HardwareAsset {asset_tag: $h}) RETURN i.dept_code AS t",
+        h=HW,
     )
     assert [r["t"] for r in records] == [OTHER]
-    assert len(replaced) == 1 and replaced[0]["source"] == {"label": "Issuer", "key": TICKER}
+    assert len(replaced) == 1 and replaced[0]["source"] == {"label": "Department", "key": DEPT}
     graph.rollback_run(run)
 
 
 def test_rollback_of_asserting_run_demotes_to_stub_on_neo4j(driver: Driver) -> None:
     graph = Neo4jGraph(driver)
     run1, run2 = f"test-{uuid.uuid4()}", f"test-{uuid.uuid4()}"
-    issuer_fact, filed_fact = facts()
-    graph.write_run(run1, 1, [issuer_fact])  # asserts the issuer
-    graph.write_run(run2, 1, [filed_fact])  # only references it
+    dept_fact, assigned_fact = facts()
+    graph.write_run(run1, 1, [dept_fact])  # asserts the department
+    graph.write_run(run2, 1, [assigned_fact])  # only references it
     graph.rollback_run(run1)
     records, _, _ = driver.execute_query(
-        "MATCH (n:Issuer {ticker: $t}) OPTIONAL MATCH (n)-[l:SUPPORTED_BY]->() "
+        "MATCH (n:Department {dept_code: $d}) OPTIONAL MATCH (n)-[l:SUPPORTED_BY]->() "
         "RETURN n.stub AS stub, n.name AS name, n.runs AS runs, n.run_id AS run, count(l) AS links",
-        t=TICKER,
+        d=DEPT,
     )
     r = records[0]
     assert (r["stub"], r["name"], r["runs"], r["run"], r["links"]) == (True, None, [run2], run2, 0)
@@ -268,22 +282,22 @@ def test_conflict_approval_end_to_end_on_neo4j(
     graph = Neo4jGraph(driver)
     seed = f"test-{uuid.uuid4()}"
     other = CandidateEntity(
-        class_name="Issuer",
-        properties={"ticker": OTHER, "name": "Other Co"},
+        class_name="Department",
+        properties={"dept_code": OTHER, "name": "Other Dept"},
         evidence=[ev("__T_ other quote")],
     )
     old_edge = CandidateRelation(
-        relation="FILED_BY",
-        source=EntityRef(class_name="Filing", key=FILING),
-        target=EntityRef(class_name="Issuer", key=OTHER),
-        evidence=[ev("__T_ old filed quote")],
+        relation="ASSIGNED_TO",
+        source=EntityRef(class_name="HardwareAsset", key=HW),
+        target=EntityRef(class_name="Department", key=OTHER),
+        evidence=[ev("__T_ old assigned quote")],
     )
     graph.write_run(seed, 1, [to_fact(other, SPEC, 0.9), to_fact(old_edge, SPEC, 0.9)])
-    text = f"Filing {FILING} was filed by {TICKER}."
+    text = f"Asset {HW} is assigned to department {DEPT}."
     new_edge = CandidateRelation(
-        relation="FILED_BY",
-        source=EntityRef(class_name="Filing", key=FILING),
-        target=EntityRef(class_name="Issuer", key=TICKER),
+        relation="ASSIGNED_TO",
+        source=EntityRef(class_name="HardwareAsset", key=HW),
+        target=EntityRef(class_name="Department", key=DEPT),
         evidence=[Evidence(source_type="pdf", source_ref="t.pdf", locator="page 1", quote=text)],
     )
     fake = FakeLLM(
@@ -301,9 +315,11 @@ def test_conflict_approval_end_to_end_on_neo4j(
         item_id = uow.session.scalars(select(ReviewItem)).one().id
     pipe.approve(item_id, reviewer="alice")
     records, _, _ = driver.execute_query(
-        "MATCH (:Filing {filing_id: $f})-[:FILED_BY]->(i:Issuer) RETURN i.ticker AS t", f=FILING
+        "MATCH (:HardwareAsset {asset_tag: $h})-[:ASSIGNED_TO]->(i:Department) "
+        "RETURN i.dept_code AS t",
+        h=HW,
     )
-    assert [r["t"] for r in records] == [TICKER]
+    assert [r["t"] for r in records] == [DEPT]
     with UnitOfWork(engine) as uow:
         entry = next(
             a for a in uow.session.scalars(select(AuditLog)) if a.action == "review.approve"
@@ -321,21 +337,21 @@ def test_undo_restores_overwritten_properties_with_their_types(driver: Driver) -
 
     graph = Neo4jGraph(driver)
     run1, run2 = f"test-{uuid.uuid4()}", f"test-{uuid.uuid4()}"
-    issuer_fact, filed_fact = facts()
-    graph.write_run(run1, 1, [issuer_fact, filed_fact])
+    dept_fact, assigned_fact = facts()
+    graph.write_run(run1, 1, [dept_fact, assigned_fact])
     node_at = driver.execute_query(
-        "MATCH (i:Issuer {ticker: $t}) RETURN i.ingested_at AS at", t=TICKER
+        "MATCH (i:Department {dept_code: $d}) RETURN i.ingested_at AS at", d=DEPT
     ).records[0]["at"]
     renamed = CandidateEntity(
-        class_name="Issuer",
-        properties={"ticker": TICKER, "name": "Renamed Co"},
+        class_name="Department",
+        properties={"dept_code": DEPT, "name": "Renamed Dept"},
         evidence=[ev("__T_ renamed quote")],
     )
     spec = SPEC
     moved = CandidateRelation(
-        relation="FILED_BY",
-        source=EntityRef(class_name="Filing", key=FILING),
-        target=EntityRef(class_name="Issuer", key=OTHER),
+        relation="ASSIGNED_TO",
+        source=EntityRef(class_name="HardwareAsset", key=HW),
+        target=EntityRef(class_name="Department", key=OTHER),
         evidence=[ev("__T_ moved quote")],
     )
     changes = graph.write_run(
@@ -345,15 +361,15 @@ def test_undo_restores_overwritten_properties_with_their_types(driver: Driver) -
     assert kinds == ["edge", "properties"]
     graph.undo(changes)
     records, _, _ = driver.execute_query(
-        "MATCH (i:Issuer {ticker: $t}) "
-        "OPTIONAL MATCH (:Filing {filing_id: $f})-[r:FILED_BY]->(i) "
+        "MATCH (i:Department {dept_code: $d}) "
+        "OPTIONAL MATCH (:HardwareAsset {asset_tag: $h})-[r:ASSIGNED_TO]->(i) "
         "RETURN i.name AS name, i.run_id AS run, i._label AS label, r.ingested_at AS at, "
         "i.score AS score, i.ingested_at AS node_at",
-        t=TICKER,
-        f=FILING,
+        d=DEPT,
+        h=HW,
     )
     r = records[0]
-    assert (r["name"], r["run"], r["label"], r["score"]) == ("Test Co", run1, "Issuer", 0.9)
+    assert (r["name"], r["run"], r["label"], r["score"]) == ("Test Dept", run1, "Department", 0.9)
     assert r["node_at"] == node_at  # entity timestamp restored too (review round 4)
     assert isinstance(r["at"], DateTime)  # restored edge keeps a temporal, not a string
     graph.rollback_run(run2)

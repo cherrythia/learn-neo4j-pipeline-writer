@@ -13,12 +13,23 @@ def test_core_ontology_is_valid() -> None:
 
 def test_core_contains_expected_classes_relations_and_taxonomy() -> None:
     names = {c.name for c in CORE_CLASSES}
-    assert {"Issuer", "Filing", "Rule", "Obligation", "Finding"} <= names
+    assert names == {
+        "Asset",
+        "HardwareAsset",
+        "SoftwareLicense",
+        "Software",
+        "Application",
+        "Department",
+        "Vendor",
+        "Invoice",
+    }
     parents = {c.name: c.parent for c in CORE_CLASSES}
-    assert parents["Issuer"] == "Organisation" and parents["Filing"] == "Document"
+    assert parents["HardwareAsset"] == "Asset" and parents["SoftwareLicense"] == "Asset"
     rel = {r.name: (r.domain, r.range) for r in CORE_RELATIONS}
-    assert rel["FILED_BY"] == ("Filing", "Issuer")
-    assert rel["DERIVES_FROM"] == ("Obligation", "Rule")
+    assert len(rel) == 9
+    assert rel["ASSIGNED_TO"] == ("HardwareAsset", "Department")
+    assert rel["LICENSES"] == ("SoftwareLicense", "Software")
+    assert rel["BILLED_ON"] == ("Asset", "Invoice")  # a parent class as the domain
 
 
 def cls(name: str, key: str = "id", parent: str | None = None, **kw: object) -> ClassSpec:
@@ -62,13 +73,13 @@ def test_relation_endpoints_must_exist_and_not_be_deprecated() -> None:
 
 @pytest.mark.parametrize(
     "name",
-    ["issuer", "Issuer) DETACH DELETE n //", "Is suer", "Ext_Thing", ""],
+    ["department", "Department) DETACH DELETE n //", "Depart ment", "Ext_Thing", ""],
 )
 def test_class_names_are_strict_identifiers(name: str) -> None:
     assert any("invalid class name" in e for e in errors(cls(name)))
 
 
-@pytest.mark.parametrize("name", ["filedBy", "FILED BY", "X`]->()", "_X"])
+@pytest.mark.parametrize("name", ["assignedTo", "ASSIGNED TO", "X`]->()", "_X"])
 def test_relation_names_are_strict(name: str) -> None:
     r = RelationSpec(name=name, domain="A", range="A")
     assert any("invalid relation name" in e for e in errors(cls("A"), relations=(r,)))
@@ -102,7 +113,7 @@ def test_removing_a_published_relation_is_rejected() -> None:
 
 def test_ext_namespace_allowed() -> None:
     ext = ClassSpec(
-        name="ESGMetric",
+        name="Warranty",
         identity_key="id",
         namespace="ext",
         properties=(PropertySpec("id", "string", True),),

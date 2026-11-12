@@ -7,6 +7,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import Engine, create_engine, event
 from sqlalchemy.pool import StaticPool
 
+from demo_env import data
 from demo_env.mock_superset import create_mock_superset
 from demo_env.seed_sql import render_demo_inserts
 from writer_service.api.deps import get_pipeline, get_reader, get_superset
@@ -38,12 +39,12 @@ def source_engine() -> Engine:
 
     @event.listens_for(engine, "connect")
     def attach(dbapi_conn: Any, _: Any) -> None:
-        dbapi_conn.execute("ATTACH DATABASE ':memory:' AS demo_compliance")
+        dbapi_conn.execute("ATTACH DATABASE ':memory:' AS demo_itam")
 
     with engine.begin() as conn:
         raw = conn.connection.dbapi_connection
-        sql = render_demo_inserts().replace("CREATE TABLE ", "CREATE TABLE demo_compliance.")
-        raw.executescript(sql.replace("INSERT INTO ", "INSERT INTO demo_compliance."))  # type: ignore[union-attr]
+        sql = render_demo_inserts().replace("CREATE TABLE ", "CREATE TABLE demo_itam.")
+        raw.executescript(sql.replace("INSERT INTO ", "INSERT INTO demo_itam."))  # type: ignore[union-attr]
     return engine
 
 
@@ -67,20 +68,22 @@ def setup(tmp_path: Path) -> Iterator[tuple[TestClient, Any, InMemoryGraph]]:
     src.dispose()
 
 
-def approve_issuers(engine: Any, superset: SupersetClient) -> None:
+def approve_assets(engine: Any, superset: SupersetClient) -> None:
     from writer_service.ontology.service import spec_of
 
-    ds = superset.dataset(1)
+    ds = superset.dataset(2)
     m = DatasetMapping(
         entities=[
             EntityMapping(
-                class_name="Issuer",
+                class_name="HardwareAsset",
                 columns={
-                    "ticker": "ticker",
-                    "name": "name",
-                    "board": "board",
-                    "sector": "sector",
-                    "country": "country",
+                    "asset_tag": "asset_tag",
+                    "name": "name",  # hostnames are distinct words: no possible duplicates
+                    "hardware_type": "hardware_type",
+                    "manufacturer": "manufacturer",
+                    "model": "model",
+                    "serial_number": "serial_number",
+                    "status": "status",
                 },
             )
         ]
@@ -98,23 +101,26 @@ def test_sync_requires_an_approved_mapping(setup: Any) -> None:
     assert r.status_code == 409 and "approved column mapping" in r.json()["detail"]
 
 
-def test_sync_commits_all_issuers_deterministically(setup: Any) -> None:
+def test_sync_commits_all_assets_deterministically(setup: Any) -> None:
     client, (engine, superset, _), graph = setup
-    approve_issuers(engine, superset)
-    r = client.post("/ingest/superset/1", headers={"X-API-Key": KEY})
+    approve_assets(engine, superset)
+    total = len(data.HARDWARE)
+    r = client.post("/ingest/superset/2", headers={"X-API-Key": KEY})
     assert r.status_code == 200, r.text
     body = r.json()
-    assert body["status"] == "completed" and body["counts"]["commit"] == 20
-    aph = graph.node_properties("Issuer", "ticker", "APH")
-    assert aph is not None and aph["board"] == "mainboard"
-    again = client.post("/ingest/superset/1", headers={"X-API-Key": KEY}).json()
-    assert again["counts"]["commit"] == 20 and graph.node_count() == 40  # Issuer+Organisation
+    assert body["status"] == "completed" and body["counts"]["commit"] == total
+    retired = next(a for a in data.HARDWARE if a.status == "retired")
+    node = graph.node_properties("HardwareAsset", "asset_tag", retired.asset_tag)
+    assert node is not None and node["status"] == "retired"
+    again = client.post("/ingest/superset/2", headers={"X-API-Key": KEY}).json()
+    # each asset is one HardwareAsset + one Asset node
+    assert again["counts"]["commit"] == total and graph.node_count() == 2 * total
 
 
 def test_sync_requires_api_key_and_known_dataset(setup: Any) -> None:
     client, (engine, superset, _), _ = setup
-    assert client.post("/ingest/superset/1").status_code == 401
-    approve_issuers(engine, superset)
+    assert client.post("/ingest/superset/2").status_code == 401
+    approve_assets(engine, superset)
     with UnitOfWork(engine) as uow:  # pretend dataset 999 has a mapping
         from writer_service.governance.models import ColumnMapping
 
@@ -134,7 +140,7 @@ def test_source_database_errors_are_502_without_internals(setup: Any) -> None:
     from sqlalchemy.exc import OperationalError
 
     client, (engine, superset, _), _ = setup
-    approve_issuers(engine, superset)
+    approve_assets(engine, superset)
 
     class Down(DatasetReader):
         def _rows(self, *_: Any, **__: Any) -> Any:
@@ -142,5 +148,5 @@ def test_source_database_errors_are_502_without_internals(setup: Any) -> None:
 
     down = Down(source_engine())
     client.app.dependency_overrides[get_reader] = lambda: down  # type: ignore[attr-defined]
-    r = client.post("/ingest/superset/1", headers={"X-API-Key": KEY})
+    r = client.post("/ingest/superset/2", headers={"X-API-Key": KEY})
     assert r.status_code == 502 and "secret_stuff" not in r.text

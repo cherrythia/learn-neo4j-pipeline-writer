@@ -5,7 +5,7 @@ set -euo pipefail
 
 mysql -uroot -p"${MYSQL_ROOT_PASSWORD}" <<SQL
 CREATE DATABASE IF NOT EXISTS governance;
-CREATE DATABASE IF NOT EXISTS demo_compliance;
+CREATE DATABASE IF NOT EXISTS demo_itam;
 -- Scratch database for integration tests, so they never touch real governance data.
 CREATE DATABASE IF NOT EXISTS governance_test;
 
@@ -14,6 +14,6 @@ CREATE USER IF NOT EXISTS 'writer'@'%' IDENTIFIED BY '${MYSQL_WRITER_PASSWORD:?M
 CREATE USER IF NOT EXISTS 'reader'@'%' IDENTIFIED BY '${MYSQL_READER_PASSWORD:?MYSQL_READER_PASSWORD is required}';
 GRANT ALL PRIVILEGES ON governance.* TO 'writer'@'%';
 GRANT ALL PRIVILEGES ON governance_test.* TO 'writer'@'%';
-GRANT SELECT ON demo_compliance.* TO 'reader'@'%';
+GRANT SELECT ON demo_itam.* TO 'reader'@'%';
 FLUSH PRIVILEGES;
 SQL

@@ -20,11 +20,11 @@ writer pipeline (gates, scoring, Neo4j)                        source reliabilit
 ## Mappings
 
 ```json
-{"entities":  [{"class_name": "Issuer",
-                "columns": {"ticker": "ticker", "name": "name", "board": "board"}}],
- "relations": [{"relation": "FILED_BY",
-                "source": {"class_name": "Filing", "key_column": "filing_id"},
-                "target": {"class_name": "Issuer", "key_column": "issuer_ticker"}}]}
+{"entities":  [{"class_name": "HardwareAsset",
+                "columns": {"asset_tag": "asset_tag", "name": "name", "status": "status"}}],
+ "relations": [{"relation": "ASSIGNED_TO",
+                "source": {"class_name": "HardwareAsset", "key_column": "asset_tag"},
+                "target": {"class_name": "Department", "key_column": "dept_code"}}]}
 ```
 
 | Step | Function | Notes |
@@ -38,10 +38,10 @@ The admin UI and API for this workflow arrive in issues #14–#15.
 
 ## Evidence and grounding
 
-Each row is rendered as text (`issuer_id: 1; name: Aurora …; ticker: APH; …`) with the
+Each row is rendered as text (`asset_tag: HW-23-0002; name: bellatrix; …`) with the
 locator `row <position> (<first column>=<value>)`, unique within a sync (the first column
 alone may repeat). Every mapped column becomes its own evidence item
-(`ticker: APH`): a contiguous, verbatim fragment of the row text, so grounding is exactly 1.0
+(`asset_tag: HW-23-0002`): a contiguous, verbatim fragment of the row text, so grounding is exactly 1.0
 under the strict verbatim rule ([verification](verification.md)).
 
 ## Safety
@@ -70,5 +70,5 @@ under the strict verbatim rule ([verification](verification.md)).
 |---|---|---|
 | `WRITER_SUPERSET_URL` | `http://127.0.0.1:8088` | Mock locally; real Superset on `:8089` with `--profile superset` |
 | `WRITER_SUPERSET_USERNAME` / `_PASSWORD` | `admin` / `change-me` | **Secret** password; set both for a real Superset |
-| `WRITER_SOURCE_DB_URL` | `mysql+pymysql://reader:…@127.0.0.1:3306/demo_compliance` | **Read-only** user |
+| `WRITER_SOURCE_DB_URL` | `mysql+pymysql://reader:…@127.0.0.1:3306/demo_itam` | **Read-only** user |
 | `WRITER_MAX_ROWS_PER_SYNC` | 10000 | |

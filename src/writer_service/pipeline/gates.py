@@ -210,8 +210,9 @@ def _entity_conflict(
 def _keys_under(spec: OntologySpec, class_name: str) -> dict[str, str]:
     """Neo4j label -> identity key for ``class_name`` and every subclass of it.
 
-    A relation whose range is Organisation can point to an Issuer node, so cardinality must
-    look at edges to any of these labels, not only the candidate's own class.
+    A relation whose domain is Asset can start at a HardwareAsset node (and a range can
+    likewise be a parent class), so cardinality must look at edges of any of these labels,
+    not only the candidate's own class.
     """
     return {neo4j_label(c): c.identity_key for c in spec.classes if _is_a(spec, c.name, class_name)}
 

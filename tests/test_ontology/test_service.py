@@ -28,11 +28,11 @@ def test_bootstrap_seeds_and_publishes_core(
 ) -> None:
     assert svc.bootstrap("admin") == 1
     assert statuses(engine) == {1: "published"}
-    assert "wsc_issuer_ticker" in graph.names
+    assert "wsc_hardwareasset_asset_tag" in graph.names
     spec = svc.published_spec()
     assert spec is not None
-    issuer = next(c for c in spec.classes if c.name == "Issuer")
-    assert issuer.parent == "Organisation"
+    hardware = next(c for c in spec.classes if c.name == "HardwareAsset")
+    assert hardware.parent == "Asset"
 
 
 def test_bootstrap_is_idempotent(svc: OntologyService, engine: Engine) -> None:
@@ -49,9 +49,9 @@ def test_new_draft_copies_published_including_taxonomy(
     with UnitOfWork(engine) as uow:
         v2 = uow.ontology_versions.get_by_number(2)
         assert v2 is not None and v2.status == "draft"
-        issuer = next(c for c in v2.classes if c.name == "Issuer")
-        assert issuer.parent is not None and issuer.parent.version_id == v2.id  # remapped
-        assert {p.name for p in issuer.properties} >= {"ticker", "name"}
+        hardware = next(c for c in v2.classes if c.name == "HardwareAsset")
+        assert hardware.parent is not None and hardware.parent.version_id == v2.id  # remapped
+        assert {p.name for p in hardware.properties} >= {"asset_tag", "name", "hardware_type"}
         assert len(v2.relation_types) == len(uow.ontology_versions.get_by_number(1).relation_types)  # type: ignore[union-attr]
 
 
@@ -87,12 +87,15 @@ def test_publish_supersedes_previous_and_syncs_constraints(
         engine,
         2,
         ClassSpec(
-            "ESGMetric", "metric_id", (PropertySpec("metric_id", "string", True),), namespace="ext"
+            "Warranty",
+            "warranty_id",
+            (PropertySpec("warranty_id", "string", True),),
+            namespace="ext",
         ),
     )
     svc.publish(2, "alice")
     assert statuses(engine) == {1: "superseded", 2: "published"}
-    assert "wsc_ext_esgmetric_metric_id" in graph.names
+    assert "wsc_ext_warranty_warranty_id" in graph.names
     with UnitOfWork(engine) as uow:
         actions = [(a.actor, a.action) for a in uow.session.scalars(select(AuditLog))]
     assert ("alice", "ontology.publish") in actions
@@ -120,7 +123,10 @@ def test_graph_failure_rolls_back_the_publish(
         engine,
         2,
         ClassSpec(
-            "ESGMetric", "metric_id", (PropertySpec("metric_id", "string", True),), namespace="ext"
+            "Warranty",
+            "warranty_id",
+            (PropertySpec("warranty_id", "string", True),),
+            namespace="ext",
         ),
     )
     graph.fail_next = True  # the new class needs a CREATE CONSTRAINT, which fails
@@ -146,14 +152,17 @@ def test_rollback_restores_previous_version_and_constraints(
         engine,
         2,
         ClassSpec(
-            "ESGMetric", "metric_id", (PropertySpec("metric_id", "string", True),), namespace="ext"
+            "Warranty",
+            "warranty_id",
+            (PropertySpec("warranty_id", "string", True),),
+            namespace="ext",
         ),
     )
     svc.publish(2, "alice")
     assert svc.rollback("bob") == 1
     assert statuses(engine) == {1: "published", 2: "deprecated"}
-    assert "wsc_ext_esgmetric_metric_id" not in graph.names
-    assert "wsc_issuer_ticker" in graph.names
+    assert "wsc_ext_warranty_warranty_id" not in graph.names
+    assert "wsc_hardwareasset_asset_tag" in graph.names
     with UnitOfWork(engine) as uow:
         actions = [(a.actor, a.action) for a in uow.session.scalars(select(AuditLog))]
     assert ("bob", "ontology.rollback") in actions
@@ -171,22 +180,25 @@ def test_published_spec_none_before_bootstrap(svc: OntologyService, engine: Engi
         assert uow.session.scalars(select(OntologyVersion)).all() == []
 
 
-def deprecate_finding_add_esg(engine: Engine) -> None:
-    """Draft v2: deprecate Finding (and its relations), add an ext class."""
+def deprecate_application_add_warranty(engine: Engine) -> None:
+    """Draft v2: deprecate Application (and its relations), add an ext class."""
     with UnitOfWork(engine) as uow:
         v2 = uow.ontology_versions.get_by_number(2)
         assert v2 is not None
         for c in v2.classes:
-            if c.name == "Finding":
+            if c.name == "Application":
                 c.deprecated = True
         for r in v2.relation_types:
-            if "Finding" in (r.domain_class, r.range_class):
+            if "Application" in (r.domain_class, r.range_class):
                 r.deprecated = True
     add_class(
         engine,
         2,
         ClassSpec(
-            "ESGMetric", "metric_id", (PropertySpec("metric_id", "string", True),), namespace="ext"
+            "Warranty",
+            "warranty_id",
+            (PropertySpec("warranty_id", "string", True),),
+            namespace="ext",
         ),
     )
 
@@ -201,7 +213,7 @@ def v1_constraints(svc: OntologyService) -> set[str]:
 
 @pytest.mark.parametrize(
     "fail_on",
-    ["CREATE CONSTRAINT wsc_ext_esgmetric", "DROP CONSTRAINT wsc_finding_finding_id"],
+    ["CREATE CONSTRAINT wsc_ext_warranty", "DROP CONSTRAINT wsc_application_app_code"],
 )
 def test_partial_graph_failure_restores_published_constraints(
     svc: OntologyService, engine: Engine, graph: InMemoryGraphSchema, fail_on: str
@@ -209,7 +221,7 @@ def test_partial_graph_failure_restores_published_constraints(
     svc.bootstrap("admin")
     expected = v1_constraints(svc)
     svc.new_draft("admin")
-    deprecate_finding_add_esg(engine)
+    deprecate_application_add_warranty(engine)
     graph.fail_on = fail_on
     with pytest.raises(RuntimeError, match="neo4j down"):
         svc.publish(2, "alice")
@@ -217,7 +229,7 @@ def test_partial_graph_failure_restores_published_constraints(
     managed = {n for n in graph.names if n.startswith("wsc_")}
     assert managed == expected  # v1's constraints, nothing missing, nothing extra
     svc.publish(2, "alice")  # a retry succeeds
-    assert "wsc_finding_finding_id" not in graph.names
+    assert "wsc_application_app_code" not in graph.names
 
 
 def test_sync_creates_before_dropping(
@@ -225,7 +237,7 @@ def test_sync_creates_before_dropping(
 ) -> None:
     svc.bootstrap("admin")
     svc.new_draft("admin")
-    deprecate_finding_add_esg(engine)
+    deprecate_application_add_warranty(engine)
     graph.executed.clear()
     svc.publish(2, "alice")
     verbs = [s.split()[0] for s in graph.executed]
@@ -263,7 +275,7 @@ def test_commit_failure_after_sync_restores_published_constraints(
     svc.bootstrap("admin")
     expected = v1_constraints(svc)
     svc.new_draft("admin")
-    deprecate_finding_add_esg(engine)
+    deprecate_application_add_warranty(engine)
 
     def fail_commit(self: Session) -> None:
         raise RuntimeError("commit failed")
@@ -283,12 +295,12 @@ def test_rollback_graph_failure_keeps_current_version_and_constraints(
 
     svc.bootstrap("admin")
     svc.new_draft("admin")
-    deprecate_finding_add_esg(engine)
+    deprecate_application_add_warranty(engine)
     svc.publish(2, "alice")
     spec2 = svc.published_spec()
     assert spec2 is not None
     v2_constraints = set(desired_constraints(spec2))
-    graph.fail_on = "CREATE CONSTRAINT wsc_finding_finding_id"  # rollback must re-create it
+    graph.fail_on = "CREATE CONSTRAINT wsc_application_app_code"  # rollback must re-create it
     with pytest.raises(RuntimeError, match="neo4j down"):
         svc.rollback("bob")
     assert statuses(engine) == {1: "superseded", 2: "published"}
@@ -307,7 +319,7 @@ def test_rollback_commit_failure_restores_current_constraints(
 
     svc.bootstrap("admin")
     svc.new_draft("admin")
-    deprecate_finding_add_esg(engine)
+    deprecate_application_add_warranty(engine)
     svc.publish(2, "alice")
     spec2 = svc.published_spec()
     assert spec2 is not None
@@ -325,7 +337,7 @@ def test_rollback_commit_failure_restores_current_constraints(
 
 def test_publish_creates_fulltext_indexes(svc: OntologyService, graph: InMemoryGraphSchema) -> None:
     svc.bootstrap("admin")
-    assert "wsf_issuer_ticker_name" in graph.names  # #28
+    assert "wsf_department_dept_code_name" in graph.names  # #28
 
 
 def test_sync_reapplies_the_published_schema(
@@ -333,10 +345,10 @@ def test_sync_reapplies_the_published_schema(
 ) -> None:
     """#28: an existing deployment gets the new full-text indexes without a publish."""
     svc.bootstrap("admin")
-    graph.names.discard("wsf_issuer_ticker_name")  # as if published before #28
+    graph.names.discard("wsf_department_dept_code_name")  # as if published before #28
     result = svc.sync("admin")
-    assert result.created == ["wsf_issuer_ticker_name"] and result.dropped == []
-    assert "wsf_issuer_ticker_name" in graph.names
+    assert result.created == ["wsf_department_dept_code_name"] and result.dropped == []
+    assert "wsf_department_dept_code_name" in graph.names
     with UnitOfWork(engine) as uow:
         actions = [a.action for a in uow.session.scalars(select(AuditLog))]
     assert actions[-1] == "ontology.sync"

@@ -1,7 +1,7 @@
 """PDF and Excel ingestion: parse into anchored chunks, then extract candidate facts with an
 LLM that can only use the published ontology's vocabulary (ADR-0007).
 
-Anchors ("page 2", "sheet Checklist row 5") flow into every piece of evidence, so the
+Anchors ("page 2", "sheet Register row 5") flow into every piece of evidence, so the
 verification step can check each quote against the exact page or row it claims to come from.
 """
 
@@ -18,7 +18,7 @@ from pypdf import PdfReader
 
 from writer_service.llm.prompts import PromptTemplate
 from writer_service.llm.structured import StructuredLLM
-from writer_service.ontology.spec import OntologySpec
+from writer_service.ontology.spec import OntologySpec, PropertySpec
 from writer_service.pipeline.candidates import (
     CandidateEntity,
     CandidateRelation,
@@ -118,11 +118,16 @@ def render_chunks(chunks: list[SourceChunk]) -> str:
 # ------------------------------------------------------------------------- extraction
 
 
+def _render_property(p: PropertySpec) -> str:
+    note = f" ({p.description})" if p.description else ""
+    return f"{p.name}{'*' if p.required else ''}: {p.datatype}{note}"
+
+
 def render_ontology(spec: OntologySpec) -> str:
     """The vocabulary the extractor may use (active classes and relations only)."""
-    lines = ["Classes (* = required):"]
+    lines = ["Classes (* = required; each property is name: datatype (notes)):"]
     for c in spec.active_classes():
-        props = ", ".join(f"{p.name}{'*' if p.required else ''}" for p in c.properties)
+        props = ", ".join(_render_property(p) for p in c.properties)
         parent = f" is-a {c.parent}" if c.parent else ""
         lines.append(f"- {c.name} (key: {c.identity_key}; properties: {props}){parent}")
     lines.append("Relations:")
@@ -134,13 +139,17 @@ def render_ontology(spec: OntologySpec) -> str:
 
 EXTRACTION_PROMPT = PromptTemplate(
     name="document_extraction",
-    version=1,
+    version=2,
     system=(
-        "You extract facts for a compliance knowledge graph. Use ONLY the classes, properties "
-        "and relations in the ontology you are given. Extract only what the text states; never "
-        "infer or use outside knowledge. Every fact must cite evidence: the exact marker of the "
-        "chunk it comes from (e.g. 'page 2') and a short quote copied verbatim from that chunk. "
-        "Refer to entities in relations by their identity key value when the text gives it."
+        "You extract facts for an IT asset management knowledge graph. Use ONLY the "
+        "classes, properties and relations in the ontology you are given. Extract only what "
+        "the text states; never infer or use outside knowledge. Every fact must cite "
+        "evidence: the exact marker of the chunk it comes from (e.g. 'page 2') and a short "
+        "quote copied verbatim from that chunk (the quote stays verbatim; property values are "
+        "normalised). Give each property value in its datatype: dates as YYYY-MM-DD, numbers "
+        "as plain digits without thousands separators or currency (e.g. 2150.00), and where a "
+        "property lists 'one of' values, use exactly one of those values. Refer to entities "
+        "in relations by their identity key value when the text gives it."
     ),
     user=(
         "Ontology:\n{ontology}\n\nDocument: {source_ref}\n\n{text}\n\n"
