@@ -96,7 +96,8 @@ export function ReviewPage() {
         </Grid.Col>
         <Grid.Col span={{ base: 12, md: 7 }}>
           {current ? (
-            <ReviewDetail item={current} onDone={() => setSelected(null)} />
+            // keyed: switching items must not carry over edits, notes or errors
+            <ReviewDetail key={current.id} item={current} onDone={() => setSelected(null)} />
           ) : (
             <Text c="dimmed">Select an item to see its evidence and score.</Text>
           )}
@@ -187,13 +188,15 @@ export function ReviewDetail({ item, onDone }: { item: ReviewItem; onDone: () =>
           </Button>
         </Group>
       </Stack>
-      <EditModal
-        opened={editing}
-        candidate={item.candidate}
-        onClose={() => setEditing(false)}
-        onSubmit={(edited) => approve.mutate(edited)}
-        busy={approve.isPending}
-      />
+      {editing && ( // mounted only while open, so it starts from the current candidate
+        <EditModal
+          opened
+          candidate={item.candidate}
+          onClose={() => setEditing(false)}
+          onSubmit={(edited) => approve.mutate(edited)}
+          busy={approve.isPending}
+        />
+      )}
       <Modal opened={rejecting} onClose={() => setRejecting(false)} title="Reject candidate">
         <Stack>
           <Textarea label="Note" value={note} onChange={(e) => setNote(e.currentTarget.value)} />

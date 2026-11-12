@@ -99,7 +99,7 @@ export function OntologyPage({ role }: { role: string }) {
           </Table>
         </Grid.Col>
         <Grid.Col span={{ base: 12, md: 9 }}>
-          {selected !== null && <VersionView version={selected} admin={admin} />}
+          {selected !== null && <VersionView key={selected} version={selected} admin={admin} />}
         </Grid.Col>
       </Grid>
       <Modal opened={confirmRollback} onClose={() => setConfirmRollback(false)} title="Roll back the ontology?">

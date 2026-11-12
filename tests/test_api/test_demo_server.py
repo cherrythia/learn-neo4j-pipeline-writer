@@ -72,3 +72,14 @@ def test_generates_passwords_when_none_given(tmp_path: Path) -> None:
     _, state = create_demo_app(tmp_path)
     assert len(state.admin_password) >= 12 and len(state.reviewer_password) >= 12
     assert state.admin_password != state.reviewer_password
+
+
+def test_close_deletes_the_temp_dir_it_created(tmp_path: Path) -> None:
+    """Review round 1: the temp store holds password hashes; it must not outlive the demo."""
+    _, state = create_demo_app()
+    assert state.owns_workdir and (state.workdir / "governance.sqlite").exists()
+    state.close()
+    assert not state.workdir.exists()
+    _, given = create_demo_app(tmp_path)  # a caller's directory is never deleted
+    given.close()
+    assert tmp_path.exists()
