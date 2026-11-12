@@ -2,13 +2,9 @@ import { afterEach, expect, test } from "bun:test";
 import { cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import type { MappingOut } from "../api/types";
 import { renderWithApi } from "../testing";
-import { MappingsPage } from "./Mappings";
+import { EXAMPLE_MAPPING, MappingsPage } from "./Mappings";
 
 afterEach(cleanup);
-
-// happy-dom has no document.fonts, which Mantine's autosize JsonInput listens to.
-const doc = document as unknown as { fonts?: unknown };
-doc.fonts ??= { addEventListener() {}, removeEventListener() {} };
 
 // DatasetMapping in openapi.json: entities[].columns is property -> column.
 const MAPPING = {
@@ -72,4 +68,16 @@ test("suggests, saves a manual draft, approves, and shows the refreshed list", a
   expect(rowOf(table, 5).textContent).toContain("approved by alice");
   expect(within(rowOf(table, 5)).queryByRole("button", { name: "Approve" })).toBeNull();
   expect(within(rowOf(table, 6)).getByRole("button", { name: "Approve" })).toBeDefined();
+});
+
+
+test("the example mapping in the form is a valid DatasetMapping (review round 1)", () => {
+  // columns must be a property -> column object, as openapi EntityMapping.columns says
+  for (const e of EXAMPLE_MAPPING.entities) {
+    expect(Array.isArray(e.columns)).toBe(false);
+    for (const [prop, col] of Object.entries(e.columns)) {
+      expect(typeof prop).toBe("string");
+      expect(typeof col).toBe("string");
+    }
+  }
 });

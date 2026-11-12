@@ -1,5 +1,6 @@
 // Test helpers: the real providers and API client over a scripted fetch.
-import { render } from "@testing-library/react";
+import { expect } from "bun:test";
+import { fireEvent, render, waitFor, within } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { MemoryRouter } from "react-router";
 import type { Notice } from "./api/client";
@@ -55,4 +56,14 @@ export function renderWithApi(ui: ReactNode, routes: Record<string, unknown>, pa
     </Providers>,
   );
   return { ...utils, calls, notices, runtime };
+}
+
+
+/** Pick an option in a Mantine Select. Every Select keeps its dropdown in the page, so the
+ * option is looked up only inside the listbox this input controls. */
+export async function pick(input: HTMLElement, option: string) {
+  fireEvent.click(input);
+  await waitFor(() => expect(input.getAttribute("aria-expanded")).toBe("true"));
+  const listbox = document.getElementById(input.getAttribute("aria-controls") ?? "")!;
+  fireEvent.click(within(listbox).getByRole("option", { name: option, hidden: true }));
 }

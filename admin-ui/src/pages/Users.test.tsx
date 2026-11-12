@@ -1,7 +1,7 @@
 import { afterEach, expect, test } from "bun:test";
 import { cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import type { Me, UserOut } from "../api/types";
-import { renderWithApi } from "../testing";
+import { pick, renderWithApi } from "../testing";
 import { UsersPage } from "./Users";
 
 afterEach(cleanup);
@@ -15,13 +15,6 @@ const user = (username: string, role: string, active = true): UserOut => ({
 });
 
 /** Opens a Mantine Select by its input and clicks the named option. */
-async function pick(input: HTMLElement, option: string) {
-  fireEvent.click(input);
-  await waitFor(() => expect(input.getAttribute("aria-expanded")).toBe("true"));
-  const listbox = document.getElementById(input.getAttribute("aria-controls") ?? "")!;
-  fireEvent.click(within(listbox).getByRole("option", { name: option, hidden: true }));
-}
-
 test("creates a user, changes a role and deactivates, then shows the refreshed list", async () => {
   let users = [user("alice", "admin"), user("bob", "reviewer")];
   const { calls } = renderWithApi(<UsersPage me={ME} />, {

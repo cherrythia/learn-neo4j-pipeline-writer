@@ -66,6 +66,8 @@ test("admin rolls back a run only after confirming, and sees the run rolled back
   await waitFor(() => expect(within(runs).getByText("rolled_back")).toBeDefined());
   // The confirmation closes once the rollback succeeds.
   await waitFor(() => expect(screen.queryAllByRole("dialog")).toHaveLength(0), { timeout: 2000 });
+  // ...and the counts stay visible on the page (they used to vanish with the dialog)
+  expect((await screen.findByTestId("rollback-result")).textContent).toContain("review_items_closed");
 });
 
 test("reviewers cannot roll back", async () => {

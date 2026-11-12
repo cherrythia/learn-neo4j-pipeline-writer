@@ -5,14 +5,11 @@ import { unwrap } from "../api/client";
 import { useApi } from "../api/context";
 import { ErrorAlert, Json, StatusBadge, when } from "../components/common";
 
-const EXAMPLE_MAPPING = {
+export const EXAMPLE_MAPPING = {
   entities: [
     {
       class_name: "Issuer",
-      columns: [
-        { property: "ticker", column: "ticker" },
-        { property: "name", column: "name" },
-      ],
+      columns: { ticker: "ticker", name: "name" }, // ontology property -> dataset column
     },
   ],
   relations: [],

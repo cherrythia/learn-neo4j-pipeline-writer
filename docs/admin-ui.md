@@ -106,7 +106,14 @@ bunx playwright test                  # browser smoke test (builds the UI, start
 - `bun test` (root `src/`): client headers/credentials and 401/403/429 mapping, login error
   states, review breakdown and approve/edit/reject calls, scoring validation, ontology graph
   nodes/edges and publish 422 reasons, role-aware navigation, dev proxy paths, generated
-  types up to date. `fetch` is scripted (`src/testing.tsx`); no server is needed.
+  types up to date; one scripted-fetch test per screen (proposals, mappings, runs, users,
+  audit, ontology draft actions) asserting method, path and body of each action.
+  `fetch` is scripted (`src/testing.tsx`); no server is needed.
+- Conventions for new tests: render with `renderWithApi(<Page/>, routes)`; make a route a
+  function that changes its data on a write, so the refetch shows the result (the server's
+  behaviour, in miniature); assert on `calls` (method, path, body, headers); pick Mantine
+  Select options with `pick()` from `src/testing.tsx`. `test/setup.ts` registers happy-dom
+  and stubs what it lacks (`document.fonts`).
 - `e2e/smoke.spec.ts` (Playwright, Chromium): `rita` logs in, opens a review item, approves
   it; `alice` logs in, opens Ontology, creates a draft and publishes it.
 - Backend: `tests/test_api/test_admin_ui_static.py` (the `/admin/` mount) and

@@ -6,10 +6,6 @@ import { ProposalsPage } from "./Proposals";
 
 afterEach(cleanup);
 
-// happy-dom has no document.fonts, which Mantine's autosize JsonInput listens to.
-const doc = document as unknown as { fonts?: unknown };
-doc.fonts ??= { addEventListener() {}, removeEventListener() {} };
-
 const proposal = (id: number, status: string, decided_by: string | null = null): ProposalOut => ({
   id,
   kind: "relation",

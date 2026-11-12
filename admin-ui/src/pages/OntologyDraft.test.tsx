@@ -3,7 +3,7 @@
 import { afterEach, expect, test } from "bun:test";
 import { cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import type { ClassSpec, RelationSpec, VersionDetail, VersionOut } from "../api/types";
-import { renderWithApi } from "../testing";
+import { pick, renderWithApi } from "../testing";
 import { OntologyPage } from "./Ontology";
 
 afterEach(cleanup);
@@ -50,13 +50,6 @@ function draft() {
 }
 
 /** Opens a Mantine Select by its input and clicks the named option. */
-async function pick(input: HTMLElement, option: string) {
-  fireEvent.click(input);
-  await waitFor(() => expect(input.getAttribute("aria-expanded")).toBe("true"));
-  const listbox = document.getElementById(input.getAttribute("aria-controls") ?? "")!;
-  fireEvent.click(within(listbox).getByRole("option", { name: option, hidden: true }));
-}
-
 const select = (scope: HTMLElement, name: string) => within(scope).getByRole("combobox", { name });
 
 async function openTab(name: RegExp) {
