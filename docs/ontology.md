@@ -67,10 +67,13 @@ rollback  ──► v2 deprecated, v1 published again, constraints synced back
   its identity key or namespace or lost a property, or a published relation changed its
   endpoints. Deprecate and add instead; existing graph data must keep a valid definition.
 
-**Neo4j constraints** (`ontology/neo4j_schema.py`): one uniqueness constraint per active
-class identity key (`wsc_issuer_ticker`), plus `Evidence.id`, `Source.id` and
-`IngestionRun.id` for provenance. Only constraints named `wsc_*` are managed: sync creates
-missing ones, drops stale ones and leaves everything else alone. Property-existence
+**Neo4j constraints and indexes** (`ontology/neo4j_schema.py`): one uniqueness constraint per
+active class identity key (`wsc_issuer_ticker`), plus `Evidence.id`, `Source.id` and
+`IngestionRun.id` for provenance; and one **full-text index** per active class over its
+identity key (if a string) and its `name`/`title` (`wsf_issuer_ticker_name`), used by entity
+matching ([matching](matching.md)). The index name lists its fields, so a changed class gets a
+new index and the old one is dropped. Only objects named `wsc_*` / `wsf_*` are managed: sync
+creates missing ones, drops stale ones and leaves everything else alone. Property-existence
 constraints need Neo4j Enterprise, so required properties are enforced by the pipeline's gates.
 
 **Atomicity.** Publish locks the version rows, validates, writes the new statuses, syncs Neo4j
@@ -99,6 +102,8 @@ uv run writer-ontology show              # print the published version
 uv run writer-ontology draft             # v2 draft
 uv run writer-ontology publish 2
 uv run writer-ontology rollback
+uv run writer-ontology sync              # re-apply the published version's constraints and
+                                         # indexes (after an upgrade adds managed indexes)
 ```
 
 `--actor <name>` sets who is recorded in the audit log (default: your OS user).

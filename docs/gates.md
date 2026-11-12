@@ -60,7 +60,8 @@ if `AUDITED_BY` ranges over `Organisation`, an existing edge to an `Issuer` coun
 
 Keys: the schema gate canonicalises them (whitespace collapsed) and the writer stores them that
 way; matching then ignores case. In Neo4j the lookup tries the exact key first (served by the
-identity-key uniqueness index) and only falls back to a case-insensitive label scan on a miss.
+identity-key uniqueness index), then the class's full-text index for a case-insensitive match
+([matching](matching.md#lifecycle-and-performance)); a label scan only without that index.
 Re-asserting a known fact passes. A conflict is
 **never** auto-resolved: it goes to the review queue with both facts side by side
 ([ADR-0010](adr/0010-neo4j-accepted-facts-only.md)).

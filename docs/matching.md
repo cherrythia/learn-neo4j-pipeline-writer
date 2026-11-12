@@ -53,7 +53,18 @@ that introduces an issuer and then references it by name resolves correctly.
 Use **one matcher per batch**, or call `reset_batch()` between batches. Batch-local entities
 are proposals, not accepted facts, so a later batch must not resolve to them.
 
-Within a batch, the name list of each class is read **once** and cached. Each lookup of a key
-that isn't an exact match still costs one case-insensitive scan in Neo4j (the exact match uses
-the uniqueness index). That's fine at demo scale; for large graphs, a full-text index on names
-is the next step (issue #28).
+In Neo4j (`pipeline/neo4j_lookup.py`, #28) both lookups use the class's **full-text index**
+(`wsf_<label>_<fields>`, created with the ontology's constraints, see [ontology](ontology.md)):
+
+- **Name candidates**: for each distinct reference (cached per batch) the index returns the
+  `TOP_K` = 50 best hits for its words (words of 4+ characters within one edit, so typos still
+  hit); the matcher ranks those with `name_similarity` as before. Nothing reads every name.
+- **Keys**: the exact key is tried first (uniqueness index); on a miss, a phrase query on the
+  key field, then an exact case-insensitive check of the hits in Python. No label scan.
+
+Without an ONLINE full-text index for the field (not synced yet, still populating, or a
+non-string identity key, which full-text indexes can't hold) the old scans are used, so results
+never depend on the index. `tests/test_pipeline/test_fulltext_neo4j.py` checks against a real
+Neo4j that the full-text path gives the same decisions as the full scan (status, key,
+confidence, best alternative and the alternatives' scores; among *equally* scored names the
+listed keys may differ) and that no scan runs.

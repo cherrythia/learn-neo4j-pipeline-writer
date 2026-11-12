@@ -158,7 +158,7 @@ cp .env.example .env                 # set WRITER_ANTHROPIC_API_KEY (and change 
 docker compose up -d --wait          # Neo4j :7474/:7687, MySQL :3306, mock Superset :8088
 uv sync
 uv run writer-db upgrade             # governance tables
-uv run writer-ontology bootstrap     # publish the core ontology + Neo4j constraints
+uv run writer-ontology bootstrap     # publish the core ontology + Neo4j constraints/indexes
 uv run writer-users create alice --role admin
 uv run writer-users create rita --role reviewer
 (cd admin-ui && bun install && bun run build)

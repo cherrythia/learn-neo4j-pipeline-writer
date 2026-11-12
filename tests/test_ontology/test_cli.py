@@ -47,3 +47,33 @@ def test_show_zero_is_not_the_published_version(
     monkeypatch.chdir(tmp_path)
     with pytest.raises(SystemExit, match="no such version"):
         main(["show", "0"])
+
+
+def test_sync_command(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """#28: `writer-ontology sync` re-applies the published schema (full-text indexes)."""
+    import writer_service.ontology.cli as cli
+    from writer_service.governance.db import create_engine_for
+    from writer_service.ontology.neo4j_schema import InMemoryGraphSchema
+    from writer_service.ontology.service import OntologyService
+
+    url = f"sqlite:///{tmp_path / 'g.sqlite'}"
+    upgrade(url)
+    graph = InMemoryGraphSchema()
+    OntologyService(create_engine_for(url), graph).bootstrap("t")
+    graph.names.discard("wsf_issuer_ticker_name")
+    monkeypatch.setenv("WRITER_GOVERNANCE_DB_URL", url)
+    monkeypatch.chdir(tmp_path)
+
+    class FakeDriver:
+        def __enter__(self) -> "FakeDriver":
+            return self
+
+        def __exit__(self, *_: object) -> None:
+            return None
+
+    monkeypatch.setattr(cli.GraphDatabase, "driver", lambda *a, **k: FakeDriver())
+    monkeypatch.setattr(cli, "Neo4jGraphSchema", lambda driver: graph)
+    main(["sync"])
+    assert capsys.readouterr().out.strip() == "created: wsf_issuer_ticker_name; dropped: -"

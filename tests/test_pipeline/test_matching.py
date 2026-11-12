@@ -172,20 +172,24 @@ def test_reset_batch_forgets_previous_batch(matcher: EntityMatcher) -> None:
 class CountingIndex(InMemoryMatchIndex):
     def __init__(self) -> None:
         super().__init__()
-        self.name_scans = 0
+        self.queries: list[str] = []
 
-    def names(self, label: str, key_prop: str, name_prop: str) -> list[tuple[str, str]]:
-        self.name_scans += 1
-        return super().names(label, key_prop, name_prop)
+    def candidates(
+        self, label: str, key_prop: str, name_prop: str, text: str
+    ) -> list[tuple[str, str]]:
+        self.queries.append(text)
+        return super().candidates(label, key_prop, name_prop, text)
 
 
-def test_names_are_read_once_per_label_per_batch(spec: OntologySpec) -> None:
+def test_name_candidates_are_queried_once_per_reference_per_batch(spec: OntologySpec) -> None:
+    """#28: the index is asked for candidates *for this reference* (Neo4j: full-text top-k)
+    instead of the matcher reading every name of the class; repeats are cached per batch."""
     idx = CountingIndex()
     idx.add("Issuer", "ticker", "APH", name="Aurora Pacific Holdings (Demo)")
     m = EntityMatcher(idx, spec)
-    for text in ("Aurora Pacific", "Banyan", "Zebra", "Aurora Pacific Holdings"):
+    for text in ("Aurora Pacific", "Banyan", "aurora pacific", "Aurora Pacific"):
         m.resolve("Issuer", text)
-    assert idx.name_scans == 1
+    assert idx.queries == ["Aurora Pacific", "Banyan"]
     m.reset_batch()
     m.resolve("Issuer", "Aurora Pacific")
-    assert idx.name_scans == 2
+    assert idx.queries[-1] == "Aurora Pacific" and len(idx.queries) == 3

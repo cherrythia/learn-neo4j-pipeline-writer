@@ -6,6 +6,18 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Added
+- **#28 Full-text index for entity matching at scale**
+  - One Neo4j full-text index per active class over its string identity key and its
+    name/title (`wsf_<label>_<fields>`), created and dropped with the constraints
+    (`desired_schema`; sync manages `wsc_*` and `wsf_*`).
+  - Matching asks the index for the 50 best name candidates per reference instead of reading
+    every name of the class, and finds keys case-insensitively through it instead of a label
+    scan (`pipeline/neo4j_lookup.py`, shared by the graph view and the matcher). Without an
+    ONLINE index the old scans are used.
+  - `MatchIndex.names(...)` became `candidates(..., text)`.
+  - `uv run writer-ontology sync`: re-apply the published schema to an existing graph
+    (audited as `ontology.sync`). **Upgrading: run it once** to create the indexes.
+  - Golden test against Neo4j: same decisions as the full scan.
 - **#17 README walkthrough and demo script**
   - README: architecture diagram, how a fact gets into Neo4j, scoring with worked examples,
     one-command demo, running the real service, switching LLM.
