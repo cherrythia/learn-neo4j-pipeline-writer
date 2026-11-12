@@ -7,15 +7,15 @@ pass before it is scored. Code: `src/writer_service/pipeline/`. See also
 ## Candidates (`pipeline/candidates.py`)
 
 ```json
-{"kind": "entity", "class_name": "Issuer",
- "properties": {"ticker": "APH", "name": "Aurora Pacific Holdings (Demo)"},
- "evidence": [{"source_type": "pdf", "source_ref": "samples/aurora….pdf",
-               "locator": "page 1", "quote": "Aurora Pacific Holdings (Demo) (ticker APH)…"}],
+{"kind": "entity", "class_name": "HardwareAsset",
+ "properties": {"asset_tag": "HW-25-0101", "hardware_type": "laptop", "model": "Aero 14"},
+ "evidence": [{"source_type": "pdf", "source_ref": "samples/meridian_invoice….pdf",
+               "locator": "page 1", "quote": "HW-25-0101 Laptop, Corvane (Demo) Aero 14…"}],
  "confidence": 0.9}
 
-{"kind": "relation", "relation": "FILED_BY",
- "source": {"class_name": "Filing", "key": "AR-2025-APH"},
- "target": {"class_name": "Issuer", "key": "APH"}, "evidence": […], "confidence": 0.8}
+{"kind": "relation", "relation": "ASSIGNED_TO",
+ "source": {"class_name": "HardwareAsset", "key": "HW-25-0101"},
+ "target": {"class_name": "Department", "key": "FIN"}, "evidence": […], "confidence": 0.8}
 ```
 
 - **`fact_hash`**: what the fact says, ignoring whitespace, case, property order, evidence and
@@ -30,19 +30,21 @@ Checks the candidate against the **published** ontology and normalises it:
 | Check | Example failure |
 |---|---|
 | class exists, not deprecated | `schema: unknown class 'Company'` |
-| no undeclared properties | `schema: class 'Issuer' has no property 'ceo'` |
-| required properties present | `schema: required property 'ticker' is missing` |
-| values coerce to declared types | `schema: property 'due_on' expects date, got '30/04/2026'` |
+| no undeclared properties | `schema: class 'HardwareAsset' has no property 'colour'` |
+| required properties present | `schema: required property 'asset_tag' is missing` |
+| values coerce to declared types | `schema: property 'expiry_date' expects date, got '31/10/2026'` |
 | relation exists, not deprecated | `schema: unknown relation 'OWNS'` |
-| endpoints match domain → range (taxonomy-aware) | `schema: FILED_BY expects Filing -> Issuer, got Issuer -> Issuer` |
+| endpoints match domain → range (taxonomy-aware) | `schema: ASSIGNED_TO expects HardwareAsset -> Department, got Department -> Department` |
 | endpoint keys non-empty; relations carry no properties | `schema: source key is empty` |
 
 Coercion: strings get whitespace collapsed; `int` accepts integers or digit strings (not
-booleans); `date` accepts dates or ISO `YYYY-MM-DD` strings; `bool` accepts true/false,
-yes/no, 1/0. Ambiguous formats (e.g. `30/04/2026`) are rejected rather than guessed.
+booleans); `float` accepts numbers or numeric strings without separators (`2150.00`, not
+`2,150.00`); `date` accepts dates or ISO `YYYY-MM-DD` strings; `bool` accepts true/false,
+yes/no, 1/0. Ambiguous formats (e.g. `31/10/2026`) are rejected rather than guessed.
 
-Taxonomy-aware endpoints: a relation whose domain is `Organisation` accepts an `Issuer`
-(subclass); the reverse is rejected (a parent is not a child).
+Taxonomy-aware endpoints: `BILLED_ON`, whose domain is `Asset`, accepts a `HardwareAsset` or
+a `SoftwareLicense` (subclasses); the reverse is rejected (`ASSIGNED_TO` expects a
+`HardwareAsset`, and a plain `Asset` is not one).
 
 ## Constraint gate → conflict
 
@@ -51,12 +53,14 @@ in the same batch**:
 
 | Check | Example conflict |
 |---|---|
-| property contradiction | `Issuer 'APH': property 'board' is 'mainboard' in the graph, candidate says 'catalist'` |
-| `many_to_one` / `one_to_one` (source side) | `FILED_BY is many_to_one: Filing 'AR-2025-APH' already points to Issuer 'APH' in the graph, candidate says Issuer 'BYL'` |
-| `one_to_many` / `one_to_one` (target side) | `ISSUED is one_to_many: Filing 'F1' already has source Issuer 'APH' …` |
+| property contradiction | `HardwareAsset 'HW-25-0101': property 'status' is 'in_use' in the graph, candidate says 'retired'` |
+| `many_to_one` / `one_to_one` (source side) | `ASSIGNED_TO is many_to_one: HardwareAsset 'HW-25-0101' already points to Department 'FIN' in the graph, candidate says Department 'ENG'` |
+| `one_to_many` / `one_to_one` (target side) | `SHIPPED is one_to_many: Invoice 'INV-1' already has source Vendor 'V1' …` |
 
 Cardinality looks at existing edges to **any subclass** of the relation's range (or domain):
-if `AUDITED_BY` ranges over `Organisation`, an existing edge to an `Issuer` counts.
+a node is stored with its taxonomy parents' labels (a `HardwareAsset` node is also an
+`Asset`), so a relation over a parent class such as `BILLED_ON` (domain `Asset`) sees the
+edges of every kind of asset.
 
 Keys: the schema gate canonicalises them (whitespace collapsed) and the writer stores them that
 way; matching then ignores case. In Neo4j the lookup tries the exact key first (served by the

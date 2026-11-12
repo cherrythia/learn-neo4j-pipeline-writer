@@ -6,6 +6,28 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Added
+- **#41 Demo/test domain switched to IT asset management (ITAM)**
+  - Core ontology v1 is now ITAM (`ontology/core.py`): Asset with the subclasses
+    HardwareAsset and SoftwareLicense (all keyed on `asset_tag`), Software, Application,
+    Department, Vendor and Invoice; relations `ASSIGNED_TO`, `INSTALLED_ON`, `LICENSES`,
+    `ALLOCATED_TO`, `RUNS_ON`, `USES`, `OWNED_BY`, `ISSUED_BY` and `BILLED_ON` (domain Asset).
+    The compliance classes (Issuer, Filing, Rule, Obligation, Finding, …) are gone. A
+    profit-centre code is out of scope for now.
+  - Demo data (`demo_env/data.py`): a fictional CMDB in MySQL schema `demo_itam` (was
+    `demo_compliance`) with `departments`, `assets`, `software`, `applications` and
+    `software_installs`; mock Superset serves them as datasets 1–5. The demo syncs dataset 1
+    (departments) through an approved `Department` mapping.
+  - Samples: a 3-page vendor invoice `samples/meridian_invoice_INV-2025-0418.pdf` (laptops, a
+    server and a switch with asset tags and serials; two software licences with seats and
+    expiry; department assignments) and an asset register `samples/asset_register_2025.xlsx`.
+  - New golden set `evaluation/golden/meridian_invoice_2025_0418.json` (31 facts) with
+    regenerated scripted recordings; no live recordings are committed (re-record with
+    `uv run writer-eval --mode live`). Extraction and back-translation prompts are v2.
+  - Demo server, `scripts/demo.sh`, `scripts/smoke_demo.sh`, tests, admin UI examples, README
+    and docs use the ITAM vocabulary. **Upgrading a local stack:** `docker compose down -v`
+    once (the MySQL seed and the published ontology are new), then `uv run writer-db
+    upgrade` and `uv run writer-ontology bootstrap`; point `WRITER_SOURCE_DB_URL` in `.env`
+    at `demo_itam`.
 - **#28 Full-text index for entity matching at scale**
   - One Neo4j full-text index per active class over its string identity key and its
     name/title (`wsf_<label>_<fields>`), created and dropped with the constraints

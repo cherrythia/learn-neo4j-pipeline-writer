@@ -10,7 +10,7 @@ Before any score is computed, a fact must pass the gates (issue #6):
 | Gate | Fails when | Outcome |
 |---|---|---|
 | Schema | Class/relation not in the published ontology, wrong domain/range, uncoercible value | **reject** |
-| Constraint | Contradicts an accepted fact or an earlier candidate in the batch: a different property value, or a cardinality violation (e.g. a second `FILED_BY` issuer) | **conflict**, always human review; never auto-overwritten |
+| Constraint | Contradicts an accepted fact or an earlier candidate in the batch: a different property value, or a cardinality violation (e.g. a second `ASSIGNED_TO` department for one laptop) | **conflict**, always human review; never auto-overwritten |
 
 Disjointness can't be violated: nodes are merged per class label on the identity key
 (see `pipeline/gates.py`).
@@ -56,8 +56,8 @@ Boundaries are inclusive (exactly 0.85 commits), with a tiny epsilon so float no
 
 ## 4. Worked example
 
-A PDF says *"Aurora Pacific Holdings (Demo) issued this annual report … on 28 April 2026"*.
-The extractor proposes `(AR-2025-APH)-[:FILED_BY]->(APH)`:
+A vendor invoice says *"Laptop HW-25-0101 is assigned to Finance (FIN)."* (page 3).
+The extractor proposes `(HW-25-0101)-[:ASSIGNED_TO]->(FIN)`:
 
 | Component | Value | Why | × Weight | = |
 |---|---|---|---|---|
@@ -65,13 +65,13 @@ The extractor proposes `(AR-2025-APH)-[:FILED_BY]->(APH)`:
 | back_translation | 0.80 | judge agrees, with a minor wording caveat | 0.20 | 0.160 |
 | stability | 0.667 | found in 2 of 3 runs | 0.15 | 0.100 |
 | source_reliability | 0.75 | PDF | 0.20 | 0.150 |
-| entity_match | 0.50 | APH not in the graph yet (new entity) | 0.10 | 0.050 |
+| entity_match | 0.50 | HW-25-0101 not in the graph yet (new entity) | 0.10 | 0.050 |
 | self_confidence | 0.90 | extractor's own estimate | 0.10 | 0.090 |
 | **score** | | | | **0.800** |
 
 0.800 is between 0.60 and 0.85, so the fact goes to the **review queue**. The reviewer sees
 this exact table (the `breakdown` stored with the candidate), the evidence span and the page.
-The same fact from the Superset `filings` table would score higher: source 0.95, grounding
+The same fact from the CMDB `assets` table (via Superset) would score higher: source 0.95, grounding
 1.0 (the value is in the row) and stability 1.0 (deterministic mapping), so it commits.
 
 ## 5. Changing the policy

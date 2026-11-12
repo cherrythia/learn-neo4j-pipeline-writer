@@ -15,8 +15,8 @@ Code: `src/writer_service/pipeline/verification.py`. Design: [ADR-0005](adr/0005
 
 1. **Normalise both sides**: Unicode NFKC (ligatures such as "ﬁ"), typographic dashes, quotes
    and apostrophes to ASCII, soft hyphens removed, whitespace collapsed, lower case.
-2. **Verbatim → 1.0.** The quote must appear on word *and number* boundaries (`LR-70` is not
-   inside `LR-705`, `$1,200` not inside `$1,200,000`, `2025` not inside `2025/26`) and must not
+2. **Verbatim → 1.0.** The quote must appear on word *and number* boundaries (`HW-25-010` is not
+   inside `HW-25-0101`, `$1,200` not inside `$1,200,000`, `2025` not inside `2025/26`) and must not
    drop a negation in the two words right before it (*"did not | comply with …"* → 0.1).
    A negation further back in the same sentence (*"did not, in all respects, comply …"*)
    caps it at 0.5. Text after the quote, or in other sentences, is context. If the quote
@@ -48,7 +48,7 @@ This is the main defence against an LLM "quoting" text that isn't there.
 ## Back-translation
 
 The fact is rendered in plain language (`describe()`, e.g.
-*"Filing 'AR-2025-APH' FILED_BY Issuer 'APH'"*) and sent with its quotes to an LLM judge
+*"HardwareAsset 'HW-25-0101' ASSIGNED_TO Department 'FIN'"*) and sent with its quotes to an LLM judge
 (prompt `back_translation` v1) that answers `{agrees, score, explanation}` as validated JSON.
 The judge may only use the quotes, never outside knowledge. If it disagrees, the score is
 capped at 0.3. No evidence means a score of 0, and the LLM isn't called. Answers are cached per

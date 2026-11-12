@@ -6,8 +6,8 @@ component `entity_match` ([scoring](scoring.md)).
 
 ## Why
 
-LLMs often reference an entity by its *name* ("Aurora Pacific Holdings") rather than its
-identity key (`APH`), or propose an entity that duplicates an existing one under a new key.
+LLMs often reference an entity by its *name* ("Quillstack Docs") rather than its
+identity key (`SW-QDOC`), or propose an entity that duplicates an existing one under a new key.
 
 ## Outcomes
 
@@ -36,25 +36,26 @@ lower-casing and removing punctuation.
 
 | Pair | Score |
 |---|---|
-| "aurora pacific holdings" vs "Aurora Pacific Holdings (Demo)" | ≈ 0.94 |
-| "Pacific" vs "Aurora Pacific Holdings (Demo)" | ≈ 0.7: one shared word isn't a match |
-| "Granite Bay Bank" vs "Aurora Pacific Holdings" | < 0.5 |
+| "quillstack docs" vs "Quillstack Docs (Demo)" | ≈ 0.93 |
+| "Docs" vs "Quillstack Docs (Demo)" | ≈ 0.67: one shared word isn't a match |
+| "Ledgerline Accounting" vs "Quillstack Docs" | < 0.5 |
 
-Token-set alone would score "Pacific" as a perfect match; averaging with token-sort prevents that.
+Token-set alone would score "Docs" as a perfect match; averaging with token-sort prevents that.
 
-The class's `name` property is used, or `title` if it has none (e.g. `Rule`). Classes with
-neither match only by exact key.
+The class's `name` property is used, or `title` if it has none. In the core ontology that is
+`name` on Asset (and its subclasses), Software, Application, Department and Vendor (whose
+name is also its key). Classes with neither (e.g. `Invoice`) match only by exact key.
 
 ## Relations
 
 `resolve_relation(rel)` resolves both endpoints and returns the rewritten relation, a
 confidence equal to the **weakest known endpoint** (new endpoints are neutral; None if both
 are new), and human-readable notes such as
-*"target Issuer 'Aurora Pacific Holdings' resolved to 'APH' (similarity 0.94)"* for the
+*"target Software 'Quillstack Docs' resolved to 'SW-QDOC' (similarity 0.93)"* for the
 reviewer.
 
 Entities proposed earlier in the same batch are matchable too (`add_batch_entity`), so a PDF
-that introduces an issuer and then references it by name resolves correctly.
+that introduces a software product and then references it by name resolves correctly.
 
 ## Lifecycle and performance
 
@@ -102,7 +103,7 @@ scan would have matched is missed if none of the clauses above retrieves it (e.g
 typo in every word of a one-word name, or words split differently than covered above), or if
 more than 50 names outrank it in the index's BM25 scoring.
 `tests/test_pipeline/test_fulltext_neo4j.py` checks against a real Neo4j, over the demo
-issuers, near-twins, 120 near-identical names, apostrophe/CJK/Hangul/kana/accented/all-caps
+names, near-twins, 120 near-identical names, apostrophe/CJK/Hangul/kana/accented/all-caps
 Greek/NFD names, dotted-İ, Hangul, Greek, NFD and "™" keys and a key with more than 50 phrase
 hits, that the full-text path gives the same decisions as the
 full scan (status, key, confidence, best alternative and the alternatives' scores; among

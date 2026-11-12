@@ -16,17 +16,17 @@ PDF / XLSX ──► chunks (one per page / row, with a locator)
 | Source | Chunk | Locator |
 |---|---|---|
 | PDF | each non-empty page (`pypdf` text) | `page 3` |
-| Excel | each non-empty data row, rendered `header: value; …` | `sheet Checklist row 5` (as Excel numbers rows, header = row 1) |
+| Excel | each non-empty data row, rendered `header: value; …` | `sheet Register row 5` (as Excel numbers rows, header = row 1) |
 
 Unreadable input raises a clear `ValueError` (`… is not a readable PDF`).
 
 ## Extraction
 
-The prompt (`document_extraction` v1) contains the ontology rendered as text, for example:
+The prompt (`document_extraction` v2) contains the ontology rendered as text, for example:
 
 ```
-- Issuer (key: ticker; properties: ticker*, name*, sector, board, country) is-a Organisation
-- (Filing)-[:FILED_BY]->(Issuer) many_to_one
+- HardwareAsset (key: asset_tag; properties: asset_tag*, name, status, purchase_date, cost, hardware_type, manufacturer, model, serial_number) is-a Asset
+- (HardwareAsset)-[:ASSIGNED_TO]->(Department) many_to_one
 ```
 
 followed by the window text with `[page N]` markers. The model must cite the marker and a

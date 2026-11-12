@@ -4,35 +4,49 @@ The governed standard every ingestion follows: which classes exist, how they are
 how they relate, and how the standard changes safely over time.
 ([ADR-0006](adr/0006-governance-store.md), [design §4](design.md#4-ontology-layers-adr-0006))
 
-## Core ontology (v1)
+## Core ontology (v1): IT asset management
+
+The demo/test domain is IT asset management (ITAM), agreed with the owner in issue #41.
 
 ```
-Organisation ◄─is-a─ Issuer ◄─FILED_BY─ Filing ─is-a─► Document
-                       ▲                  │  │
-            CONCERNS   │       CITES      │  │ SATISFIES
- Finding ──────────────┘   ┌──────────────┘  ▼
-    │ BREACHES             ▼             Obligation ─DERIVES_FROM─► Rule
-    └────────────────────► Rule
+ Vendor ◄─ISSUED_BY─ Invoice ◄─BILLED_ON─ Asset
+                                            ▲ is-a
+                        ┌───────────────────┴───────────────────┐
+ Software ─INSTALLED_ON─► HardwareAsset                    SoftwareLicense ─LICENSES─► Software
+                           │ ▲                                  │
+                ASSIGNED_TO│ │RUNS_ON                           │ALLOCATED_TO
+                           ▼ │                                  ▼
+                   Department, Application                 Department
+
+ Application ─OWNED_BY─► Department      Application ─USES─► Software
 ```
 
-| Class | Identity key | Parent (taxonomy) |
-|---|---|---|
-| Organisation | `name` | |
-| Issuer | `ticker` | Organisation |
-| Document | `document_id` | |
-| Filing | `filing_id` | Document |
-| Rule | `rule_code` | |
-| Obligation | `obligation_id` | |
-| Finding | `finding_id` | |
+| Class | Identity key | Parent (taxonomy) | Properties (* = required) |
+|---|---|---|---|
+| Asset | `asset_tag` | | name, status, purchase_date (date), cost (float) |
+| HardwareAsset | `asset_tag` | Asset | Asset properties + hardware_type (laptop/desktop/server/network), manufacturer, model, serial_number |
+| SoftwareLicense | `asset_tag` | Asset | Asset properties + license_type, seats (int), expiry_date (date) |
+| Software | `software_id` | | name\*, publisher, version |
+| Application | `app_code` | | name\*, criticality, status |
+| Department | `dept_code` | | name\* |
+| Vendor | `name` | | country |
+| Invoice | `invoice_number` | | invoice_date (date), total_amount (float), currency |
 
 | Relation | Domain → Range | Cardinality |
 |---|---|---|
-| `FILED_BY` | Filing → Issuer | many_to_one |
-| `DERIVES_FROM` | Obligation → Rule | many_to_one |
-| `CITES` | Filing → Rule | many_to_many |
-| `SATISFIES` | Filing → Obligation | many_to_many |
-| `CONCERNS` | Finding → Issuer | many_to_one |
-| `BREACHES` | Finding → Rule | many_to_many |
+| `ASSIGNED_TO` | HardwareAsset → Department | many_to_one |
+| `INSTALLED_ON` | Software → HardwareAsset | many_to_many |
+| `LICENSES` | SoftwareLicense → Software | many_to_one |
+| `ALLOCATED_TO` | SoftwareLicense → Department | many_to_one |
+| `RUNS_ON` | Application → HardwareAsset | many_to_many |
+| `USES` | Application → Software | many_to_many |
+| `OWNED_BY` | Application → Department | many_to_one |
+| `ISSUED_BY` | Invoice → Vendor | many_to_one |
+| `BILLED_ON` | Asset → Invoice | many_to_one |
+
+`BILLED_ON` starts at the parent class, so a HardwareAsset or a SoftwareLicense satisfies its
+domain; a HardwareAsset node also carries the `Asset` label. A profit-centre code ("PC Code")
+is out of scope for now.
 
 Defined in `src/writer_service/ontology/core.py`. `parent` is the taxonomy (subclass-of);
 each class carries its own identity key and properties.
@@ -41,8 +55,8 @@ each class carries its own identity key and properties.
 
 | Layer | Namespace | Neo4j label | How it changes |
 |---|---|---|---|
-| Core | `core` | `Issuer` | New version through draft → publish |
-| Extension | `ext` | `Ext_ESGMetric` | Proposed (LLM or admin), human-approved, published the same way |
+| Core | `core` | `HardwareAsset` | New version through draft → publish |
+| Extension | `ext` | `Ext_Location` | Proposed (LLM or admin), human-approved, published the same way |
 | Instances | — | — | Written by the pipeline after checks (issue #10) |
 
 ## Lifecycle
@@ -68,9 +82,9 @@ rollback  ──► v2 deprecated, v1 published again, constraints synced back
   endpoints. Deprecate and add instead; existing graph data must keep a valid definition.
 
 **Neo4j constraints and indexes** (`ontology/neo4j_schema.py`): one uniqueness constraint per
-active class identity key (`wsc_issuer_ticker`), plus `Evidence.id`, `Source.id` and
+active class identity key (`wsc_department_dept_code`), plus `Evidence.id`, `Source.id` and
 `IngestionRun.id` for provenance; and one **full-text index** per active class over its
-identity key (if a string) and its `name`/`title` (`wsf_issuer_ticker_name`), used by entity
+identity key (if a string) and its `name`/`title` (`wsf_department_dept_code_name`), used by entity
 matching ([matching](matching.md)). The index name lists its fields, so a changed class gets a
 new index and the old one is dropped. Only objects named `wsc_*` / `wsf_*` are managed: sync
 creates missing ones, drops stale ones and leaves everything else alone. Property-existence
