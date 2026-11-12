@@ -16,19 +16,19 @@ const version = (n: number, status: string): VersionOut => ({
   created_at: "2026-11-01T10:00:00Z",
   published_at: status === "published" ? "2026-11-01T11:00:00Z" : null,
 });
-const ISSUER: ClassSpec = {
-  name: "Issuer",
-  identity_key: "ticker",
-  properties: [{ name: "ticker", datatype: "string", required: true }],
+const ASSET: ClassSpec = {
+  name: "Asset",
+  identity_key: "asset_tag",
+  properties: [{ name: "asset_tag", datatype: "string", required: true }],
   parent: null,
   namespace: "core",
   deprecated: false,
 };
-const FUND: ClassSpec = { ...ISSUER, name: "Fund", identity_key: "code", properties: [{ name: "code", datatype: "string", required: true }] };
-const HOLDS: RelationSpec = {
-  name: "HOLDS",
-  domain: "Fund",
-  range: "Issuer",
+const SOFTWARE: ClassSpec = { ...ASSET, name: "Software", identity_key: "software_id", properties: [{ name: "software_id", datatype: "string", required: true }] };
+const INSTALLED_ON: RelationSpec = {
+  name: "INSTALLED_ON",
+  domain: "Software",
+  range: "Asset",
   cardinality: "many_to_many",
   namespace: "core",
   deprecated: false,
@@ -36,7 +36,7 @@ const HOLDS: RelationSpec = {
 
 /** A draft v2 whose detail the test mutates to play the server's part after each write. */
 function draft() {
-  const state = { classes: [ISSUER, FUND], relations: [HOLDS] };
+  const state = { classes: [ASSET, SOFTWARE], relations: [INSTALLED_ON] };
   const detail = (): VersionDetail => ({
     ...version(2, "draft"),
     classes: state.classes as unknown as VersionDetail["classes"],
@@ -64,27 +64,27 @@ test("add class posts the class and its properties, and the new class is listed"
       state.classes = [
         ...state.classes,
         {
-          name: "Auditor",
-          identity_key: "lei",
-          parent: "Issuer",
+          name: "SoftwareLicense",
+          identity_key: "asset_tag",
+          parent: "Asset",
           namespace: "ext",
           deprecated: false,
-          properties: [{ name: "lei", datatype: "string", required: true }, { name: "founded", datatype: "int", required: false }],
+          properties: [{ name: "asset_tag", datatype: "string", required: true }, { name: "seats", datatype: "int", required: false }],
         },
       ];
-      return { name: "Auditor" };
+      return { name: "SoftwareLicense" };
     },
   });
   fireEvent.click(await screen.findByRole("button", { name: "Add class" }));
   const dialog = await screen.findByRole("dialog");
-  fireEvent.change(within(dialog).getByLabelText("Name"), { target: { value: "Auditor" } });
-  fireEvent.change(within(dialog).getByLabelText("Identity key"), { target: { value: "lei" } });
-  await pick(select(dialog, "Parent (taxonomy)"), "Issuer");
-  fireEvent.change(within(dialog).getByLabelText("Description"), { target: { value: "Audits issuers" } });
-  fireEvent.change(within(dialog).getByLabelText("Property"), { target: { value: "lei" } });
+  fireEvent.change(within(dialog).getByLabelText("Name"), { target: { value: "SoftwareLicense" } });
+  fireEvent.change(within(dialog).getByLabelText("Identity key"), { target: { value: "asset_tag" } });
+  await pick(select(dialog, "Parent (taxonomy)"), "Asset");
+  fireEvent.change(within(dialog).getByLabelText("Description"), { target: { value: "Licensed software seats" } });
+  fireEvent.change(within(dialog).getByLabelText("Property"), { target: { value: "asset_tag" } });
   fireEvent.click(within(dialog).getByLabelText("Required"));
   fireEvent.click(within(dialog).getByRole("button", { name: "+ property" }));
-  fireEvent.change(within(dialog).getAllByLabelText("Property")[1]!, { target: { value: "founded" } });
+  fireEvent.change(within(dialog).getAllByLabelText("Property")[1]!, { target: { value: "seats" } });
   await pick(within(dialog).getAllByRole("combobox", { name: "Type" })[1]!, "int");
   // A blank third row is dropped on submit.
   fireEvent.click(within(dialog).getByRole("button", { name: "+ property" }));
@@ -94,20 +94,20 @@ test("add class posts the class and its properties, and the new class is listed"
   const add = calls.find((c) => c.path === "/api/ontology/versions/2/classes")!;
   expect(add.method).toBe("POST");
   expect(add.body).toEqual({
-    name: "Auditor",
-    identity_key: "lei",
-    parent: "Issuer",
-    description: "Audits issuers",
+    name: "SoftwareLicense",
+    identity_key: "asset_tag",
+    parent: "Asset",
+    description: "Licensed software seats",
     namespace: "ext",
     properties: [
-      { name: "lei", datatype: "string", required: true },
-      { name: "founded", datatype: "int", required: false },
+      { name: "asset_tag", datatype: "string", required: true },
+      { name: "seats", datatype: "int", required: false },
     ],
   });
 
   await openTab(/^Classes \(3\)/);
   const table = await screen.findByRole("table", { name: "Classes" });
-  expect(within(table).getByText("lei: string!, founded: int")).toBeDefined();
+  expect(within(table).getByText("asset_tag: string!, seats: int")).toBeDefined();
 });
 
 test("add relation posts domain, range and cardinality, and the new relation is listed", async () => {
@@ -117,28 +117,28 @@ test("add relation posts domain, range and cardinality, and the new relation is 
     "POST /api/ontology/versions/2/relations": () => {
       state.relations = [
         ...state.relations,
-        { name: "MANAGES", domain: "Fund", range: "Issuer", cardinality: "many_to_one", namespace: "ext", deprecated: false },
+        { name: "BUNDLED_WITH", domain: "Software", range: "Asset", cardinality: "many_to_one", namespace: "ext", deprecated: false },
       ];
-      return { name: "MANAGES" };
+      return { name: "BUNDLED_WITH" };
     },
   });
   fireEvent.click(await screen.findByRole("button", { name: "Add relation" }));
   const dialog = await screen.findByRole("dialog");
-  fireEvent.change(within(dialog).getByLabelText("Name"), { target: { value: "MANAGES" } });
-  await pick(select(dialog, "Domain"), "Fund");
-  await pick(select(dialog, "Range"), "Issuer");
+  fireEvent.change(within(dialog).getByLabelText("Name"), { target: { value: "BUNDLED_WITH" } });
+  await pick(select(dialog, "Domain"), "Software");
+  await pick(select(dialog, "Range"), "Asset");
   await pick(select(dialog, "Cardinality"), "many_to_one");
   fireEvent.click(within(dialog).getByRole("button", { name: "Add relation" }));
 
   await waitFor(() => expect(calls.some((c) => c.path === "/api/ontology/versions/2/relations")).toBe(true));
   const add = calls.find((c) => c.path === "/api/ontology/versions/2/relations")!;
   expect(add.method).toBe("POST");
-  expect(add.body).toEqual({ name: "MANAGES", domain: "Fund", range: "Issuer", cardinality: "many_to_one", namespace: "ext" });
+  expect(add.body).toEqual({ name: "BUNDLED_WITH", domain: "Software", range: "Asset", cardinality: "many_to_one", namespace: "ext" });
 
   await openTab(/^Relations \(2\)/);
   const table = await screen.findByRole("table", { name: "Relations" });
-  const row = within(table).getByText(/MANAGES/).closest("tr")!;
-  expect(row.textContent).toContain("Fund → Issuer");
+  const row = within(table).getByText(/BUNDLED_WITH/).closest("tr")!;
+  expect(row.textContent).toContain("Software → Asset");
   expect(row.textContent).toContain("many_to_one");
 });
 
@@ -146,29 +146,29 @@ test("add property patches the class with add_properties, and the property is li
   const { state, routes } = draft();
   const { calls } = renderWithApi(<OntologyPage role="admin" />, {
     ...routes,
-    "PATCH /api/ontology/versions/2/classes/Issuer": () => {
+    "PATCH /api/ontology/versions/2/classes/Asset": () => {
       state.classes = state.classes.map((c) =>
-        c.name === "Issuer" ? { ...c, properties: [...c.properties, { name: "isin", datatype: "string", required: false }] } : c,
+        c.name === "Asset" ? { ...c, properties: [...c.properties, { name: "status", datatype: "string", required: false }] } : c,
       );
-      return { name: "Issuer" };
+      return { name: "Asset" };
     },
   });
   await openTab(/^Classes/);
   const table = await screen.findByRole("table", { name: "Classes" });
-  const issuer = within(table).getByText("Issuer").closest("tr")!;
-  fireEvent.click(within(issuer).getByRole("button", { name: "Add property" }));
+  const asset = within(table).getByText("Asset").closest("tr")!;
+  fireEvent.click(within(asset).getByRole("button", { name: "Add property" }));
   const dialog = await screen.findByRole("dialog");
-  expect(dialog.textContent).toContain("Add property to Issuer");
-  fireEvent.change(within(dialog).getByLabelText("Property"), { target: { value: "isin" } });
+  expect(dialog.textContent).toContain("Add property to Asset");
+  fireEvent.change(within(dialog).getByLabelText("Property"), { target: { value: "status" } });
   fireEvent.click(within(dialog).getByRole("button", { name: "Add" }));
 
   await waitFor(() => expect(calls.some((c) => c.method === "PATCH")).toBe(true));
   expect(calls.find((c) => c.method === "PATCH")!).toMatchObject({
-    path: "/api/ontology/versions/2/classes/Issuer",
-    body: { add_properties: [{ name: "isin", datatype: "string", required: false }] },
+    path: "/api/ontology/versions/2/classes/Asset",
+    body: { add_properties: [{ name: "status", datatype: "string", required: false }] },
   });
   await waitFor(() =>
-    expect(within(screen.getByRole("table", { name: "Classes" })).getByText("ticker: string!, isin: string")).toBeDefined(),
+    expect(within(screen.getByRole("table", { name: "Classes" })).getByText("asset_tag: string!, status: string")).toBeDefined(),
   );
 });
 
@@ -178,52 +178,52 @@ test("deprecate and restore patch classes and relations, and the rows follow", a
     list.map((x) => (x.name === name ? { ...x, deprecated: !x.deprecated } : x));
   const { calls } = renderWithApi(<OntologyPage role="admin" />, {
     ...routes,
-    "PATCH /api/ontology/versions/2/classes/Fund": () => {
-      state.classes = flip(state.classes, "Fund");
-      return { name: "Fund" };
+    "PATCH /api/ontology/versions/2/classes/Software": () => {
+      state.classes = flip(state.classes, "Software");
+      return { name: "Software" };
     },
-    "PATCH /api/ontology/versions/2/relations/HOLDS": () => {
-      state.relations = flip(state.relations, "HOLDS");
-      return { name: "HOLDS" };
+    "PATCH /api/ontology/versions/2/relations/INSTALLED_ON": () => {
+      state.relations = flip(state.relations, "INSTALLED_ON");
+      return { name: "INSTALLED_ON" };
     },
   });
   const patches = () => calls.filter((c) => c.method === "PATCH");
 
   await openTab(/^Classes/);
-  const fundRow = () => within(screen.getByRole("table", { name: "Classes" })).getByText(/^Fund/).closest("tr")!;
-  await waitFor(() => expect(fundRow()).toBeDefined());
-  fireEvent.click(within(fundRow()).getByRole("button", { name: "Deprecate" }));
-  await waitFor(() => expect(within(fundRow()).getByRole("button", { name: "Restore" })).toBeDefined());
-  expect(within(fundRow()).getByText("deprecated")).toBeDefined();
+  const softwareRow = () => within(screen.getByRole("table", { name: "Classes" })).getByText(/^Software/).closest("tr")!;
+  await waitFor(() => expect(softwareRow()).toBeDefined());
+  fireEvent.click(within(softwareRow()).getByRole("button", { name: "Deprecate" }));
+  await waitFor(() => expect(within(softwareRow()).getByRole("button", { name: "Restore" })).toBeDefined());
+  expect(within(softwareRow()).getByText("deprecated")).toBeDefined();
   expect(patches()[0]).toMatchObject({
-    path: "/api/ontology/versions/2/classes/Fund",
+    path: "/api/ontology/versions/2/classes/Software",
     body: { add_properties: [], deprecated: true },
   });
-  fireEvent.click(within(fundRow()).getByRole("button", { name: "Restore" }));
-  await waitFor(() => expect(within(fundRow()).getByRole("button", { name: "Deprecate" })).toBeDefined());
-  expect(within(fundRow()).queryByText("deprecated")).toBeNull();
+  fireEvent.click(within(softwareRow()).getByRole("button", { name: "Restore" }));
+  await waitFor(() => expect(within(softwareRow()).getByRole("button", { name: "Deprecate" })).toBeDefined());
+  expect(within(softwareRow()).queryByText("deprecated")).toBeNull();
   expect(patches()[1]).toMatchObject({
-    path: "/api/ontology/versions/2/classes/Fund",
+    path: "/api/ontology/versions/2/classes/Software",
     body: { add_properties: [], deprecated: false },
   });
 
   await openTab(/^Relations/);
-  const holdsRow = () => within(screen.getByRole("table", { name: "Relations" })).getByText(/^HOLDS/).closest("tr")!;
-  await waitFor(() => expect(holdsRow()).toBeDefined());
-  fireEvent.click(within(holdsRow()).getByRole("button", { name: "Deprecate" }));
-  await waitFor(() => expect(within(holdsRow()).getByRole("button", { name: "Restore" })).toBeDefined());
-  expect(patches()[2]).toMatchObject({ path: "/api/ontology/versions/2/relations/HOLDS", body: { deprecated: true } });
-  fireEvent.click(within(holdsRow()).getByRole("button", { name: "Restore" }));
-  await waitFor(() => expect(within(holdsRow()).getByRole("button", { name: "Deprecate" })).toBeDefined());
-  expect(patches()[3]).toMatchObject({ path: "/api/ontology/versions/2/relations/HOLDS", body: { deprecated: false } });
+  const installedOnRow = () => within(screen.getByRole("table", { name: "Relations" })).getByText(/^INSTALLED_ON/).closest("tr")!;
+  await waitFor(() => expect(installedOnRow()).toBeDefined());
+  fireEvent.click(within(installedOnRow()).getByRole("button", { name: "Deprecate" }));
+  await waitFor(() => expect(within(installedOnRow()).getByRole("button", { name: "Restore" })).toBeDefined());
+  expect(patches()[2]).toMatchObject({ path: "/api/ontology/versions/2/relations/INSTALLED_ON", body: { deprecated: true } });
+  fireEvent.click(within(installedOnRow()).getByRole("button", { name: "Restore" }));
+  await waitFor(() => expect(within(installedOnRow()).getByRole("button", { name: "Deprecate" })).toBeDefined());
+  expect(patches()[3]).toMatchObject({ path: "/api/ontology/versions/2/relations/INSTALLED_ON", body: { deprecated: false } });
 });
 
 test("rollback asks for confirmation, posts, and shows the re-published version", async () => {
   let versions = [version(1, "retired"), version(2, "published")];
   const { calls } = renderWithApi(<OntologyPage role="admin" />, {
     "GET /api/ontology/versions": () => versions,
-    "GET /api/ontology/versions/1": () => ({ ...versions[0]!, classes: [ISSUER], relations: [] }),
-    "GET /api/ontology/versions/2": () => ({ ...versions[1]!, classes: [ISSUER, FUND], relations: [HOLDS] }),
+    "GET /api/ontology/versions/1": () => ({ ...versions[0]!, classes: [ASSET], relations: [] }),
+    "GET /api/ontology/versions/2": () => ({ ...versions[1]!, classes: [ASSET, SOFTWARE], relations: [INSTALLED_ON] }),
     "POST /api/ontology/rollback": () => {
       versions = [version(1, "published"), version(2, "retired")];
       return { published: 1 };

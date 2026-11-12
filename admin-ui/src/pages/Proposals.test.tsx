@@ -9,7 +9,7 @@ afterEach(cleanup);
 const proposal = (id: number, status: string, decided_by: string | null = null): ProposalOut => ({
   id,
   kind: "relation",
-  payload: { name: "AUDITED_BY", domain: "Issuer", range: "Auditor", cardinality: "many_to_one" },
+  payload: { name: "LOCATED_AT", domain: "HardwareAsset", range: "Location", cardinality: "many_to_one" },
   rationale: `rationale ${id}`,
   proposed_by: "bob",
   status,
@@ -25,7 +25,7 @@ test("submits a proposal, approves and rejects pending ones, and shows the decis
   const { calls } = renderWithApi(<ProposalsPage role="admin" />, {
     "GET /api/proposals": () => rows,
     "POST /api/proposals": () => {
-      rows = [...rows, { ...proposal(3, "pending"), kind: "class", rationale: "auditors matter" }];
+      rows = [...rows, { ...proposal(3, "pending"), kind: "class", rationale: "locations matter" }];
       return { id: 3 };
     },
     "POST /api/proposals/1/approve": () => {
@@ -42,15 +42,15 @@ test("submits a proposal, approves and rejects pending ones, and shows the decis
   // The list is filtered to pending by default.
   expect(calls[0]).toMatchObject({ method: "GET", path: "/api/proposals", search: "?status=pending" });
 
-  fireEvent.change(screen.getByLabelText("Rationale"), { target: { value: "auditors matter" } });
+  fireEvent.change(screen.getByLabelText("Rationale"), { target: { value: "locations matter" } });
   fireEvent.click(screen.getByRole("button", { name: "Submit proposal" }));
   await waitFor(() => expect(calls.some((c) => c.method === "POST" && c.path === "/api/proposals")).toBe(true));
   expect(calls.find((c) => c.method === "POST" && c.path === "/api/proposals")!.body).toEqual({
     kind: "class",
-    payload: { name: "Auditor", identity_key: "name", parent: null, properties: [{ name: "name", required: true }] },
-    rationale: "auditors matter",
+    payload: { name: "Location", identity_key: "name", parent: null, properties: [{ name: "name", required: true }] },
+    rationale: "locations matter",
   });
-  expect(await within(table).findByText("auditors matter")).toBeDefined();
+  expect(await within(table).findByText("locations matter")).toBeDefined();
   expect((screen.getByLabelText("Rationale") as HTMLInputElement).value).toBe("");
 
   fireEvent.click(within(rowOf(table, 1)).getByRole("button", { name: "Approve" }));

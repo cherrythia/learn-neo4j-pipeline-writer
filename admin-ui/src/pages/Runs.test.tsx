@@ -25,7 +25,7 @@ const detail = (status: string): RunDetail => ({
   candidates: [
     {
       id: 11,
-      payload: { kind: "entity", class_name: "Issuer", properties: { ticker: "APH" } },
+      payload: { kind: "entity", class_name: "Department", properties: { dept_code: "FIN" } },
       decision: "review",
       score: 0.7125,
       breakdown: { reasons: ["score 0.7125 needs review"] },

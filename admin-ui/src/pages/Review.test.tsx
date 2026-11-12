@@ -16,9 +16,9 @@ export const ITEM: ReviewItem = {
   created_at: "2026-11-01T10:00:00Z",
   run_id: "run-1",
   source_type: "pdf",
-  source_ref: "a.pdf",
-  candidate: { kind: "entity", class_name: "Issuer", properties: { ticker: "APH", name: "APH Co" } },
-  evidence: [{ source_type: "pdf", source_ref: "a.pdf", locator: "page 1", quote: "APH Co" }],
+  source_ref: "meridian_invoice_INV-2025-0418.pdf",
+  candidate: { kind: "entity", class_name: "Software", properties: { software_id: "SW-QDOC", name: "Quillstack Docs" } },
+  evidence: [{ source_type: "pdf", source_ref: "meridian_invoice_INV-2025-0418.pdf", locator: "page 1", quote: "Quillstack Docs" }],
   score: 0.7125,
   breakdown: {
     value: 0.7125,
@@ -28,7 +28,7 @@ export const ITEM: ReviewItem = {
     },
     decision: "review",
     reasons: ["score 0.7125 is between 0.6 and 0.85: needs review"],
-    notes: ["no existing Issuer matched"],
+    notes: ["no existing Software matched"],
   },
 };
 
@@ -48,7 +48,7 @@ test("shows the score breakdown, evidence and reasons, and approves", async () =
     "Total0.713",
   ]);
   expect(screen.getByText(/needs review/)).toBeDefined();
-  expect(screen.getByText("no existing Issuer matched")).toBeDefined();
+  expect(screen.getByText("no existing Software matched")).toBeDefined();
   expect(screen.getByTestId("evidence").textContent).toContain("page 1");
 
   fireEvent.click(screen.getByRole("button", { name: "Approve" }));
@@ -68,23 +68,23 @@ test("filters by reason", async () => {
 
 test("conflicts show their message", async () => {
   renderWithApi(<ReviewPage />, {
-    "GET /api/review": [{ ...ITEM, reason: "conflict", conflict_with: { message: "ticker APH already has name X" } }],
+    "GET /api/review": [{ ...ITEM, reason: "conflict", conflict_with: { message: "software_id SW-QDOC already has name X" } }],
   });
   fireEvent.click(await screen.findByTestId("review-row-7"));
-  expect(screen.getByText("ticker APH already has name X")).toBeDefined();
+  expect(screen.getByText("software_id SW-QDOC already has name X")).toBeDefined();
 });
 
 const DUPLICATE: ReviewItem = {
   ...ITEM,
   reason: "duplicate",
-  candidate: { kind: "entity", class_name: "Issuer", properties: { ticker: "AUR", name: "APH Co" } },
+  candidate: { kind: "entity", class_name: "Software", properties: { software_id: "SW-QDX", name: "Quillstack Docs (Demo)" } },
   conflict_with: {
-    message: "Issuer 'AUR' is a possible duplicate of Issuer 'APH' (name similarity 0.97): needs review",
+    message: "Software 'SW-QDX' is a possible duplicate of Software 'SW-QDOC' (name similarity 0.97): needs review",
     duplicate_of: {
-      class_name: "Issuer",
-      key_property: "ticker",
-      candidate_key: "AUR",
-      key: "APH",
+      class_name: "Software",
+      key_property: "software_id",
+      candidate_key: "SW-QDX",
+      key: "SW-QDOC",
       similarity: 0.97,
     },
   },
@@ -97,9 +97,9 @@ test("a possible duplicate shows the existing entity and can be merged into it",
   });
   fireEvent.click(await screen.findByTestId("review-row-7"));
   const alert = screen.getByTestId("duplicate-of");
-  expect(alert.textContent).toContain("Issuer ticker = APH");
+  expect(alert.textContent).toContain("Software software_id = SW-QDOC");
   expect(alert.textContent).toContain("0.97");
-  fireEvent.click(screen.getByRole("button", { name: "Merge into APH" }));
+  fireEvent.click(screen.getByRole("button", { name: "Merge into SW-QDOC" }));
   await waitFor(() => expect(calls.find((c) => c.path === "/api/review/7/approve")?.body).toEqual({ merge: true }));
 });
 
@@ -119,27 +119,27 @@ test("a conflict that involves a possible duplicate shows both and can be merged
       {
         ...DUPLICATE,
         reason: "conflict",
-        conflict_with: { ...DUPLICATE.conflict_with, message: "FILED_BY is many_to_one: already points to APH" },
+        conflict_with: { ...DUPLICATE.conflict_with, message: "LICENSES is many_to_one: already points to SW-QDOC" },
       },
     ],
     "POST /api/review/7/approve": { status: "approved" },
   });
   fireEvent.click(await screen.findByTestId("review-row-7"));
-  expect(screen.getByText("FILED_BY is many_to_one: already points to APH")).toBeDefined();
-  expect(screen.getByTestId("duplicate-of").textContent).toContain("APH");
+  expect(screen.getByText("LICENSES is many_to_one: already points to SW-QDOC")).toBeDefined();
+  expect(screen.getByTestId("duplicate-of").textContent).toContain("SW-QDOC");
   expect(screen.getByRole("button", { name: "Approve (replace)" })).toBeDefined();
-  fireEvent.click(screen.getByRole("button", { name: "Merge into APH" }));
+  fireEvent.click(screen.getByRole("button", { name: "Merge into SW-QDOC" }));
   await waitFor(() => expect(calls.find((c) => c.path === "/api/review/7/approve")?.body).toEqual({ merge: true }));
 });
 
 test("a refused merge is shown on the item", async () => {
   renderWithApi(<ReviewPage />, {
     "GET /api/review": [
-      { ...DUPLICATE, conflict_with: { ...DUPLICATE.conflict_with, merge_conflict: "already points to BYL" } },
+      { ...DUPLICATE, conflict_with: { ...DUPLICATE.conflict_with, merge_conflict: "already points to SW-ORBT" } },
     ],
   });
   fireEvent.click(await screen.findByTestId("review-row-7"));
-  expect(screen.getByTestId("merge-conflict").textContent).toContain("already points to BYL");
+  expect(screen.getByTestId("merge-conflict").textContent).toContain("already points to SW-ORBT");
 });
 
 test("the duplicate filter asks for duplicate items", async () => {
@@ -156,10 +156,10 @@ test("reject sends the note", async () => {
   });
   fireEvent.click(await screen.findByTestId("review-row-7"));
   fireEvent.click(screen.getByRole("button", { name: "Reject" }));
-  fireEvent.change(await screen.findByLabelText("Note"), { target: { value: "wrong issuer" } });
+  fireEvent.change(await screen.findByLabelText("Note"), { target: { value: "wrong software" } });
   const dialog = screen.getByRole("dialog");
   fireEvent.click(within(dialog).getByRole("button", { name: "Reject" }));
-  await waitFor(() => expect(calls.find((c) => c.path === "/api/review/7/reject")?.body).toEqual({ note: "wrong issuer" }));
+  await waitFor(() => expect(calls.find((c) => c.path === "/api/review/7/reject")?.body).toEqual({ note: "wrong software" }));
 });
 
 test("edit then approve sends the edited candidate", async () => {
@@ -169,11 +169,11 @@ test("edit then approve sends the edited candidate", async () => {
   });
   fireEvent.click(await screen.findByTestId("review-row-7"));
   fireEvent.click(screen.getByRole("button", { name: "Edit then approve" }));
-  fireEvent.change(await screen.findByLabelText("name"), { target: { value: "APH Corporation" } });
+  fireEvent.change(await screen.findByLabelText("name"), { target: { value: "Quillstack Docs Suite" } });
   fireEvent.click(screen.getByRole("button", { name: "Approve edited" }));
   await waitFor(() =>
     expect(calls.find((c) => c.path === "/api/review/7/approve")?.body).toEqual({
-      edited: { ...ITEM.candidate, properties: { ticker: "APH", name: "APH Corporation" } },
+      edited: { ...ITEM.candidate, properties: { software_id: "SW-QDOC", name: "Quillstack Docs Suite" } },
       merge: false,
     }),
   );
@@ -183,8 +183,8 @@ test("switching items resets the edit form and reject note (review round 1)", as
   const other: ReviewItem = {
     ...ITEM,
     id: 8,
-    candidate: { kind: "entity", class_name: "Issuer", properties: { ticker: "KEP", name: "Keppel" } },
-    evidence: [{ source_type: "pdf", source_ref: "a.pdf", locator: "page 2", quote: "Keppel" }],
+    candidate: { kind: "entity", class_name: "Software", properties: { software_id: "SW-ORBT", name: "Orbit Endpoint Protection" } },
+    evidence: [{ source_type: "pdf", source_ref: "meridian_invoice_INV-2025-0418.pdf", locator: "page 2", quote: "Orbit Endpoint Protection" }],
   };
   const { calls } = renderWithApi(<ReviewPage />, {
     "GET /api/review": [ITEM, other],
@@ -197,7 +197,7 @@ test("switching items resets the edit form and reject note (review round 1)", as
   fireEvent.click(screen.getByTestId("review-row-8"));
   fireEvent.click(screen.getByRole("button", { name: "Edit then approve" }));
   const name = (await screen.findByLabelText("name")) as HTMLInputElement;
-  expect(name.value).toBe("Keppel");
+  expect(name.value).toBe("Orbit Endpoint Protection");
   fireEvent.click(screen.getByRole("button", { name: "Approve edited" }));
   await waitFor(() =>
     expect(calls.find((c) => c.path === "/api/review/8/approve")?.body).toEqual({
@@ -213,8 +213,8 @@ test("edit keeps untouched values typed, and an emptied field becomes null (revi
     id: 9,
     candidate: {
       kind: "entity",
-      class_name: "Issuer",
-      properties: { ticker: "APH", name: null, shares: 5, listed: true },
+      class_name: "SoftwareLicense",
+      properties: { asset_tag: "SL-25-0201", name: null, seats: 5, perpetual: true },
     },
   };
   const { calls } = renderWithApi(<ReviewPage />, {
@@ -224,15 +224,15 @@ test("edit keeps untouched values typed, and an emptied field becomes null (revi
   fireEvent.click(await screen.findByTestId("review-row-9"));
   fireEvent.click(screen.getByRole("button", { name: "Edit then approve" }));
   expect(((await screen.findByLabelText("name")) as HTMLInputElement).value).toBe("");
-  fireEvent.change(screen.getByLabelText("ticker"), { target: { value: "APHX" } });
-  fireEvent.change(screen.getByLabelText("shares"), { target: { value: "" } });
-  fireEvent.change(screen.getByLabelText("listed"), { target: { value: "False" } });
+  fireEvent.change(screen.getByLabelText("asset_tag"), { target: { value: "SL-25-0299" } });
+  fireEvent.change(screen.getByLabelText("seats"), { target: { value: "" } });
+  fireEvent.change(screen.getByLabelText("perpetual"), { target: { value: "False" } });
   fireEvent.click(screen.getByRole("button", { name: "Approve edited" }));
   await waitFor(() =>
     expect(calls.find((c) => c.path === "/api/review/9/approve")?.body).toEqual({
       edited: {
         ...typed.candidate,
-        properties: { ticker: "APHX", name: null, shares: null, listed: false },
+        properties: { asset_tag: "SL-25-0299", name: null, seats: null, perpetual: false },
       },
       merge: false,
     }),

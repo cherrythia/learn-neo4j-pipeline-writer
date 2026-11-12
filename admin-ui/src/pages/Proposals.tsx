@@ -6,8 +6,8 @@ import { useApi } from "../api/context";
 import { ErrorAlert, Json, StatusBadge, when } from "../components/common";
 
 const EXAMPLE = {
-  class: { name: "Auditor", identity_key: "name", parent: null, properties: [{ name: "name", required: true }] },
-  relation: { name: "AUDITED_BY", domain: "Issuer", range: "Auditor", cardinality: "many_to_one" },
+  class: { name: "Location", identity_key: "name", parent: null, properties: [{ name: "name", required: true }] },
+  relation: { name: "LOCATED_AT", domain: "HardwareAsset", range: "Location", cardinality: "many_to_one" },
 };
 
 export function ProposalsPage({ role }: { role: string }) {
