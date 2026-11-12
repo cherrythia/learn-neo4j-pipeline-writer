@@ -1137,3 +1137,68 @@ def test_the_earlier_merge_wins_over_another_name_match(
     assert ent["conflict_with"]["duplicate_of"]["previously_merged"]
     pipe.approve(ent["id"], reviewer="rita")
     assert graph.node_properties("Issuer", "ticker", "AUR") is not None
+
+
+# review #39 round 5
+
+
+def test_a_relation_alone_is_never_rewritten_through_an_alias(
+    engine: Engine, graph: InMemoryGraph
+) -> None:
+    """Finding 1 (a): a filings sync arrives before the issuer sync; nothing in it says AUR
+    is still the merged entity, so it goes to review (pointing at APH) instead of committing
+    onto APH unseen."""
+    pipe = _merged_aur(engine, graph)
+    run = pipe.ingest(superset(NEW_FILING), actor="sync")
+    assert run.counts["commit"] == 0 and run.counts["review"] == 1, run.counts
+    assert (
+        graph.targets("FILED_BY", ("Filing", "filing_id", "AR-2026-AUR"), {"Issuer": "ticker"})
+        == []
+    )
+    rel = next(i for i in dup_items(engine) if i["status"] == "open")
+    dup = rel["conflict_with"]["duplicate_of"]
+    assert dup["key"] == "APH" and dup["merged_earlier"]
+    assert "nothing in this batch confirms" in rel["conflict_with"]["message"]
+    pipe.approve(rel["id"], reviewer="rita", merge=True)  # the reviewer confirms
+    assert graph.targets(
+        "FILED_BY", ("Filing", "filing_id", "AR-2026-AUR"), {"Issuer": "ticker"}
+    ) == [{"Issuer": "APH"}]
+
+
+def test_after_rejecting_a_reused_key_its_relations_still_wait(
+    engine: Engine, graph: InMemoryGraph
+) -> None:
+    """Finding 1 (b): rejecting the Zebra item must not let later filings commit onto APH."""
+    pipe = _merged_aur(engine, graph)
+    pipe.ingest(superset(ZEBRA), actor="sync")
+    ent = next(i for i in dup_items(engine) if i["status"] == "open")
+    pipe.reject(ent["id"], reviewer="rita")
+    run = pipe.ingest(superset(NEW_FILING), actor="sync")
+    assert run.counts["commit"] == 0 and run.counts["review"] == 1, run.counts
+
+
+def test_an_entity_kept_as_new_cannot_then_be_merged(engine: Engine, graph: InMemoryGraph) -> None:
+    """Finding 2: two open items for AUR; keep A as new, then merging B would put AUR's
+    values on APH while AUR also exists."""
+    from writer_service.pipeline.orchestrator import PipelineError
+
+    pipe = pipeline(engine, graph)
+    pipe.ingest(doc([APH]), actor="bot")
+    pipe.ingest(superset(AUR), actor="sync")
+    pipe.ingest(superset(AUR), actor="sync")
+    first, second = dup_items(engine)
+    pipe.approve(first["id"], reviewer="rita")
+    with pytest.raises(PipelineError, match="was kept as a new entity"):
+        pipe.approve(second["id"], reviewer="rita", merge=True)
+
+
+def test_the_other_name_match_is_kept_on_a_previously_merged_item(
+    engine: Engine, graph: InMemoryGraph
+) -> None:
+    """Finding 3: the reviewer should see that the name also matches ZMC."""
+    pipe = _merged_aur(engine, graph)
+    zmc = ZEBRA.model_copy(update={"properties": {"ticker": "ZMC", "name": "Zebra Mining Corp"}})
+    pipe.ingest(superset(zmc), actor="sync")
+    pipe.ingest(superset(ZEBRA), actor="sync")
+    ent = next(i for i in dup_items(engine) if i["status"] == "open" and i["kind"] == "entity")
+    assert ent["conflict_with"]["duplicate_of"]["also_matches"] == "ZMC"

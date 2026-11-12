@@ -212,8 +212,32 @@ class WriterPipeline:
         for slot, info in self._pending_reused_keys(uow).items():
             blocked.add(slot)
             duplicates.setdefault(slot, info)
+        # Relations are only rewritten through an alias when this batch carries the entity
+        # and it still fits the merge target; a relation alone has no name to check, so it
+        # goes to review pointing at the target instead of being rewritten unseen (review #39).
+        fitting = {
+            slot
+            for v in voted
+            if isinstance(v.candidate, CandidateEntity)
+            and (slot := _slot(v.candidate, spec)) in aliases
+            and slot not in blocked
+        }
+        for slot, (target, item_id, original) in self._alias_details(uow, spec).items():
+            if slot in aliases and slot not in fitting and slot not in blocked:
+                cls = next(c for c in spec.classes if c.name == slot[0])
+                duplicates.setdefault(
+                    slot,
+                    {
+                        "class_name": slot[0],
+                        "key_property": cls.identity_key,
+                        "candidate_key": original,
+                        "key": target,
+                        "similarity": 0.0,
+                        "merged_earlier": item_id,
+                    },
+                )
         for v in voted:
-            c, alias_note, forced = self._apply_aliases(v.candidate, aliases, blocked, spec)
+            c, alias_note, forced = self._apply_aliases(v.candidate, aliases, fitting, spec)
             if isinstance(c, CandidateEntity):
                 m = matcher.match_entity(c) if c.class_name in matcher.classes else None
                 conf = m.confidence if m else None
@@ -230,7 +254,11 @@ class WriterPipeline:
                         "similarity": round(1 - (m.confidence or 0.0), 4),
                     }
                 if forced is not None:  # the earlier merge is what the reviewer must see
-                    duplicates[(c.class_name, match_key(forced["candidate_key"]))] = forced
+                    slot = (c.class_name, match_key(forced["candidate_key"]))
+                    other = duplicates.get(slot)
+                    if other is not None and other.get("key") != forced["key"]:
+                        forced = {**forced, "also_matches": other["key"]}
+                    duplicates[slot] = forced
                 if c.class_name in matcher.classes:
                     matcher.add_batch_entity(c)
                 resolved.append(c)
@@ -557,6 +585,15 @@ class WriterPipeline:
                 raise PipelineError("nothing to merge: no endpoint points at the flagged key")
         else:
             targets = [dup]
+            cls = next(c for c in spec.classes if c.name == cand.class_name)
+            own = str(cand.properties.get(cls.identity_key, ""))
+            if match_key(own) != match_key(dup["key"]) and self._accepted(
+                spec, cand.class_name, own
+            ):
+                raise PipelineError(
+                    f"{cand.class_name} {own!r} was kept as a new entity: keep this one as new "
+                    "too, or edit it"
+                )
         for t in targets:
             if not self._accepted(spec, t["class_name"], t["key"]):
                 raise PipelineError(
@@ -621,7 +658,33 @@ class WriterPipeline:
                 )
         return {
             slot: (key, item_id)
-            for slot, (key, item_id, original) in out.items()
+            for slot, (key, item_id, _) in self._alias_details(uow, spec, out).items()
+        }
+
+    def _alias_details(
+        self,
+        uow: UnitOfWork,
+        spec: OntologySpec,
+        recorded: dict[tuple[str, str], tuple[str, int, str]] | None = None,
+    ) -> dict[tuple[str, str], tuple[str, int, str]]:
+        """Valid aliases with the merged-away key's original spelling."""
+        if recorded is None:
+            recorded = {}
+            q = select(ReviewItem).where(
+                ReviewItem.status == "edited", ReviewItem.reason.in_(("duplicate", "conflict"))
+            )
+            known = {c.name for c in spec.classes}
+            for item in uow.session.scalars(q.order_by(ReviewItem.id)):
+                for side in (item.conflict_with or {}).get("merged") or []:
+                    if side.get("class_name") in known and side.get("candidate_key"):
+                        recorded[(side["class_name"], match_key(side["candidate_key"]))] = (
+                            side["key"],
+                            item.id,
+                            side["candidate_key"],
+                        )
+        return {
+            slot: (key, item_id, original)
+            for slot, (key, item_id, original) in recorded.items()
             if self._accepted(spec, slot[0], key) and not self._accepted(spec, slot[0], original)
         }
 
@@ -654,7 +717,7 @@ class WriterPipeline:
         self,
         cand: AnyCandidate,
         aliases: dict[tuple[str, str], tuple[str, int]],
-        blocked: set[tuple[str, str]],
+        fitting: set[tuple[str, str]],
         spec: OntologySpec,
     ) -> tuple[AnyCandidate, list[str], dict[str, Any] | None]:
         """Rewrite keys a reviewer already merged into another entity, the way the merge did
@@ -671,7 +734,7 @@ class WriterPipeline:
                 return cand, [], None
             cls = next(c for c in spec.classes if c.name == cand.class_name)
             key = str(cand.properties.get(cls.identity_key, ""))
-            if slot in blocked:
+            if slot not in fitting:
                 note = (
                     f"{key!r} was merged into {hit[0]!r} earlier (review item {hit[1]}), but "
                     "this entity doesn't match it: needs review"
@@ -697,7 +760,7 @@ class WriterPipeline:
             ref: EntityRef = getattr(cand, side)
             slot = (ref.class_name, match_key(ref.key))
             hit = aliases.get(slot)
-            if hit is not None and slot not in blocked:
+            if hit is not None and slot in fitting:
                 update[side] = EntityRef(class_name=ref.class_name, key=hit[0])
                 notes.append(
                     f"{side} {ref.key!r} was merged into {hit[0]!r} (review item {hit[1]})"
@@ -801,6 +864,12 @@ def _duplicate_message(dup: dict[str, Any]) -> str:
     what = f"{dup['class_name']} {dup['candidate_key']!r}"
     if "side" in dup:
         what = f"{dup['side']} {what}"
+    if dup.get("merged_earlier"):
+        return (
+            f"{what} was merged into {dup['key']!r} earlier (review item "
+            f"{dup['merged_earlier']}); nothing in this batch confirms it is the same entity: "
+            "needs review"
+        )
     if dup.get("previously_merged"):
         return (
             f"{what} was merged into {dup['key']!r} earlier (review item "

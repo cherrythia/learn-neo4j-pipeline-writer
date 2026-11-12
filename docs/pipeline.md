@@ -117,6 +117,14 @@ pipeline.rollback(run_id, actor)
       filings are usually separate datasets). Keeping that item as new is the reviewer's
       decision that the key now names a different entity; it is allowed only if no newer
       merge of the key happened since (e.g. one of its relations merged into the target).
+    - **Relations** are rewritten through an alias only when the same batch carries the
+      entity under that key and it still fits the target. A relation on its own (e.g. a
+      filings dataset synced separately) has no name to check, so it goes to review pointing
+      at the target (`merged_earlier`): the reviewer merges it (one click) or, once the key's
+      entity has been kept as new, keeps it. Nothing is ever rewritten onto the target unseen.
+    - When the name also matches another entity, a `previously_merged` item records it as
+      `also_matches`.
+  - Merging an entity whose own key was already kept as a new entity is refused (409).
   - Keeping an entity as new under a key that has a valid merge alias is refused (409),
     except on a `previously_merged` item flagged against that same (latest) merge: in any
     order, one key can't be both merged and kept (relation merged first, or two items for

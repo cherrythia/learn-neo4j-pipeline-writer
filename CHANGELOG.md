@@ -23,8 +23,9 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
     approved first. All 409 otherwise.
   - Merges stick: later ingests rewrite a merged-away key to the merged entity while the
     incoming name still matches it (otherwise: review, marked `previously_merged`), so
-    re-syncing a dataset doesn't re-open the duplicate. One key can't be both merged and kept
-    as new. Merging a relation whose entity was kept as new
+    re-syncing a dataset doesn't re-open the duplicate. A relation is rewritten that way only
+    together with its fitting entity; on its own it goes to review pointing at the merge
+    target. One key can't be both merged and kept as new. Merging a relation whose entity was kept as new
     is refused (409); keeping a relation as new writes the entity's stored key.
   - Admin UI: a Duplicate filter, a *Possible duplicate* panel (also on conflicts involving
     one, with any refused merge), Merge into / Keep as new.
