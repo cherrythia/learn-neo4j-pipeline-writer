@@ -14,6 +14,7 @@ export function StatusBadge({ status }: { status: string }) {
       commit: "green",
       review: "yellow",
       conflict: "orange",
+      duplicate: "yellow",
       reject: "red",
       succeeded: "green",
       failed: "red",

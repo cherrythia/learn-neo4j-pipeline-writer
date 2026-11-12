@@ -49,3 +49,40 @@ def test_downgrade_to_base_and_back(tmp_path: Path) -> None:
     eng.dispose()
     upgrade(url)
     assert set(inspect(create_engine_for(url)).get_table_names()) >= EXPECTED_TABLES
+
+
+def test_0004_allows_the_duplicate_review_reason(tmp_path: Path) -> None:
+    """#38: the CHECK constraint on review_items.reason gains ``duplicate`` (and loses it on
+    downgrade)."""
+    import sqlite3
+
+    path = tmp_path / "g.sqlite"
+    url = f"sqlite:///{path}"
+
+    def reason_check() -> str:
+        with sqlite3.connect(path) as conn:
+            (sql,) = conn.execute(
+                "SELECT sql FROM sqlite_master WHERE name = 'review_items'"
+            ).fetchone()
+        return next(line for line in sql.splitlines() if "ck_review_items_review_reason" in line)
+
+    upgrade(url)
+    assert "'duplicate'" in reason_check()
+    from writer_service.governance.models import Candidate, IngestionRun, ReviewItem
+    from writer_service.governance.uow import UnitOfWork
+
+    eng = create_engine_for(url)
+    with UnitOfWork(eng) as uow:
+        run = IngestionRun(
+            source_type="superset", source_ref="d:1", ontology_version=1, started_by="t"
+        )
+        uow.session.add(run)
+        uow.session.flush()
+        cand = Candidate(run_id=run.id, kind="entity", canonical_hash="h", payload={}, evidence=[])
+        cand.review_item = ReviewItem(reason="duplicate", conflict_with={"duplicate_of": {}})
+        uow.session.add(cand)
+    eng.dispose()
+    downgrade(url, "0003")  # the duplicate row must not violate the old CHECK
+    assert "'duplicate'" not in reason_check() and "'conflict'" in reason_check()
+    with sqlite3.connect(path) as conn:
+        assert conn.execute("SELECT reason FROM review_items").fetchall() == [("score",)]

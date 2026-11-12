@@ -55,7 +55,7 @@ test("shows the score breakdown, evidence and reasons, and approves", async () =
   await waitFor(() => expect(calls.some((c) => c.path === "/api/review/7/approve")).toBe(true));
   const approve = calls.find((c) => c.path === "/api/review/7/approve")!;
   expect(approve.method).toBe("POST");
-  expect(approve.body).toEqual({});
+  expect(approve.body).toEqual({ merge: false });
   expect(approve.headers.get("X-Requested-With")).toBe("writer-admin");
 });
 
@@ -72,6 +72,81 @@ test("conflicts show their message", async () => {
   });
   fireEvent.click(await screen.findByTestId("review-row-7"));
   expect(screen.getByText("ticker APH already has name X")).toBeDefined();
+});
+
+const DUPLICATE: ReviewItem = {
+  ...ITEM,
+  reason: "duplicate",
+  candidate: { kind: "entity", class_name: "Issuer", properties: { ticker: "AUR", name: "APH Co" } },
+  conflict_with: {
+    message: "Issuer 'AUR' is a possible duplicate of Issuer 'APH' (name similarity 0.97): needs review",
+    duplicate_of: {
+      class_name: "Issuer",
+      key_property: "ticker",
+      candidate_key: "AUR",
+      key: "APH",
+      similarity: 0.97,
+    },
+  },
+};
+
+test("a possible duplicate shows the existing entity and can be merged into it", async () => {
+  const { calls } = renderWithApi(<ReviewPage />, {
+    "GET /api/review": [DUPLICATE],
+    "POST /api/review/7/approve": { status: "approved" },
+  });
+  fireEvent.click(await screen.findByTestId("review-row-7"));
+  const alert = screen.getByTestId("duplicate-of");
+  expect(alert.textContent).toContain("Issuer ticker = APH");
+  expect(alert.textContent).toContain("0.97");
+  fireEvent.click(screen.getByRole("button", { name: "Merge into APH" }));
+  await waitFor(() => expect(calls.find((c) => c.path === "/api/review/7/approve")?.body).toEqual({ merge: true }));
+});
+
+test("a possible duplicate can be kept as a new entity", async () => {
+  const { calls } = renderWithApi(<ReviewPage />, {
+    "GET /api/review": [DUPLICATE],
+    "POST /api/review/7/approve": { status: "approved" },
+  });
+  fireEvent.click(await screen.findByTestId("review-row-7"));
+  fireEvent.click(screen.getByRole("button", { name: "Keep as new" }));
+  await waitFor(() => expect(calls.find((c) => c.path === "/api/review/7/approve")?.body).toEqual({ merge: false }));
+});
+
+test("a conflict that involves a possible duplicate shows both and can be merged", async () => {
+  const { calls } = renderWithApi(<ReviewPage />, {
+    "GET /api/review": [
+      {
+        ...DUPLICATE,
+        reason: "conflict",
+        conflict_with: { ...DUPLICATE.conflict_with, message: "FILED_BY is many_to_one: already points to APH" },
+      },
+    ],
+    "POST /api/review/7/approve": { status: "approved" },
+  });
+  fireEvent.click(await screen.findByTestId("review-row-7"));
+  expect(screen.getByText("FILED_BY is many_to_one: already points to APH")).toBeDefined();
+  expect(screen.getByTestId("duplicate-of").textContent).toContain("APH");
+  expect(screen.getByRole("button", { name: "Approve (replace)" })).toBeDefined();
+  fireEvent.click(screen.getByRole("button", { name: "Merge into APH" }));
+  await waitFor(() => expect(calls.find((c) => c.path === "/api/review/7/approve")?.body).toEqual({ merge: true }));
+});
+
+test("a refused merge is shown on the item", async () => {
+  renderWithApi(<ReviewPage />, {
+    "GET /api/review": [
+      { ...DUPLICATE, conflict_with: { ...DUPLICATE.conflict_with, merge_conflict: "already points to BYL" } },
+    ],
+  });
+  fireEvent.click(await screen.findByTestId("review-row-7"));
+  expect(screen.getByTestId("merge-conflict").textContent).toContain("already points to BYL");
+});
+
+test("the duplicate filter asks for duplicate items", async () => {
+  const { calls } = renderWithApi(<ReviewPage />, { "GET /api/review": [] });
+  await screen.findByText("Nothing to review.");
+  fireEvent.click(screen.getByText("Duplicate"));
+  await waitFor(() => expect(calls.some((c) => c.search.includes("reason=duplicate"))).toBe(true));
 });
 
 test("reject sends the note", async () => {
@@ -99,6 +174,7 @@ test("edit then approve sends the edited candidate", async () => {
   await waitFor(() =>
     expect(calls.find((c) => c.path === "/api/review/7/approve")?.body).toEqual({
       edited: { ...ITEM.candidate, properties: { ticker: "APH", name: "APH Corporation" } },
+      merge: false,
     }),
   );
 });
@@ -126,6 +202,7 @@ test("switching items resets the edit form and reject note (review round 1)", as
   await waitFor(() =>
     expect(calls.find((c) => c.path === "/api/review/8/approve")?.body).toEqual({
       edited: other.candidate,
+      merge: false,
     }),
   );
 });
@@ -157,6 +234,7 @@ test("edit keeps untouched values typed, and an emptied field becomes null (revi
         ...typed.candidate,
         properties: { ticker: "APHX", name: null, shares: null, listed: false },
       },
+      merge: false,
     }),
   );
 });

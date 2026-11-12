@@ -48,6 +48,9 @@ needs clamping and the contributions in the breakdown always add up to it.
 | 0.60 – 0.85 | **review** queue in the admin page |
 | < 0.60 | **reject** (kept, with the reason) |
 
+Two overrides send a would-be commit to review instead: a non-verbatim quote (grounding < 1.0)
+and a possible duplicate entity ([matching](matching.md)).
+
 Boundaries are inclusive (exactly 0.85 commits), with a tiny epsilon so float noise such as
 0.8499999999 doesn't flip a decision.
 
