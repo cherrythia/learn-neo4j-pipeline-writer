@@ -40,7 +40,7 @@ An approved proposal reaches the graph when the draft is published.
 | Method | Path | Role | |
 |---|---|---|---|
 | GET | `/api/review?status=open&reason=conflict` | reviewer | candidate, evidence, score breakdown, conflict, source |
-| POST | `/api/review/{id}/approve` | reviewer | `{edited?: candidate}`: re-gated, written to Neo4j |
+| POST | `/api/review/{id}/approve` | reviewer | `{edited?: candidate}`: re-gated, written to Neo4j. 422 if `edited` is malformed, 409 if it fails the gates or the item is not open (the item stays open) |
 | POST | `/api/review/{id}/reject` | reviewer | `{note?}` |
 
 ## Column mappings ([superset](superset-ingestion.md))

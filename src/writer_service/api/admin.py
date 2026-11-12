@@ -11,10 +11,10 @@ from datetime import datetime
 from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, Field, ValidationError, field_validator
 from sqlalchemy import select
 
-from writer_service.api.deps import GraphSchemaDep, PipelineDep, ReaderDep, SupersetDep
+from writer_service.api.deps import LLM_HINT, GraphSchemaDep, PipelineDep, ReaderDep, SupersetDep
 from writer_service.auth.deps import CurrentUser, EngineDep, require_role
 from writer_service.auth.users import create_user, get_user
 from writer_service.governance.models import (
@@ -73,6 +73,14 @@ class PropertyIn(BaseModel):
     description: str | None = None
 
 
+def _unique_names(props: list[PropertyIn]) -> list[PropertyIn]:
+    names = [p.name for p in props]
+    dupes = sorted({n for n in names if names.count(n) > 1})
+    if dupes:
+        raise ValueError(f"duplicate property names: {', '.join(dupes)}")
+    return props
+
+
 class ClassIn(BaseModel):
     name: str
     identity_key: str
@@ -81,11 +89,15 @@ class ClassIn(BaseModel):
     description: str | None = None
     properties: list[PropertyIn] = Field(min_length=1)
 
+    _no_dupes = field_validator("properties")(_unique_names)
+
 
 class ClassPatch(BaseModel):
     description: str | None = None
     deprecated: bool | None = None
     add_properties: list[PropertyIn] = Field(default_factory=list)
+
+    _no_dupes = field_validator("add_properties")(_unique_names)
 
 
 class RelationIn(BaseModel):
@@ -453,7 +465,9 @@ def approve_review(
 ) -> dict[str, str]:
     try:
         pipeline.approve(item_id, user.username, body.edited)
-    except PipelineError as exc:
+    except ValidationError as exc:  # `edited` isn't a well-formed candidate fact
+        raise HTTPException(422, f"edited fact is invalid: {exc}") from exc
+    except PipelineError as exc:  # not open, or the edit fails the gates
         raise HTTPException(409, str(exc)) from exc
     return {"status": "approved"}
 
@@ -532,7 +546,7 @@ def suggest(
     reader: ReaderDep,
 ) -> dict[str, Any]:
     if pipeline.llm is None:
-        raise HTTPException(503, "mapping suggestions need an LLM")
+        raise HTTPException(503, f"mapping suggestions need an LLM; {LLM_HINT}")
     ds = _dataset(superset, dataset_id)
     with UnitOfWork(engine) as uow:
         spec, version = _published_spec(uow)

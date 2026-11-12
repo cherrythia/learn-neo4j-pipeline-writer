@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+import logging
 import threading
 from collections.abc import Iterator
 from typing import Annotated, Any
 
-from fastapi import Depends, HTTPException, Request
+from fastapi import Depends, Request
 
 from writer_service.ingestion.superset import DatasetReader, SupersetClient
 from writer_service.llm.base import LLMConfigError
@@ -14,6 +15,8 @@ from writer_service.llm.factory import build_structured_llm
 from writer_service.ontology.neo4j_schema import GraphSchema
 from writer_service.pipeline.orchestrator import WriterPipeline
 
+log = logging.getLogger(__name__)
+LLM_HINT = "configure WRITER_LLM_PROVIDER (and WRITER_ANTHROPIC_API_KEY for Claude)"
 _PIPELINE_LOCK = threading.Lock()
 
 
@@ -59,7 +62,10 @@ def _build_pipeline(request: Request) -> WriterPipeline:
     try:
         llm = build_structured_llm(request.app.state.settings)
     except LLMConfigError as exc:
-        raise HTTPException(503, str(exc)) from exc
+        # Review, rollback and structured sync don't need an LLM; routes that do check
+        # ``pipeline.llm`` and answer 503 themselves.
+        log.warning("LLM not configured (%s); LLM-backed routes will answer 503", exc)
+        llm = None
     return WriterPipeline(request.app.state.engine, Neo4jGraph(get_neo4j_driver(request)), llm)
 
 
