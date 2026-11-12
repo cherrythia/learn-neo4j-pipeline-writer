@@ -31,7 +31,10 @@ json() { python3 -c "import json, sys; d = json.load(sys.stdin); print($1)"; }
 step() { printf '\n== %s\n' "$*"; }
 
 server_pid=""
-cleanup() { [ -n "$server_pid" ] && kill "$server_pid" 2>/dev/null || true; rm -rf "$WORK"; }
+cleanup() {  # wait for the server: it deletes its temporary store on the way out
+  if [ -n "$server_pid" ]; then kill "$server_pid" 2>/dev/null || true; wait "$server_pid" 2>/dev/null || true; fi
+  rm -rf "$WORK"
+}
 trap cleanup EXIT
 
 uv run writer-demo-server >"$WORK/server.log" 2>&1 &

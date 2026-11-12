@@ -104,3 +104,51 @@ def test_close_deletes_the_temp_dir_it_created(tmp_path: Path) -> None:
     _, given = create_demo_app(tmp_path)  # a caller's directory is never deleted
     given.close()
     assert tmp_path.exists()
+
+
+def test_sigterm_shutdown_deletes_the_temp_dir() -> None:
+    """uvicorn re-raises SIGTERM after a graceful shutdown; cleanup must still run."""
+    import os
+    import re
+    import signal
+    import socket
+    import subprocess
+    import sys
+    import time
+    import urllib.request
+
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        port = s.getsockname()[1]
+    env = {**os.environ, "WRITER_DEMO_PORT": str(port)}
+    env.pop("WRITER_ADMIN_UI_DIR", None)
+    proc = subprocess.Popen(
+        [sys.executable, "-m", "writer_service.demo_server"],
+        env=env,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+    )
+    try:
+        workdir = None
+        assert proc.stdout is not None
+        for line in proc.stdout:  # the banner names the temporary store
+            if m := re.search(r"governance store: (\S+)/governance\.sqlite", line):
+                workdir = Path(m.group(1))
+                break
+        assert workdir is not None and workdir.exists()
+        for _ in range(60):
+            try:
+                urllib.request.urlopen(f"http://127.0.0.1:{port}/health", timeout=1)
+                break
+            except OSError:
+                time.sleep(0.25)
+        proc.send_signal(signal.SIGTERM)
+        proc.wait(timeout=20)
+        assert not workdir.exists()
+    finally:
+        if proc.poll() is None:
+            proc.kill()
+            proc.wait()
+        if proc.stdout is not None:
+            proc.stdout.close()

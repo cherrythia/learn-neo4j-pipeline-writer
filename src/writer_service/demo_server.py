@@ -21,6 +21,8 @@ from __future__ import annotations
 import os
 import secrets
 import shutil
+import signal
+import sys
 import tempfile
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
@@ -247,6 +249,9 @@ def main() -> None:
         f"  governance store: {state.workdir / 'governance.sqlite'} (temporary)\n",
         flush=True,
     )
+    # uvicorn shuts down gracefully on SIGTERM and then re-raises the signal; with the default
+    # handler that would kill the process before the cleanup below. Exit normally instead.
+    signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
     try:
         uvicorn.run(app, host=host, port=port)
     finally:
