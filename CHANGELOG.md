@@ -6,6 +6,14 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Added
+- **#17 README walkthrough and demo script**
+  - README: architecture diagram, how a fact gets into Neo4j, scoring with worked examples,
+    one-command demo, running the real service, switching LLM.
+  - `scripts/demo.sh`: upload → review → approve → Superset mapping → sync → rollback →
+    audit against the offline demo server, every step checked; run in CI by
+    `tests/test_demo_script.py`.
+  - The demo server extracts the sample PDF offline (the golden-set stand-in answers) and
+    accepts `WRITER_DEMO_INGEST_API_KEY`.
 - **#15 Admin UI** (`admin-ui/`, served at `/admin/`)
   - React + TypeScript + Mantine on Bun; TanStack Query; hash routing; React Flow graph.
   - Typed client generated from `openapi.json` (`openapi-typescript` + `openapi-fetch`,

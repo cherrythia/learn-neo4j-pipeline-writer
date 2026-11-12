@@ -77,7 +77,9 @@ uv run writer-demo-server             # http://127.0.0.1:8000/admin/
 
 It prints the passwords for `alice` (admin) and `rita` (reviewer); set
 `WRITER_DEMO_ADMIN_PASSWORD` / `WRITER_DEMO_REVIEWER_PASSWORD` (12+ characters) to choose
-them, and `WRITER_DEMO_PORT` / `WRITER_DEMO_HOST` to move it. Everything is discarded on exit:
+them, `WRITER_DEMO_INGEST_API_KEY` to fix the `X-API-Key` for `/ingest/*` (uploading the sample
+PDF works offline: extraction replays scripted answers), and `WRITER_DEMO_PORT` /
+`WRITER_DEMO_HOST` to move it. `./scripts/demo.sh` drives all of it end to end. Everything is discarded on exit:
 the temporary directory (SQLite store with the demo password hashes) is deleted on shutdown.
 
 **Against the real service**: `bun run build`, then start the service as usual; it serves

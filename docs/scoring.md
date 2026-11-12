@@ -9,9 +9,11 @@ Before any score is computed, a fact must pass the gates (issue #6):
 
 | Gate | Fails when | Outcome |
 |---|---|---|
-| Schema | Class/relation not in the published ontology, wrong domain/range | **reject** |
-| Constraint | Cardinality or disjointness violated | **reject** |
-| Conflict | Contradicts an accepted fact (e.g. a second `FILED_BY` issuer) | **conflict**, always human review; never auto-overwritten |
+| Schema | Class/relation not in the published ontology, wrong domain/range, uncoercible value | **reject** |
+| Constraint | Contradicts an accepted fact or an earlier candidate in the batch: a different property value, or a cardinality violation (e.g. a second `FILED_BY` issuer) | **conflict**, always human review; never auto-overwritten |
+
+Disjointness can't be violated: nodes are merged per class label on the identity key
+(see `pipeline/gates.py`).
 
 A gate outcome overrides the score: a 0.99 that fails the schema gate is rejected.
 
