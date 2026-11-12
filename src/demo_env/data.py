@@ -87,9 +87,9 @@ DEPARTMENTS: list[Department] = [
 # Fictional manufacturers and models, per hardware type.
 _MODELS: dict[HardwareType, tuple[str, str, str]] = {
     # type: (manufacturer, model, serial prefix)
-    "laptop": ("Corvane (Demo)", "Aero 14", "CVA14"),
+    "laptop": ("Corvane (Demo)", "Strata 14", "CVS14"),
     "desktop": ("Corvane (Demo)", "Tower 5", "CVT5"),
-    "server": ("Haldrix Compute (Demo)", "R640X", "HDR"),
+    "server": ("Haldrix Compute (Demo)", "HX-2U", "HDR"),
     "network": ("Tesselqo Networks (Demo)", "SW-48", "TSW48"),
 }
 _PRICES: dict[HardwareType, float] = {
@@ -191,10 +191,10 @@ def _bought(
 
 
 INVOICED_HARDWARE: list[HardwareAsset] = [
-    _bought("HW-25-0101", "laptop", "Aero 14", "CVA14-8F2K91", 2150.0, "FIN", HOSTNAMES[24]),
-    _bought("HW-25-0102", "laptop", "Aero 14", "CVA14-8F2K94", 2150.0, "ENG", HOSTNAMES[25]),
-    _bought("HW-25-0103", "laptop", "Aero 16", "CVA16-3M7Q05", 2890.0, "ENG", HOSTNAMES[26]),
-    _bought("HW-25-0110", "server", "R640X", "HDR-77120-A", 14800.0, "ITS", HOSTNAMES[27]),
+    _bought("HW-25-0101", "laptop", "Strata 14", "CVS14-8F2K91", 2150.0, "FIN", HOSTNAMES[24]),
+    _bought("HW-25-0102", "laptop", "Strata 14", "CVS14-8F2K94", 2150.0, "ENG", HOSTNAMES[25]),
+    _bought("HW-25-0103", "laptop", "Strata 16", "CVS16-3M7Q05", 2890.0, "ENG", HOSTNAMES[26]),
+    _bought("HW-25-0110", "server", "HX-2U", "HDR-77120-A", 14800.0, "ITS", HOSTNAMES[27]),
     _bought("HW-25-0120", "network", "SW-48", "TSW48-00931", 3420.0, "ITS", HOSTNAMES[28]),
 ]
 

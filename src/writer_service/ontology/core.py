@@ -15,7 +15,13 @@ _ASSET_PROPS: tuple[PropertySpec, ...] = (
     P("name", "string"),
     P("status", "string", description="one of: in_stock, in_use, in_repair, retired"),
     P("purchase_date", "date"),
-    P("cost", "float", description="amount in the invoice currency"),
+    P(
+        "cost",
+        "float",
+        description=(
+            "purchase cost of the asset (for a licence: the line total), in the document's currency"
+        ),
+    ),
 )
 
 CORE_CLASSES: tuple[ClassSpec, ...] = (

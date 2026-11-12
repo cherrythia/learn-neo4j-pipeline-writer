@@ -14,9 +14,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
     The compliance classes (Issuer, Filing, Rule, Obligation, Finding, …) are gone. A
     profit-centre code is out of scope for now.
   - Demo data (`demo_env/data.py`): a fictional CMDB in MySQL schema `demo_itam` (was
-    `demo_compliance`) with `departments`, `assets`, `software`, `applications` and
-    `software_installs`; mock Superset serves them as datasets 1–5. The demo syncs dataset 1
-    (departments) through an approved `Department` mapping.
+    `demo_compliance`) with `departments`, `assets`, `software`, `applications`,
+    `software_installs` and the link tables `application_hosts` and `application_software`
+    (the sources of `RUNS_ON` and `USES`); mock Superset serves them as datasets 1–7. The
+    demo syncs dataset 1 (departments) through an approved `Department` mapping.
   - Samples: a 3-page vendor invoice `samples/zorblax_invoice_INV-2025-0418.pdf` (laptops, a
     server and a switch with asset tags and serials; two software licences with seats and
     expiry; department assignments) and an asset register `samples/asset_register_2025.xlsx`.
@@ -34,8 +35,6 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   - The extraction prompt shows each property's datatype and allowed values and asks for
     ISO dates and plain numbers, so invoice values such as `2,150.00` or `3 November 2025`
     come back as `2150.00` / `2025-11-03` instead of failing the schema gate.
-  - CMDB link tables `application_hosts` and `application_software` (datasets 6–7) are the
-    demo sources for `RUNS_ON` and `USES`.
 - **#28 Full-text index for entity matching at scale**
   - One Neo4j full-text index per active class over its string identity key and its
     name/title (`wsf_<label>_<fields>`), created and dropped with the constraints

@@ -62,19 +62,20 @@ def _rel(rel: str, sc: str, sk: str, tc: str, tk: str, *quotes: Quote) -> dict[s
 INVOICE = "INV-2025-0418"
 VENDOR = "Zorblax Systems Supply (Demo)"
 _INVOICE_LINE = (1, f"Invoice number: {INVOICE}")
+_DELIVERED = (3, f"All items on invoice {INVOICE} were delivered and tagged on 3 November 2025")
 # (asset tag, type, manufacturer, model, serial, cost, department, invoice line, assignment line)
 _HARDWARE = [
-    ("HW-25-0101", "laptop", "Corvane (Demo)", "Aero 14", "CVA14-8F2K91", "2150.00", "FIN",
-     "HW-25-0101 Laptop, Corvane (Demo) Aero 14, S/N CVA14-8F2K91, 1 x 2,150.00",
+    ("HW-25-0101", "laptop", "Corvane (Demo)", "Strata 14", "CVS14-8F2K91", "2150.00", "FIN",
+     "HW-25-0101 Laptop, Corvane (Demo) Strata 14, S/N CVS14-8F2K91, 1 x 2,150.00",
      "Laptop HW-25-0101 is assigned to Finance (FIN)"),
-    ("HW-25-0102", "laptop", "Corvane (Demo)", "Aero 14", "CVA14-8F2K94", "2150.00", "ENG",
-     "HW-25-0102 Laptop, Corvane (Demo) Aero 14, S/N CVA14-8F2K94, 1 x 2,150.00",
+    ("HW-25-0102", "laptop", "Corvane (Demo)", "Strata 14", "CVS14-8F2K94", "2150.00", "ENG",
+     "HW-25-0102 Laptop, Corvane (Demo) Strata 14, S/N CVS14-8F2K94, 1 x 2,150.00",
      "Laptop HW-25-0102 is assigned to Engineering (ENG)"),
-    ("HW-25-0103", "laptop", "Corvane (Demo)", "Aero 16", "CVA16-3M7Q05", "2890.00", "ENG",
-     "HW-25-0103 Laptop, Corvane (Demo) Aero 16, S/N CVA16-3M7Q05, 1 x 2,890.00",
+    ("HW-25-0103", "laptop", "Corvane (Demo)", "Strata 16", "CVS16-3M7Q05", "2890.00", "ENG",
+     "HW-25-0103 Laptop, Corvane (Demo) Strata 16, S/N CVS16-3M7Q05, 1 x 2,890.00",
      "Laptop HW-25-0103 is assigned to Engineering (ENG)"),
-    ("HW-25-0110", "server", "Haldrix Compute (Demo)", "R640X", "HDR-77120-A", "14800.00", "ITS",
-     "HW-25-0110 Server, Haldrix Compute (Demo) R640X, S/N HDR-77120-A, 1 x 14,800.00",
+    ("HW-25-0110", "server", "Haldrix Compute (Demo)", "HX-2U", "HDR-77120-A", "14800.00", "ITS",
+     "HW-25-0110 Server, Haldrix Compute (Demo) HX-2U, S/N HDR-77120-A, 1 x 14,800.00",
      "Server HW-25-0110 is assigned to IT Services (ITS)"),
     ("HW-25-0120", "network", "Tesselqo Networks (Demo)", "SW-48", "TSW48-00931", "3420.00", "ITS",
      "HW-25-0120 Network switch, Tesselqo Networks (Demo) SW-48, S/N TSW48-00931, 1 x 3,420.00",
@@ -121,8 +122,10 @@ BASE_ENTITIES = [
                 "model": model,
                 "serial_number": serial,
                 "cost": cost,
+                "purchase_date": "2025-11-03",
             },
             (1, line),
+            _DELIVERED,
         )
         for tag, kind, maker, model, serial, cost, _d, line, _a in _HARDWARE
     ],
@@ -173,7 +176,7 @@ BASE_RELATIONS = [
 HALLUCINATED = _ent(
     "HardwareAsset",
     {"asset_tag": "HW-25-0104", "hardware_type": "laptop"},
-    (1, "HW-25-0104 Laptop, Corvane (Demo) Aero 14"),
+    (1, "HW-25-0104 Laptop, Corvane (Demo) Strata 14"),
 )
 MISSING = "HW-25-0103"
 

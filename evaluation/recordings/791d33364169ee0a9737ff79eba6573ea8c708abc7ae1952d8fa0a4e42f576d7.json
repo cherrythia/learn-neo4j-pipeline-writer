@@ -123,7 +123,11 @@
         "evidence": [
           {
             "locator": "page 1",
-            "quote": "HW-25-0101 Laptop, Corvane (Demo) Aero 14, S/N CVA14-8F2K91, 1 x 2,150.00"
+            "quote": "HW-25-0101 Laptop, Corvane (Demo) Strata 14, S/N CVS14-8F2K91, 1 x 2,150.00"
+          },
+          {
+            "locator": "page 3",
+            "quote": "All items on invoice INV-2025-0418 were delivered and tagged on 3 November 2025"
           }
         ],
         "properties": [
@@ -141,15 +145,19 @@
           },
           {
             "name": "model",
-            "value": "Aero 14"
+            "value": "Strata 14"
           },
           {
             "name": "serial_number",
-            "value": "CVA14-8F2K91"
+            "value": "CVS14-8F2K91"
           },
           {
             "name": "cost",
             "value": "2150.00"
+          },
+          {
+            "name": "purchase_date",
+            "value": "2025-11-03"
           }
         ]
       },
@@ -159,7 +167,11 @@
         "evidence": [
           {
             "locator": "page 1",
-            "quote": "HW-25-0102 Laptop, Corvane (Demo) Aero 14, S/N CVA14-8F2K94, 1 x 2,150.00"
+            "quote": "HW-25-0102 Laptop, Corvane (Demo) Strata 14, S/N CVS14-8F2K94, 1 x 2,150.00"
+          },
+          {
+            "locator": "page 3",
+            "quote": "All items on invoice INV-2025-0418 were delivered and tagged on 3 November 2025"
           }
         ],
         "properties": [
@@ -177,15 +189,19 @@
           },
           {
             "name": "model",
-            "value": "Aero 14"
+            "value": "Strata 14"
           },
           {
             "name": "serial_number",
-            "value": "CVA14-8F2K94"
+            "value": "CVS14-8F2K94"
           },
           {
             "name": "cost",
             "value": "2150.00"
+          },
+          {
+            "name": "purchase_date",
+            "value": "2025-11-03"
           }
         ]
       },
@@ -195,7 +211,11 @@
         "evidence": [
           {
             "locator": "page 1",
-            "quote": "HW-25-0103 Laptop, Corvane (Demo) Aero 16, S/N CVA16-3M7Q05, 1 x 2,890.00"
+            "quote": "HW-25-0103 Laptop, Corvane (Demo) Strata 16, S/N CVS16-3M7Q05, 1 x 2,890.00"
+          },
+          {
+            "locator": "page 3",
+            "quote": "All items on invoice INV-2025-0418 were delivered and tagged on 3 November 2025"
           }
         ],
         "properties": [
@@ -213,15 +233,19 @@
           },
           {
             "name": "model",
-            "value": "Aero 16"
+            "value": "Strata 16"
           },
           {
             "name": "serial_number",
-            "value": "CVA16-3M7Q05"
+            "value": "CVS16-3M7Q05"
           },
           {
             "name": "cost",
             "value": "2890.00"
+          },
+          {
+            "name": "purchase_date",
+            "value": "2025-11-03"
           }
         ]
       },
@@ -231,7 +255,11 @@
         "evidence": [
           {
             "locator": "page 1",
-            "quote": "HW-25-0110 Server, Haldrix Compute (Demo) R640X, S/N HDR-77120-A, 1 x 14,800.00"
+            "quote": "HW-25-0110 Server, Haldrix Compute (Demo) HX-2U, S/N HDR-77120-A, 1 x 14,800.00"
+          },
+          {
+            "locator": "page 3",
+            "quote": "All items on invoice INV-2025-0418 were delivered and tagged on 3 November 2025"
           }
         ],
         "properties": [
@@ -249,7 +277,7 @@
           },
           {
             "name": "model",
-            "value": "R640X"
+            "value": "HX-2U"
           },
           {
             "name": "serial_number",
@@ -258,6 +286,10 @@
           {
             "name": "cost",
             "value": "14800.00"
+          },
+          {
+            "name": "purchase_date",
+            "value": "2025-11-03"
           }
         ]
       },
@@ -268,6 +300,10 @@
           {
             "locator": "page 1",
             "quote": "HW-25-0120 Network switch, Tesselqo Networks (Demo) SW-48, S/N TSW48-00931, 1 x 3,420.00"
+          },
+          {
+            "locator": "page 3",
+            "quote": "All items on invoice INV-2025-0418 were delivered and tagged on 3 November 2025"
           }
         ],
         "properties": [
@@ -294,6 +330,10 @@
           {
             "name": "cost",
             "value": "3420.00"
+          },
+          {
+            "name": "purchase_date",
+            "value": "2025-11-03"
           }
         ]
       },
@@ -408,6 +448,26 @@
             "value": "Ledgerwisp Accounting"
           }
         ]
+      },
+      {
+        "class_name": "HardwareAsset",
+        "confidence": 0.9,
+        "evidence": [
+          {
+            "locator": "page 1",
+            "quote": "HW-25-0104 Laptop, Corvane (Demo) Strata 14"
+          }
+        ],
+        "properties": [
+          {
+            "name": "asset_tag",
+            "value": "HW-25-0104"
+          },
+          {
+            "name": "hardware_type",
+            "value": "laptop"
+          }
+        ]
       }
     ],
     "relations": [
@@ -430,7 +490,7 @@
         "evidence": [
           {
             "locator": "page 1",
-            "quote": "HW-25-0101 Laptop, Corvane (Demo) Aero 14, S/N CVA14-8F2K91, 1 x 2,150.00"
+            "quote": "HW-25-0101 Laptop, Corvane (Demo) Strata 14, S/N CVS14-8F2K91, 1 x 2,150.00"
           },
           {
             "locator": "page 1",
@@ -448,7 +508,7 @@
         "evidence": [
           {
             "locator": "page 1",
-            "quote": "HW-25-0102 Laptop, Corvane (Demo) Aero 14, S/N CVA14-8F2K94, 1 x 2,150.00"
+            "quote": "HW-25-0102 Laptop, Corvane (Demo) Strata 14, S/N CVS14-8F2K94, 1 x 2,150.00"
           },
           {
             "locator": "page 1",
@@ -466,7 +526,7 @@
         "evidence": [
           {
             "locator": "page 1",
-            "quote": "HW-25-0103 Laptop, Corvane (Demo) Aero 16, S/N CVA16-3M7Q05, 1 x 2,890.00"
+            "quote": "HW-25-0103 Laptop, Corvane (Demo) Strata 16, S/N CVS16-3M7Q05, 1 x 2,890.00"
           },
           {
             "locator": "page 1",
@@ -484,7 +544,7 @@
         "evidence": [
           {
             "locator": "page 1",
-            "quote": "HW-25-0110 Server, Haldrix Compute (Demo) R640X, S/N HDR-77120-A, 1 x 14,800.00"
+            "quote": "HW-25-0110 Server, Haldrix Compute (Demo) HX-2U, S/N HDR-77120-A, 1 x 14,800.00"
           },
           {
             "locator": "page 1",

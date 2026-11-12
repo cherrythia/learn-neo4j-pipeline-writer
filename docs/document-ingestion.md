@@ -25,7 +25,7 @@ Unreadable input raises a clear `ValueError` (`… is not a readable PDF`).
 The prompt (`document_extraction` v2) contains the ontology rendered as text, for example:
 
 ```
-- HardwareAsset (key: asset_tag; properties: asset_tag*: string, name: string, status: string (one of: in_stock, in_use, in_repair, retired), purchase_date: date, cost: float (amount in the invoice currency), hardware_type: string (one of: laptop, desktop, server, network), manufacturer: string, model: string, serial_number: string) is-a Asset
+- HardwareAsset (key: asset_tag; properties: asset_tag*: string, name: string, status: string (one of: in_stock, in_use, in_repair, retired), purchase_date: date, cost: float (purchase cost of the asset (for a licence: the line total), in the document's currency), hardware_type: string (one of: laptop, desktop, server, network), manufacturer: string, model: string, serial_number: string) is-a Asset
 - (HardwareAsset)-[:ASSIGNED_TO]->(Department) many_to_one
 ```
 

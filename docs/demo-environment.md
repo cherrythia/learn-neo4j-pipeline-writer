@@ -75,7 +75,7 @@ uv run python -m demo_env.samples    # samples/*.pdf, samples/*.xlsx
 ```
 
 A test fails if the committed seed file is out of date. MySQL runs the init scripts only on
-first start; after changing data run `docker compose down -v` to reset the volumes. 
+first start; after changing data run `docker compose down -v` to reset the volumes.
 
 **Upgrading from the compliance demo (before #41).** An existing stack still has the old
 `demo_compliance` schema, and the governance store still has the compliance ontology

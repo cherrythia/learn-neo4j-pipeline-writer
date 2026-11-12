@@ -104,7 +104,7 @@ def test_output_schema_restricts_names_to_published_ontology() -> None:
 
 # ------------------------------------------------------------------ extraction
 
-PAGE_EVIDENCE = {"locator": "page 1", "quote": "HW-25-0101 Laptop, Corvane (Demo) Aero 14"}
+PAGE_EVIDENCE = {"locator": "page 1", "quote": "HW-25-0101 Laptop, Corvane (Demo) Strata 14"}
 
 
 def answer(**overrides: Any) -> dict[str, Any]:
