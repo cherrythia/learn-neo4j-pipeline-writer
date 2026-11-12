@@ -1,8 +1,8 @@
 """Writing accepted facts to the graph, with provenance, atomically per run (ADR-0010).
 
 Every written fact carries ``ontology_version``, ``score``, ``run_id`` and ``ingested_at``.
-Entities are MERGEd on their identity key and also get their taxonomy parents' labels (an
-Issuer node is also an Organisation). Evidence becomes ``(:Evidence)-[:FROM]->(:Source)``:
+Entities are MERGEd on their identity key and also get their taxonomy parents' labels (a
+HardwareAsset node is also an Asset). Evidence becomes ``(:Evidence)-[:FROM]->(:Source)``:
 entities link to it with ``SUPPORTED_BY``; relationships (which can't point at nodes) keep
 the evidence ids in an ``evidence_ids`` list property.
 

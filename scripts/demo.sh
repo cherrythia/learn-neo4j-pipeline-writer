@@ -6,7 +6,7 @@
 #   WRITER_DEMO_PORT=8123 ./scripts/demo.sh
 #
 # Steps (each one is checked; the script exits non-zero on the first surprise):
-#   1. upload the sample annual report PDF      POST /ingest/documents
+#   1. upload the sample vendor invoice PDF     POST /ingest/documents
 #   2. the reviewer reads the review queue      GET  /api/review
 #   3. the reviewer approves one fact           POST /api/review/{id}/approve
 #   4. the admin drafts + approves a mapping    POST /api/mappings/suggest/1, /approve
@@ -24,7 +24,7 @@ export WRITER_DEMO_ADMIN_PASSWORD="demo-admin-$RANDOM-$RANDOM"
 export WRITER_DEMO_REVIEWER_PASSWORD="demo-reviewer-$RANDOM-$RANDOM"
 export WRITER_DEMO_INGEST_API_KEY="demo-ingest-$RANDOM-$RANDOM-$RANDOM"
 CSRF="X-Requested-With: writer-admin"
-PDF="samples/aurora_pacific_annual_report_2025.pdf"
+PDF="samples/meridian_invoice_INV-2025-0418.pdf"
 
 fail() { echo "FAIL: $*" >&2; [ -f "$WORK/server.log" ] && tail -20 "$WORK/server.log" >&2; exit 1; }
 json() { python3 -c "import json, sys; d = json.load(sys.stdin); print($1)"; }

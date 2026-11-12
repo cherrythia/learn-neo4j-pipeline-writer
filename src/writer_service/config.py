@@ -49,7 +49,7 @@ class Settings(BaseSettings):
     superset_url: str = "http://127.0.0.1:8088"
     superset_username: str = "admin"
     superset_password: SecretStr = SecretStr("change-me")
-    source_db_url: str = "mysql+pymysql://reader:change-me@127.0.0.1:3306/demo_compliance"
+    source_db_url: str = "mysql+pymysql://reader:change-me@127.0.0.1:3306/demo_itam"
     max_rows_per_sync: int = Field(default=10_000, ge=1, le=1_000_000)
 
     @model_validator(mode="after")

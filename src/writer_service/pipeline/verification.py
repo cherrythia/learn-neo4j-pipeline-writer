@@ -51,7 +51,7 @@ def _norm(text: str) -> str:
 
 GROUNDING_FLOOR = 0.5  # raw similarity at or below this is noise, not partial support
 ALTERED_CAP = 0.1  # a quote that changes a number, name or negation is not grounded
-# Words, numbers with separators (1,200,000 / 31.12.2025 / LR-705) and contractions (didn't).
+# Words, numbers with separators (1,200,000 / 31.12.2025 / HW-25-0101) and contractions (didn't).
 _TOKEN = re.compile(r"\w[\w\-./',]*")
 _NEGATIONS = {"not", "no", "never", "without", "none", "neither", "nor", "cannot"}
 
@@ -140,7 +140,7 @@ def grounding_score(quote: str, source_text: str | None) -> float:
     """How well the source text supports ``quote``, in [0, 1]. "It can miss, never invent":
 
     * **1.0 only for a verbatim quote**: after Unicode/typography/whitespace/case
-      normalisation, on word *and number* boundaries ("LR-70" is not inside "LR-705",
+      normalisation, on word *and number* boundaries ("HW-25-010" is not inside "HW-25-0101",
       "$1,200" not inside "$1,200,000", "2025" not inside "2025/26"), not directly preceded
       by a negation the quote drops ("did not | comply" → 0.1), and with no such negation
       earlier in the same sentence ("did not, in all respects, comply" → 0.5). If the quote
@@ -206,9 +206,10 @@ def describe(candidate: AnyCandidate) -> str:
 
 BACK_TRANSLATION_PROMPT = PromptTemplate(
     name="back_translation",
-    version=1,
+    version=2,
     system=(
-        "You verify extracted facts against source quotes for a compliance knowledge graph. "
+        "You verify extracted facts against source quotes for an IT asset management "
+        "knowledge graph. "
         "Judge only from the quotes given; do not use outside knowledge. A fact is supported "
         "only if the quotes state it (paraphrase is fine; inference beyond the text is not)."
     ),

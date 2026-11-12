@@ -1,0 +1,667 @@
+{
+  "data": {
+    "entities": [
+      {
+        "class_name": "Vendor",
+        "confidence": 0.9,
+        "evidence": [
+          {
+            "locator": "page 1",
+            "quote": "Meridian Systems Supply (Demo), 12 Kallang Way #04-18, Singapore"
+          }
+        ],
+        "properties": [
+          {
+            "name": "name",
+            "value": "Meridian Systems Supply (Demo)"
+          },
+          {
+            "name": "country",
+            "value": "Singapore"
+          }
+        ]
+      },
+      {
+        "class_name": "Invoice",
+        "confidence": 0.9,
+        "evidence": [
+          {
+            "locator": "page 1",
+            "quote": "Invoice number: INV-2025-0418"
+          },
+          {
+            "locator": "page 1",
+            "quote": "Invoice date: 3 November 2025"
+          },
+          {
+            "locator": "page 2",
+            "quote": "Total amount due: SGD 44,482.90"
+          }
+        ],
+        "properties": [
+          {
+            "name": "invoice_number",
+            "value": "INV-2025-0418"
+          },
+          {
+            "name": "invoice_date",
+            "value": "2025-11-03"
+          },
+          {
+            "name": "total_amount",
+            "value": "44482.90"
+          },
+          {
+            "name": "currency",
+            "value": "SGD"
+          }
+        ]
+      },
+      {
+        "class_name": "Department",
+        "confidence": 0.9,
+        "evidence": [
+          {
+            "locator": "page 3",
+            "quote": "Finance (FIN)"
+          }
+        ],
+        "properties": [
+          {
+            "name": "dept_code",
+            "value": "FIN"
+          },
+          {
+            "name": "name",
+            "value": "Finance"
+          }
+        ]
+      },
+      {
+        "class_name": "Department",
+        "confidence": 0.9,
+        "evidence": [
+          {
+            "locator": "page 3",
+            "quote": "Engineering (ENG)"
+          }
+        ],
+        "properties": [
+          {
+            "name": "dept_code",
+            "value": "ENG"
+          },
+          {
+            "name": "name",
+            "value": "Engineering"
+          }
+        ]
+      },
+      {
+        "class_name": "Department",
+        "confidence": 0.9,
+        "evidence": [
+          {
+            "locator": "page 3",
+            "quote": "IT Services (ITS)"
+          }
+        ],
+        "properties": [
+          {
+            "name": "dept_code",
+            "value": "ITS"
+          },
+          {
+            "name": "name",
+            "value": "IT Services"
+          }
+        ]
+      },
+      {
+        "class_name": "HardwareAsset",
+        "confidence": 0.9,
+        "evidence": [
+          {
+            "locator": "page 1",
+            "quote": "HW-25-0101 Laptop, Corvane (Demo) Aero 14, S/N CVA14-8F2K91"
+          }
+        ],
+        "properties": [
+          {
+            "name": "asset_tag",
+            "value": "HW-25-0101"
+          },
+          {
+            "name": "hardware_type",
+            "value": "laptop"
+          },
+          {
+            "name": "manufacturer",
+            "value": "Corvane (Demo)"
+          },
+          {
+            "name": "model",
+            "value": "Aero 14"
+          },
+          {
+            "name": "serial_number",
+            "value": "CVA14-8F2K91"
+          },
+          {
+            "name": "cost",
+            "value": "2150.00"
+          }
+        ]
+      },
+      {
+        "class_name": "HardwareAsset",
+        "confidence": 0.9,
+        "evidence": [
+          {
+            "locator": "page 1",
+            "quote": "HW-25-0102 Laptop, Corvane (Demo) Aero 14, S/N CVA14-8F2K94"
+          }
+        ],
+        "properties": [
+          {
+            "name": "asset_tag",
+            "value": "HW-25-0102"
+          },
+          {
+            "name": "hardware_type",
+            "value": "laptop"
+          },
+          {
+            "name": "manufacturer",
+            "value": "Corvane (Demo)"
+          },
+          {
+            "name": "model",
+            "value": "Aero 14"
+          },
+          {
+            "name": "serial_number",
+            "value": "CVA14-8F2K94"
+          },
+          {
+            "name": "cost",
+            "value": "2150.00"
+          }
+        ]
+      },
+      {
+        "class_name": "HardwareAsset",
+        "confidence": 0.9,
+        "evidence": [
+          {
+            "locator": "page 1",
+            "quote": "HW-25-0103 Laptop, Corvane (Demo) Aero 16, S/N CVA16-3M7Q05"
+          }
+        ],
+        "properties": [
+          {
+            "name": "asset_tag",
+            "value": "HW-25-0103"
+          },
+          {
+            "name": "hardware_type",
+            "value": "laptop"
+          },
+          {
+            "name": "manufacturer",
+            "value": "Corvane (Demo)"
+          },
+          {
+            "name": "model",
+            "value": "Aero 16"
+          },
+          {
+            "name": "serial_number",
+            "value": "CVA16-3M7Q05"
+          },
+          {
+            "name": "cost",
+            "value": "2890.00"
+          }
+        ]
+      },
+      {
+        "class_name": "HardwareAsset",
+        "confidence": 0.9,
+        "evidence": [
+          {
+            "locator": "page 1",
+            "quote": "HW-25-0110 Server, Halden Compute (Demo) R640X, S/N HDR-77120-A"
+          }
+        ],
+        "properties": [
+          {
+            "name": "asset_tag",
+            "value": "HW-25-0110"
+          },
+          {
+            "name": "hardware_type",
+            "value": "server"
+          },
+          {
+            "name": "manufacturer",
+            "value": "Halden Compute (Demo)"
+          },
+          {
+            "name": "model",
+            "value": "R640X"
+          },
+          {
+            "name": "serial_number",
+            "value": "HDR-77120-A"
+          },
+          {
+            "name": "cost",
+            "value": "14800.00"
+          }
+        ]
+      },
+      {
+        "class_name": "HardwareAsset",
+        "confidence": 0.9,
+        "evidence": [
+          {
+            "locator": "page 1",
+            "quote": "HW-25-0120 Network switch, Tessel Networks (Demo) SW-48, S/N TSW48-00931"
+          }
+        ],
+        "properties": [
+          {
+            "name": "asset_tag",
+            "value": "HW-25-0120"
+          },
+          {
+            "name": "hardware_type",
+            "value": "network"
+          },
+          {
+            "name": "manufacturer",
+            "value": "Tessel Networks (Demo)"
+          },
+          {
+            "name": "model",
+            "value": "SW-48"
+          },
+          {
+            "name": "serial_number",
+            "value": "TSW48-00931"
+          },
+          {
+            "name": "cost",
+            "value": "3420.00"
+          }
+        ]
+      },
+      {
+        "class_name": "SoftwareLicense",
+        "confidence": 0.9,
+        "evidence": [
+          {
+            "locator": "page 2",
+            "quote": "SL-25-0201 Quillstack Docs (SW-QDOC), subscription licence, 50 seats"
+          },
+          {
+            "locator": "page 3",
+            "quote": "Licence SL-25-0201 is allocated to Engineering (ENG) and expires on 31 October 2026"
+          }
+        ],
+        "properties": [
+          {
+            "name": "asset_tag",
+            "value": "SL-25-0201"
+          },
+          {
+            "name": "license_type",
+            "value": "subscription"
+          },
+          {
+            "name": "seats",
+            "value": "50"
+          },
+          {
+            "name": "expiry_date",
+            "value": "2026-10-31"
+          }
+        ]
+      },
+      {
+        "class_name": "SoftwareLicense",
+        "confidence": 0.9,
+        "evidence": [
+          {
+            "locator": "page 2",
+            "quote": "SL-25-0202 Ledgerline Accounting (SW-LEDG), subscription licence, 10 seats"
+          },
+          {
+            "locator": "page 3",
+            "quote": "Licence SL-25-0202 is allocated to Finance (FIN) and expires on 31 October 2026"
+          }
+        ],
+        "properties": [
+          {
+            "name": "asset_tag",
+            "value": "SL-25-0202"
+          },
+          {
+            "name": "license_type",
+            "value": "subscription"
+          },
+          {
+            "name": "seats",
+            "value": "10"
+          },
+          {
+            "name": "expiry_date",
+            "value": "2026-10-31"
+          }
+        ]
+      },
+      {
+        "class_name": "Software",
+        "confidence": 0.9,
+        "evidence": [
+          {
+            "locator": "page 2",
+            "quote": "Quillstack Docs (SW-QDOC)"
+          }
+        ],
+        "properties": [
+          {
+            "name": "software_id",
+            "value": "SW-QDOC"
+          },
+          {
+            "name": "name",
+            "value": "Quillstack Docs"
+          }
+        ]
+      },
+      {
+        "class_name": "Software",
+        "confidence": 0.9,
+        "evidence": [
+          {
+            "locator": "page 2",
+            "quote": "Ledgerline Accounting (SW-LEDG)"
+          }
+        ],
+        "properties": [
+          {
+            "name": "software_id",
+            "value": "SW-LEDG"
+          },
+          {
+            "name": "name",
+            "value": "Ledgerline Accounting"
+          }
+        ]
+      },
+      {
+        "class_name": "HardwareAsset",
+        "confidence": 0.9,
+        "evidence": [
+          {
+            "locator": "page 1",
+            "quote": "HW-25-0104 Laptop, Corvane (Demo) Aero 14"
+          }
+        ],
+        "properties": [
+          {
+            "name": "asset_tag",
+            "value": "HW-25-0104"
+          },
+          {
+            "name": "hardware_type",
+            "value": "laptop"
+          }
+        ]
+      }
+    ],
+    "relations": [
+      {
+        "confidence": 0.85,
+        "evidence": [
+          {
+            "locator": "page 1",
+            "quote": "Tax Invoice INV-2025-0418 Meridian Systems Supply (Demo)"
+          }
+        ],
+        "relation": "ISSUED_BY",
+        "source_class": "Invoice",
+        "source_key": "INV-2025-0418",
+        "target_class": "Vendor",
+        "target_key": "Meridian Systems Supply (Demo)"
+      },
+      {
+        "confidence": 0.85,
+        "evidence": [
+          {
+            "locator": "page 3",
+            "quote": "All items on invoice INV-2025-0418 were delivered and tagged"
+          }
+        ],
+        "relation": "BILLED_ON",
+        "source_class": "HardwareAsset",
+        "source_key": "HW-25-0101",
+        "target_class": "Invoice",
+        "target_key": "INV-2025-0418"
+      },
+      {
+        "confidence": 0.85,
+        "evidence": [
+          {
+            "locator": "page 3",
+            "quote": "All items on invoice INV-2025-0418 were delivered and tagged"
+          }
+        ],
+        "relation": "BILLED_ON",
+        "source_class": "HardwareAsset",
+        "source_key": "HW-25-0102",
+        "target_class": "Invoice",
+        "target_key": "INV-2025-0418"
+      },
+      {
+        "confidence": 0.85,
+        "evidence": [
+          {
+            "locator": "page 3",
+            "quote": "All items on invoice INV-2025-0418 were delivered and tagged"
+          }
+        ],
+        "relation": "BILLED_ON",
+        "source_class": "HardwareAsset",
+        "source_key": "HW-25-0103",
+        "target_class": "Invoice",
+        "target_key": "INV-2025-0418"
+      },
+      {
+        "confidence": 0.85,
+        "evidence": [
+          {
+            "locator": "page 3",
+            "quote": "All items on invoice INV-2025-0418 were delivered and tagged"
+          }
+        ],
+        "relation": "BILLED_ON",
+        "source_class": "HardwareAsset",
+        "source_key": "HW-25-0110",
+        "target_class": "Invoice",
+        "target_key": "INV-2025-0418"
+      },
+      {
+        "confidence": 0.85,
+        "evidence": [
+          {
+            "locator": "page 3",
+            "quote": "All items on invoice INV-2025-0418 were delivered and tagged"
+          }
+        ],
+        "relation": "BILLED_ON",
+        "source_class": "HardwareAsset",
+        "source_key": "HW-25-0120",
+        "target_class": "Invoice",
+        "target_key": "INV-2025-0418"
+      },
+      {
+        "confidence": 0.85,
+        "evidence": [
+          {
+            "locator": "page 3",
+            "quote": "All items on invoice INV-2025-0418 were delivered and tagged"
+          }
+        ],
+        "relation": "BILLED_ON",
+        "source_class": "SoftwareLicense",
+        "source_key": "SL-25-0201",
+        "target_class": "Invoice",
+        "target_key": "INV-2025-0418"
+      },
+      {
+        "confidence": 0.85,
+        "evidence": [
+          {
+            "locator": "page 3",
+            "quote": "All items on invoice INV-2025-0418 were delivered and tagged"
+          }
+        ],
+        "relation": "BILLED_ON",
+        "source_class": "SoftwareLicense",
+        "source_key": "SL-25-0202",
+        "target_class": "Invoice",
+        "target_key": "INV-2025-0418"
+      },
+      {
+        "confidence": 0.85,
+        "evidence": [
+          {
+            "locator": "page 3",
+            "quote": "Laptop HW-25-0101 is assigned to Finance (FIN)"
+          }
+        ],
+        "relation": "ASSIGNED_TO",
+        "source_class": "HardwareAsset",
+        "source_key": "HW-25-0101",
+        "target_class": "Department",
+        "target_key": "FIN"
+      },
+      {
+        "confidence": 0.85,
+        "evidence": [
+          {
+            "locator": "page 3",
+            "quote": "Laptop HW-25-0102 is assigned to Engineering (ENG)"
+          }
+        ],
+        "relation": "ASSIGNED_TO",
+        "source_class": "HardwareAsset",
+        "source_key": "HW-25-0102",
+        "target_class": "Department",
+        "target_key": "ENG"
+      },
+      {
+        "confidence": 0.85,
+        "evidence": [
+          {
+            "locator": "page 3",
+            "quote": "Laptop HW-25-0103 is assigned to Engineering (ENG)"
+          }
+        ],
+        "relation": "ASSIGNED_TO",
+        "source_class": "HardwareAsset",
+        "source_key": "HW-25-0103",
+        "target_class": "Department",
+        "target_key": "ENG"
+      },
+      {
+        "confidence": 0.85,
+        "evidence": [
+          {
+            "locator": "page 3",
+            "quote": "Server HW-25-0110 is assigned to IT Services (ITS)"
+          }
+        ],
+        "relation": "ASSIGNED_TO",
+        "source_class": "HardwareAsset",
+        "source_key": "HW-25-0110",
+        "target_class": "Department",
+        "target_key": "ITS"
+      },
+      {
+        "confidence": 0.85,
+        "evidence": [
+          {
+            "locator": "page 3",
+            "quote": "Network switch HW-25-0120 is assigned to IT Services (ITS)"
+          }
+        ],
+        "relation": "ASSIGNED_TO",
+        "source_class": "HardwareAsset",
+        "source_key": "HW-25-0120",
+        "target_class": "Department",
+        "target_key": "ITS"
+      },
+      {
+        "confidence": 0.85,
+        "evidence": [
+          {
+            "locator": "page 2",
+            "quote": "SL-25-0201 Quillstack Docs (SW-QDOC), subscription licence, 50 seats"
+          }
+        ],
+        "relation": "LICENSES",
+        "source_class": "SoftwareLicense",
+        "source_key": "SL-25-0201",
+        "target_class": "Software",
+        "target_key": "SW-QDOC"
+      },
+      {
+        "confidence": 0.85,
+        "evidence": [
+          {
+            "locator": "page 2",
+            "quote": "SL-25-0202 Ledgerline Accounting (SW-LEDG), subscription licence, 10 seats"
+          }
+        ],
+        "relation": "LICENSES",
+        "source_class": "SoftwareLicense",
+        "source_key": "SL-25-0202",
+        "target_class": "Software",
+        "target_key": "SW-LEDG"
+      },
+      {
+        "confidence": 0.85,
+        "evidence": [
+          {
+            "locator": "page 3",
+            "quote": "Licence SL-25-0201 is allocated to Engineering (ENG) and expires on 31 October 2026"
+          }
+        ],
+        "relation": "ALLOCATED_TO",
+        "source_class": "SoftwareLicense",
+        "source_key": "SL-25-0201",
+        "target_class": "Department",
+        "target_key": "ENG"
+      },
+      {
+        "confidence": 0.85,
+        "evidence": [
+          {
+            "locator": "page 3",
+            "quote": "Licence SL-25-0202 is allocated to Finance (FIN) and expires on 31 October 2026"
+          }
+        ],
+        "relation": "ALLOCATED_TO",
+        "source_class": "SoftwareLicense",
+        "source_key": "SL-25-0202",
+        "target_class": "Department",
+        "target_key": "FIN"
+      }
+    ]
+  },
+  "model": "claude-sonnet-5-5"
+}

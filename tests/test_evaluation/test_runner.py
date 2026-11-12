@@ -17,11 +17,25 @@ ROOT = Path(__file__).resolve().parents[2]
 def test_self_consistency_repairs_imperfect_runs() -> None:
     llm = StructuredLLM(FakeLLM({EXTRACTION_PROMPT.name: RUNS}), InMemoryCache())
     report = evaluate(llm, ROOT / GOLDEN, 3, ROOT)
-    assert report.per_run[0].false_positives == 1  # invented LR-999
-    assert report.per_run[1].false_negatives == 2  # missed LR-707 and its CITES
+    assert report.per_run[0].false_positives == 1  # invented laptop HW-25-0104
+    assert report.per_run[1].false_negatives == 3  # missed HW-25-0103, BILLED_ON, ASSIGNED_TO
     assert report.per_run[2].f1 == 1.0
     assert (report.voted.precision, report.voted.recall) == (1.0, 1.0)
-    assert 0.8 < report.agreement < 0.9
+    assert report.voted.attribute_accuracy == 1.0
+    assert 0.9 < report.agreement < 0.95
+
+
+def test_scripted_quotes_are_verbatim_in_the_sample_pdf() -> None:
+    """The stand-in answers are grounded: every quote is on the page it cites (so the demo's
+    document run never rejects them, and the golden set describes the real sample)."""
+    from writer_service.evaluation.runner import chunks_for, load_golden
+    from writer_service.pipeline.verification import grounding_score
+
+    pages = {c.locator: c.text for c in chunks_for(load_golden(ROOT / GOLDEN), ROOT)}
+    for run in RUNS[1:]:  # run 0 adds a hallucination on purpose
+        for fact in [*run["entities"], *run["relations"]]:
+            for ev in fact["evidence"]:
+                assert grounding_score(ev["quote"], pages[ev["locator"]]) == 1.0, ev
 
 
 def test_committed_recordings_are_up_to_date(tmp_path: Path) -> None:

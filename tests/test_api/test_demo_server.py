@@ -77,7 +77,7 @@ def test_generates_passwords_when_none_given(tmp_path: Path) -> None:
 
 def test_document_upload_runs_offline_with_scripted_extraction(demo: TestClient) -> None:
     """Issue #17: the demo extracts the sample PDF without an API key (scripted answers)."""
-    pdf = Path(__file__).resolve().parents[2] / "samples/aurora_pacific_annual_report_2025.pdf"
+    pdf = Path(__file__).resolve().parents[2] / "samples/meridian_invoice_INV-2025-0418.pdf"
     r = demo.post(
         "/ingest/documents",
         files={"file": (pdf.name, pdf.read_bytes(), "application/pdf")},

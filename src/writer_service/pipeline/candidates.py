@@ -24,7 +24,7 @@ class Evidence(BaseModel):
 
     source_type: SourceType
     source_ref: str = Field(min_length=1)  # file path or dataset id
-    locator: str = Field(min_length=1)  # "page 2", "sheet Checklist row 5", "row filing_id=X"
+    locator: str = Field(min_length=1)  # "page 2", "sheet Register row 5", "row asset_tag=X"
     quote: str = Field(min_length=1)  # the exact text/value the fact rests on
 
 

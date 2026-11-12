@@ -1,7 +1,7 @@
 """PDF and Excel ingestion: parse into anchored chunks, then extract candidate facts with an
 LLM that can only use the published ontology's vocabulary (ADR-0007).
 
-Anchors ("page 2", "sheet Checklist row 5") flow into every piece of evidence, so the
+Anchors ("page 2", "sheet Register row 5") flow into every piece of evidence, so the
 verification step can check each quote against the exact page or row it claims to come from.
 """
 
@@ -134,13 +134,14 @@ def render_ontology(spec: OntologySpec) -> str:
 
 EXTRACTION_PROMPT = PromptTemplate(
     name="document_extraction",
-    version=1,
+    version=2,
     system=(
-        "You extract facts for a compliance knowledge graph. Use ONLY the classes, properties "
-        "and relations in the ontology you are given. Extract only what the text states; never "
-        "infer or use outside knowledge. Every fact must cite evidence: the exact marker of the "
-        "chunk it comes from (e.g. 'page 2') and a short quote copied verbatim from that chunk. "
-        "Refer to entities in relations by their identity key value when the text gives it."
+        "You extract facts for an IT asset management knowledge graph. Use ONLY the "
+        "classes, properties and relations in the ontology you are given. Extract only what "
+        "the text states; never infer or use outside knowledge. Every fact must cite "
+        "evidence: the exact marker of the chunk it comes from (e.g. 'page 2') and a short "
+        "quote copied verbatim from that chunk. Refer to entities in relations by their "
+        "identity key value when the text gives it."
     ),
     user=(
         "Ontology:\n{ontology}\n\nDocument: {source_ref}\n\n{text}\n\n"

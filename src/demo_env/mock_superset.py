@@ -26,6 +26,8 @@ _DATABASE = {"id": 1, "database_name": SCHEMA, "backend": "mysql"}
 def _sql_type(py_type: Any) -> str:
     if py_type is int:
         return "INTEGER"
+    if py_type is float:
+        return "DECIMAL(10, 2)"
     if py_type is date:
         return "DATE"
     return "VARCHAR"

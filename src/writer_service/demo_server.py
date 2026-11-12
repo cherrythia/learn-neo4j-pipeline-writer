@@ -6,8 +6,8 @@ The real FastAPI app, with:
 - a temporary SQLite governance store (migrated, core ontology published),
 - an in-memory graph and graph schema instead of Neo4j,
 - a scripted ``FakeLLM`` instead of Claude (document extraction replays the golden-set stand-in
-  answers for the sample annual report, so uploading that PDF works offline),
-- the mock Superset API and the demo dataset rows (so mappings can be suggested and approved),
+  answers for the sample vendor invoice, so uploading that PDF works offline),
+- the mock Superset API and the demo CMDB rows (so mappings can be suggested and approved),
 - users ``alice`` (admin) and ``rita`` (reviewer),
 - a few ingested candidates waiting in the review queue (one of them a conflict).
 
@@ -69,15 +69,15 @@ _LLM_SCRIPTS: dict[str, Any] = {
     BACK_TRANSLATION_PROMPT.name: [
         {"agrees": True, "score": 0.5, "explanation": "plausible, not certain"}
     ],
-    # Three self-consistency runs: one invents a rule, one misses one, voting repairs both.
+    # Three self-consistency runs: one invents an asset, one misses one, voting repairs both.
     EXTRACTION_PROMPT.name: SCRIPTED_EXTRACTION,
     MAPPING_PROMPT.name: [
         {
             "entities": [
                 {
-                    "class_name": "Issuer",
+                    "class_name": "Department",
                     "columns": [
-                        {"property": "ticker", "column": "ticker"},
+                        {"property": "dept_code", "column": "dept_code"},
                         {"property": "name", "column": "name"},
                     ],
                 }
@@ -111,54 +111,56 @@ class DemoState:
 
 
 def _source_engine() -> Engine:
-    """The demo compliance rows in an in-memory SQLite, as the dataset reader expects."""
+    """The demo CMDB rows in an in-memory SQLite, as the dataset reader expects."""
     engine = create_engine(
         "sqlite://", poolclass=StaticPool, connect_args={"check_same_thread": False}
     )
 
     @event.listens_for(engine, "connect")
     def attach(dbapi_conn: Any, _: Any) -> None:
-        dbapi_conn.execute("ATTACH DATABASE ':memory:' AS demo_compliance")
+        dbapi_conn.execute("ATTACH DATABASE ':memory:' AS demo_itam")
 
     with engine.begin() as conn:
         raw: Any = conn.connection.dbapi_connection
-        sql = render_demo_inserts().replace("CREATE TABLE ", "CREATE TABLE demo_compliance.")
-        raw.executescript(sql.replace("INSERT INTO ", "INSERT INTO demo_compliance."))
+        sql = render_demo_inserts().replace("CREATE TABLE ", "CREATE TABLE demo_itam.")
+        raw.executescript(sql.replace("INSERT INTO ", "INSERT INTO demo_itam."))
     return engine
 
 
-def _issuer(ticker: str, name: str, source_type: Any, ref: str, locator: str) -> CandidateEntity:
+def _department(code: str, name: str, source_type: Any, ref: str, locator: str) -> CandidateEntity:
     return CandidateEntity(
-        class_name="Issuer",
-        properties={"ticker": ticker, "name": name},
+        class_name="Department",
+        properties={"dept_code": code, "name": name},
         evidence=[Evidence(source_type=source_type, source_ref=ref, locator=locator, quote=name)],
     )
 
 
 def seed(pipeline: WriterPipeline) -> None:
     """One committed fact, then document facts that need a human: two by score, one conflict."""
-    committed = _issuer("D05", "DBS Group Holdings", "superset", "dataset 1", "row ticker=D05")
+    committed = _department("ITS", "IT Services", "superset", "dataset 1", "row dept_code=ITS")
     pipeline.ingest(
         SourceBatch(
             "superset",
             "dataset 1",
-            [SourceText("dataset 1", "row ticker=D05", "D05 DBS Group Holdings")],
+            [SourceText("dataset 1", "row dept_code=ITS", "ITS IT Services")],
             candidates=[committed],
         ),
         actor="demo",
     )
+    ref = "purchase-order.pdf"
     pages = [
-        ("page 1", _issuer("APH", "APH Holdings", "pdf", "annual-report.pdf", "page 1")),
-        ("page 2", _issuer("KEP", "Keppel Ltd", "pdf", "annual-report.pdf", "page 2")),
-        ("page 3", _issuer("D05", "DBS Bank", "pdf", "annual-report.pdf", "page 3")),
+        ("page 1", _department("FAC", "Facilities", "pdf", ref, "page 1")),
+        ("page 2", _department("PRC", "Procurement", "pdf", ref, "page 2")),
+        # same code, different name than the committed fact: a conflict
+        ("page 3", _department("ITS", "Information Technology", "pdf", ref, "page 3")),
     ]
     for locator, cand in pages:
         quote = cand.evidence[0].quote
         pipeline.ingest(
             SourceBatch(
                 "pdf",
-                "annual-report.pdf",
-                [SourceText("annual-report.pdf", locator, f"{quote} is listed on the exchange")],
+                ref,
+                [SourceText(ref, locator, f"Deliver to the {quote} department")],
                 extract=_always(cand),
             ),
             actor="demo",

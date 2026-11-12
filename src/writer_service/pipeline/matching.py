@@ -1,7 +1,7 @@
 """Entity matching: resolve what an extractor wrote to entities that already exist.
 
-LLMs often reference an entity by its name ("Aurora Pacific Holdings") rather than its identity
-key ("APH"), or propose an entity that duplicates an existing one under a new key. The matcher:
+LLMs often reference an entity by its name ("Quillstack Docs") rather than its identity
+key ("SW-QDOC"), or propose an entity that duplicates an existing one under a new key. The matcher:
 
 1. **exact** - the identity key exists (case-insensitive), confidence 1.0;
 2. **fuzzy** - the text closely matches the *name* (or *title*) of exactly one existing entity
@@ -51,8 +51,8 @@ def _norm(text: str) -> str:
 def name_similarity(a: str, b: str) -> float:
     """Average of token-set and token-sort similarity, in [0, 1].
 
-    Token-set alone scores a single shared word as a perfect match ("Pacific" vs "Aurora
-    Pacific Holdings"); averaging with token-sort keeps that low while still tolerating extra
+    Token-set alone scores a single shared word as a perfect match ("Docs" vs "Quillstack
+    Docs"); averaging with token-sort keeps that low while still tolerating extra
     words such as a "(Demo)" or "Ltd" suffix.
     """
     na, nb = _norm(a), _norm(b)

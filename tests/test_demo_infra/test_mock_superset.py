@@ -37,21 +37,29 @@ def test_dataset_requires_token(client: TestClient) -> None:
 
 def test_list_datasets(client: TestClient) -> None:
     body = client.get("/api/v1/dataset/", headers=login(client)).json()
-    assert body["count"] == len(DATASETS) == 4
-    names = {d["table_name"] for d in body["result"]}
-    assert names == {"issuers", "filings", "rules", "obligations"}
+    assert body["count"] == len(DATASETS) == 5
+    names = [d["table_name"] for d in body["result"]]
+    assert names == ["departments", "assets", "software", "applications", "software_installs"]
 
 
 def test_get_dataset_shape_matches_superset(client: TestClient) -> None:
     body = client.get("/api/v1/dataset/1", headers=login(client)).json()
     result = body["result"]
     assert result["id"] == 1
-    assert result["table_name"] == "issuers"
-    assert result["schema"] == "demo_compliance"
+    assert result["table_name"] == "departments"
+    assert result["schema"] == "demo_itam"
     assert result["database"]["backend"] == "mysql"
     assert result["sql"] is None
-    cols = {c["column_name"] for c in result["columns"]}
-    assert {"issuer_id", "name", "board"} <= cols
+    assert [c["column_name"] for c in result["columns"]] == ["dept_code", "name"]
+
+
+def test_column_types_follow_the_demo_rows(client: TestClient) -> None:
+    result = client.get("/api/v1/dataset/2", headers=login(client)).json()["result"]
+    assert result["table_name"] == "assets"
+    types = {c["column_name"]: c["type"] for c in result["columns"]}
+    assert types["asset_tag"] == "VARCHAR"
+    assert types["purchase_date"] == "DATE"
+    assert types["cost"].startswith("DECIMAL")
 
 
 def test_dataset_columns_match_demo_rows(client: TestClient) -> None:
