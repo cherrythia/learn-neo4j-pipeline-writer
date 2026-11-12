@@ -131,15 +131,6 @@ def env(tmp_path: Path) -> Iterator[Env]:
 
 # --------------------------------------------------------------------------- permission matrix
 
-ADMIN_ONLY_PREFIXES = (
-    "/api/ontology/drafts",
-    "/api/ontology/rollback",
-    "/api/mappings",
-    "/api/audit",
-    "/api/users",
-)
-ADMIN_ONLY_SUFFIXES = ("/publish", "/approve", "/reject", "/rollback", "/classes", "/relations")
-
 
 def admin_routes(app: Any) -> list[tuple[str, str, str]]:
     """(method, path, required role) for every /api route except auth, from the OpenAPI schema
@@ -208,10 +199,87 @@ def test_reviewer_can_reach_reviewer_routes(env: Env) -> None:
         assert r.status_code not in (401, 403), (method, path, r.status_code)
 
 
-def test_writes_need_the_csrf_header(env: Env) -> None:
-    c = env.client("alice")
-    assert c.post("/api/ontology/drafts").status_code == 403
+def test_every_write_needs_the_csrf_header(env: Env) -> None:
+    c = env.client("alice")  # admin: may call every route, so only CSRF can refuse
+    writes = [(m, p) for m, p, _ in admin_routes(env.app) if m != "GET"]
+    assert len(writes) >= 15
+    for method, path in writes:
+        r = c.request(method, concrete(path), json={})
+        assert r.status_code == 403, (method, path, r.status_code)
+        assert "X-Requested-With" in r.text, (method, path, r.text)
     assert c.post("/api/ontology/drafts", headers=CSRF).status_code == 201
+
+
+def test_ontology_admin_works_without_an_llm_key(env: Env) -> None:
+    """Review round 1: ontology routes need Neo4j, not the LLM (default provider, no key)."""
+    del env.app.dependency_overrides[get_graph_schema]
+    c = env.client("alice")
+    assert c.post("/api/ontology/drafts", headers=CSRF).status_code == 201
+    env.app.state.neo4j_driver.close()
+
+
+def test_review_and_rollback_work_without_an_llm_key(env: Env) -> None:
+    """Review round 2: only LLM-backed routes may 503 when no key is configured."""
+    item = env.review_item()
+    del env.app.dependency_overrides[get_pipeline]
+    c = env.client("rita")
+    r = c.post(f"/api/review/{item}/reject", json={"note": "no"}, headers=CSRF)
+    assert r.status_code == 200, r.text
+    admin = env.client("alice")
+    r = admin.post("/api/runs/no-such-run/rollback", headers=CSRF)
+    assert r.status_code not in (500, 503), r.text
+    r = admin.post("/api/mappings/suggest/1", headers=CSRF)
+    assert r.status_code == 503 and "LLM" in r.json()["detail"]
+    env.app.state.neo4j_driver.close()
+
+
+def test_duplicate_property_names_are_422_not_500(env: Env) -> None:
+    """Review round 3: duplicates hit a unique constraint at commit time."""
+    c = env.client("alice")
+    v = c.post("/api/ontology/drafts", headers=CSRF).json()["version"]
+    two_ids = [{"name": "id"}, {"name": "id"}]
+    r = c.post(
+        f"/api/ontology/versions/{v}/classes",
+        json={"name": "Dup", "identity_key": "id", "properties": two_ids},
+        headers=CSRF,
+    )
+    assert r.status_code == 422 and "duplicate property names: id" in r.text
+    r = c.patch(
+        f"/api/ontology/versions/{v}/classes/Issuer",
+        json={"add_properties": [{"name": "zz"}, {"name": "zz"}]},
+        headers=CSRF,
+    )
+    assert r.status_code == 422 and "duplicate property names: zz" in r.text
+    r = c.post(
+        "/api/proposals",
+        json={
+            "kind": "class",
+            "payload": {"name": "Dup", "identity_key": "id", "properties": two_ids},
+        },
+        headers=CSRF,
+    )
+    assert r.status_code == 422
+
+
+def test_failed_proposal_approval_leaves_no_draft_and_stays_pending(env: Env) -> None:
+    c = env.client("alice")
+    bad = {
+        "kind": "class",
+        "payload": {
+            "name": "Branch",
+            "identity_key": "code",
+            "parent": "NoSuchClass",
+            "properties": [{"name": "code", "required": True}],
+        },
+    }
+    r = c.post("/api/proposals", json=bad, headers=CSRF)
+    assert r.status_code in (200, 201), r.text
+    pid = r.json()["id"]
+    r = c.post(f"/api/proposals/{pid}/approve", headers=CSRF)
+    assert r.status_code == 422, r.text
+    assert all(v["status"] != "draft" for v in c.get("/api/ontology/versions").json())
+    (p,) = [p for p in c.get("/api/proposals").json() if p["id"] == pid]
+    assert p["status"] == "pending"
 
 
 # --------------------------------------------------------------------------- ontology
@@ -331,6 +399,36 @@ def test_review_queue_list_approve(env: Env) -> None:
     }
     assert env.graph.node_properties("Issuer", "ticker", "APH") is not None
     assert c.post(f"/api/review/{item}/approve", headers=CSRF, json={}).status_code == 409
+
+
+def test_edit_then_approve(env: Env) -> None:
+    """Review round 4: the edit path. Malformed is 422 (item stays open), gate failure 409."""
+    from writer_service.governance.models import ReviewItem
+
+    item = env.review_item()
+    c = env.client("rita")
+    url = f"/api/review/{item}/approve"
+    for bad in ({"kind": "entity", "class_name": "Issuer"}, {"foo": 1}):
+        r = c.post(url, json={"edited": bad}, headers=CSRF)
+        assert r.status_code == 422, (bad, r.text)
+    unknown = {"kind": "entity", "class_name": "NoSuchClass", "properties": {"x": "1"}}
+    assert c.post(url, json={"edited": unknown}, headers=CSRF).status_code == 409
+    with UnitOfWork(env.engine) as uow:
+        assert uow.session.get(ReviewItem, item).status == "open"  # type: ignore[union-attr]
+    fixed = {
+        "kind": "entity",
+        "class_name": "Issuer",
+        "properties": {"ticker": "APH", "name": "APH Company"},
+        "evidence": [
+            {"source_type": "pdf", "source_ref": "a.pdf", "locator": "page 1", "quote": "APH Co"}
+        ],
+    }
+    r = c.post(url, json={"edited": fixed}, headers=CSRF)
+    assert r.status_code == 200, r.text
+    aph = env.graph.node_properties("Issuer", "ticker", "APH")
+    assert aph is not None and aph["name"] == "APH Company"
+    with UnitOfWork(env.engine) as uow:
+        assert uow.session.get(ReviewItem, item).status == "edited"  # type: ignore[union-attr]
 
 
 def test_review_reject_with_note(env: Env) -> None:
