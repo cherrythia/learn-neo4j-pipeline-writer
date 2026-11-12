@@ -22,7 +22,7 @@ echo "ok   reader is read-only"
 
 fks=$(sql -ureader -p"$MYSQL_READER_PASSWORD" -e \
   "SELECT COUNT(*) FROM information_schema.REFERENTIAL_CONSTRAINTS WHERE CONSTRAINT_SCHEMA='demo_itam'")
-[ "$fks" = "4" ] || fail "expected 4 foreign keys in demo_itam, got $fks"
+[ "$fks" = "8" ] || fail "expected 8 foreign keys in demo_itam, got $fks"
 echo "ok   foreign keys enforced"
 
 sql -uwriter -p"$MYSQL_WRITER_PASSWORD" governance -e "CREATE TABLE _smoke(x INT); DROP TABLE _smoke;" \
@@ -34,7 +34,7 @@ token=$(curl -sf -X POST localhost:8088/api/v1/security/login -H 'content-type: 
   | python3 -c 'import sys, json; print(json.load(sys.stdin)["access_token"])') || fail "mock superset login"
 n=$(curl -sf localhost:8088/api/v1/dataset/ -H "Authorization: Bearer $token" \
   | python3 -c 'import sys, json; print(json.load(sys.stdin)["count"])')
-[ "$n" = "5" ] || fail "mock superset datasets: $n"
+[ "$n" = "7" ] || fail "mock superset datasets: $n"
 echo "ok   mock superset serves $n datasets"
 
 docker compose exec -T neo4j cypher-shell -u neo4j -p "$WRITER_NEO4J_PASSWORD" "RETURN 1" >/dev/null \

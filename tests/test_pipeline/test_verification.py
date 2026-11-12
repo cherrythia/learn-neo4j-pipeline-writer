@@ -23,7 +23,7 @@ from writer_service.pipeline.verification import (
 )
 
 PAGE1 = (
-    "Meridian Systems Supply (Demo) issued this invoice for the support period ended "
+    "Zorblax Systems Supply (Demo) issued this invoice for the support period ended "
     "31 December 2025 on 28 January 2026, for laptop HW-25-0101 assigned to Finance (FIN)."
 )
 
@@ -31,7 +31,7 @@ PAGE1 = (
 def ev(quote: str, locator: str = "page 1") -> Evidence:
     return Evidence(
         source_type="pdf",
-        source_ref="meridian_invoice_INV-2025-0418.pdf",
+        source_ref="zorblax_invoice_INV-2025-0418.pdf",
         locator=locator,
         quote=quote,
     )
@@ -84,8 +84,8 @@ def test_hallucinated_quote_scores_about_zero() -> None:
         "issued this invoice for the support period ended 31 December 2024",  # year
         "for laptop HW-25-0102 assigned to Finance",  # asset tag
         "Harbor Sync Supply (Demo) issued this invoice",  # other vendor
-        "Meridian Systems Supply (Demo) did not issue this invoice",  # negation
-        "Meridian Systems Supply (Demo) didn't issue this invoice",  # contraction
+        "Zorblax Systems Supply (Demo) did not issue this invoice",  # negation
+        "Zorblax Systems Supply (Demo) didn't issue this invoice",  # contraction
         "for the support period ended 31 December 2026",  # 2026 is elsewhere on the page
         "issued this invoice on 28 January 2025",  # 2025 is elsewhere on the page
         "for laptop HW-25-010 assigned to Finance",  # prefix of the real asset tag
@@ -109,7 +109,7 @@ def test_missing_source_text_scores_zero() -> None:
 
 
 def test_candidate_grounding_takes_best_evidence() -> None:
-    texts = DictSourceText({("meridian_invoice_INV-2025-0418.pdf", "page 1"): PAGE1})
+    texts = DictSourceText({("zorblax_invoice_INV-2025-0418.pdf", "page 1"): PAGE1})
     cand = department(
         evidence=[ev("made up words entirely"), ev("laptop HW-25-0101 assigned to Finance (FIN)")]
     )
@@ -304,8 +304,8 @@ def test_negation_just_outside_a_verbatim_quote_is_context(quote: str, source: s
 @pytest.mark.parametrize(
     "quote,source",
     [
-        ("Meridian did issue the invoice", "Meridian didn\u2019t issue the invoice."),
-        ("Meridian didn\u2019t issue the invoice", "Meridian did issue the invoice."),
+        ("Zorblax did issue the invoice", "Zorblax didn\u2019t issue the invoice."),
+        ("Zorblax didn\u2019t issue the invoice", "Zorblax did issue the invoice."),
     ],
 )
 def test_curly_apostrophe_contractions_are_negations(quote: str, source: str) -> None:
@@ -339,7 +339,7 @@ def test_one_word_changes_never_reach_commit_level_grounding(quote: str, source:
     "quote,source",
     [
         ("match purchase order 705", "The invoice did not match purchase order 705."),
-        ("issue the invoice", "Meridian didn\u2019t issue the invoice."),
+        ("issue the invoice", "Zorblax didn\u2019t issue the invoice."),
     ],
 )
 def test_verbatim_quote_dropping_a_preceding_negation_is_capped(quote: str, source: str) -> None:
@@ -366,12 +366,12 @@ def test_year_is_not_verbatim_inside_a_fiscal_range() -> None:
 
 @pytest.mark.parametrize("quote", ["\u00ad", "-", '"', "  ", "..."])
 def test_empty_or_punctuation_only_quotes_score_zero(quote: str) -> None:
-    assert grounding_score(quote, "Meridian issued the invoice .") == 0.0
+    assert grounding_score(quote, "Zorblax issued the invoice .") == 0.0
 
 
 def test_any_unnegated_occurrence_counts() -> None:
-    a = "Meridian did not issue the invoice in March. It did issue the invoice in April."
-    b = "It did issue the invoice in April. Meridian did not issue the invoice in March."
+    a = "Zorblax did not issue the invoice in March. It did issue the invoice in April."
+    b = "It did issue the invoice in April. Zorblax did not issue the invoice in March."
     assert grounding_score("issue the invoice", a) == 1.0
     assert grounding_score("issue the invoice", b) == 1.0
 

@@ -37,9 +37,17 @@ def test_dataset_requires_token(client: TestClient) -> None:
 
 def test_list_datasets(client: TestClient) -> None:
     body = client.get("/api/v1/dataset/", headers=login(client)).json()
-    assert body["count"] == len(DATASETS) == 5
+    assert body["count"] == len(DATASETS) == 7
     names = [d["table_name"] for d in body["result"]]
-    assert names == ["departments", "assets", "software", "applications", "software_installs"]
+    assert names == [
+        "departments",
+        "assets",
+        "software",
+        "applications",
+        "software_installs",
+        "application_hosts",
+        "application_software",
+    ]
 
 
 def test_get_dataset_shape_matches_superset(client: TestClient) -> None:

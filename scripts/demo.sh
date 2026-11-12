@@ -24,7 +24,7 @@ export WRITER_DEMO_ADMIN_PASSWORD="demo-admin-$RANDOM-$RANDOM"
 export WRITER_DEMO_REVIEWER_PASSWORD="demo-reviewer-$RANDOM-$RANDOM"
 export WRITER_DEMO_INGEST_API_KEY="demo-ingest-$RANDOM-$RANDOM-$RANDOM"
 CSRF="X-Requested-With: writer-admin"
-PDF="samples/meridian_invoice_INV-2025-0418.pdf"
+PDF="samples/zorblax_invoice_INV-2025-0418.pdf"
 
 fail() { echo "FAIL: $*" >&2; [ -f "$WORK/server.log" ] && tail -20 "$WORK/server.log" >&2; exit 1; }
 json() { python3 -c "import json, sys; d = json.load(sys.stdin); print($1)"; }

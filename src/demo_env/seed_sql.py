@@ -53,8 +53,30 @@ _DDL = {
   FOREIGN KEY (software_id) REFERENCES software(software_id),
   FOREIGN KEY (asset_tag) REFERENCES assets(asset_tag)
 );""",
+    "application_hosts": """CREATE TABLE application_hosts (
+  app_code VARCHAR(20) NOT NULL,
+  asset_tag VARCHAR(20) NOT NULL,
+  PRIMARY KEY (app_code, asset_tag),
+  FOREIGN KEY (app_code) REFERENCES applications(app_code),
+  FOREIGN KEY (asset_tag) REFERENCES assets(asset_tag)
+);""",
+    "application_software": """CREATE TABLE application_software (
+  app_code VARCHAR(20) NOT NULL,
+  software_id VARCHAR(20) NOT NULL,
+  PRIMARY KEY (app_code, software_id),
+  FOREIGN KEY (app_code) REFERENCES applications(app_code),
+  FOREIGN KEY (software_id) REFERENCES software(software_id)
+);""",
 }
-_ORDER = ["departments", "assets", "software", "applications", "software_installs"]
+_ORDER = [
+    "departments",
+    "assets",
+    "software",
+    "applications",
+    "software_installs",
+    "application_hosts",
+    "application_software",
+]
 
 
 def _literal(value: object) -> str:

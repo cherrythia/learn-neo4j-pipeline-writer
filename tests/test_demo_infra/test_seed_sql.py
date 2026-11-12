@@ -39,6 +39,8 @@ def test_inserts_load_and_preserve_counts() -> None:
         "software": len(data.SOFTWARE),
         "applications": len(data.APPLICATIONS),
         "software_installs": len(data.SOFTWARE_INSTALLS),
+        "application_hosts": len(data.APPLICATION_HOSTS),
+        "application_software": len(data.APPLICATION_SOFTWARE),
     }
 
 
@@ -64,6 +66,8 @@ def test_foreign_keys_declared_at_table_level() -> None:
     assert "FOREIGN KEY (dept_code) REFERENCES departments(dept_code)" in sql
     assert "FOREIGN KEY (owner_dept) REFERENCES departments(dept_code)" in sql
     assert "FOREIGN KEY (asset_tag) REFERENCES assets(asset_tag)" in sql
+    assert "FOREIGN KEY (app_code) REFERENCES applications(app_code)" in sql
+    assert sql.count("FOREIGN KEY") == 8  # scripts/smoke_demo.sh checks the same number
     conn = sqlite3.connect(":memory:")
     conn.execute("PRAGMA foreign_keys=ON")
     conn.executescript(render_demo_inserts())

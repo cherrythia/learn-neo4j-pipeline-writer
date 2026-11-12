@@ -92,3 +92,21 @@ def test_scripted_recordings_use_the_default_model() -> None:
     from writer_service.evaluation.scripted import MODEL
 
     assert Settings.model_fields["llm_model"].default == MODEL
+
+
+def test_scripted_answers_pass_the_schema_gate() -> None:
+    """Review round 1: values follow the prompt's normalisation (ISO dates, plain numbers,
+    enumerated hardware types), so the stand-in facts are not rejected on upload."""
+    from writer_service.ingestion.documents import DocumentExtractor, pdf_chunks
+    from writer_service.ontology.core import CORE_CLASSES, CORE_RELATIONS
+    from writer_service.ontology.spec import OntologySpec
+    from writer_service.pipeline.gates import schema_gate
+
+    spec = OntologySpec(CORE_CLASSES, CORE_RELATIONS)
+    llm = StructuredLLM(FakeLLM({EXTRACTION_PROMPT.name: RUNS}), InMemoryCache())
+    chunks = pdf_chunks(ROOT / "samples/zorblax_invoice_INV-2025-0418.pdf", source_ref="i.pdf")
+    candidates = DocumentExtractor(llm, spec, 1).extract(chunks)  # run 0: 31 facts + 1 invented
+    assert len(candidates) == 32
+    for c in candidates:
+        failures, _ = schema_gate(c, spec)
+        assert failures == [], (c, failures)

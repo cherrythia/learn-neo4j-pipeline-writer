@@ -106,3 +106,21 @@ def test_names_synced_from_the_cmdb_never_look_like_duplicates() -> None:
         for i, a in enumerate(names):
             for b in names[i + 1 :]:
                 assert name_similarity(a, b) < AMBIGUITY_FLOOR, (a, b)
+
+
+def test_every_core_relation_has_a_demo_source() -> None:
+    """RUNS_ON and USES come from the CMDB link tables (review round 1: they had no source)."""
+    apps = {a.app_code for a in data.APPLICATIONS}
+    servers = {a.asset_tag for a in data.HARDWARE if a.hardware_type == "server"}
+    software = {s.software_id for s in data.SOFTWARE}
+    assert data.APPLICATION_HOSTS and data.APPLICATION_SOFTWARE
+    assert all(h.app_code in apps and h.asset_tag in servers for h in data.APPLICATION_HOSTS)
+    assert all(u.app_code in apps and u.software_id in software for u in data.APPLICATION_SOFTWARE)
+    # every application runs somewhere; links are unique pairs
+    assert {h.app_code for h in data.APPLICATION_HOSTS} == apps
+    pairs = [(h.app_code, h.asset_tag) for h in data.APPLICATION_HOSTS]
+    assert len(pairs) == len(set(pairs))
+    uses = [(u.app_code, u.software_id) for u in data.APPLICATION_SOFTWARE]
+    assert len(uses) == len(set(uses))
+    retired = {a.asset_tag for a in data.HARDWARE if a.status == "retired"}
+    assert not retired & {h.asset_tag for h in data.APPLICATION_HOSTS}

@@ -67,9 +67,9 @@ def test_name_resolves_to_existing_key(matcher: EntityMatcher) -> None:
         (
             "Vendor",
             "name",
-            "Meridian Systems (Demo)",
-            "Meridian Systems (Demo)",
-            "Meridian Systems",
+            "Zorblax Systems (Demo)",
+            "Zorblax Systems (Demo)",
+            "Zorblax Systems",
         ),
     ],
 )
@@ -97,7 +97,7 @@ def test_unknown_is_new(matcher: EntityMatcher) -> None:
 
 
 def test_class_without_name_property_only_matches_exactly(matcher: EntityMatcher) -> None:
-    assert matcher.resolve("Invoice", "INV-2025-0418 (Meridian)").status == "new"
+    assert matcher.resolve("Invoice", "INV-2025-0418 (Zorblax)").status == "new"
     assert matcher.resolve("Invoice", "inv-2025-0418").status == "exact"
 
 

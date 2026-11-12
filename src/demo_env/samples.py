@@ -30,7 +30,7 @@ from demo_env.data import (
     software_by_id,
 )
 
-PDF_PATH = Path("samples/meridian_invoice_INV-2025-0418.pdf")
+PDF_PATH = Path("samples/zorblax_invoice_INV-2025-0418.pdf")
 XLSX_PATH = Path("samples/asset_register_2025.xlsx")
 # Fixed timestamp so regenerated files are byte-identical (no spurious git diffs).
 _FIXED_TS = datetime(2026, 1, 1, tzinfo=UTC)
@@ -87,7 +87,7 @@ def _pages() -> list[tuple[str, list[str]]]:
         (
             f"Tax Invoice {INVOICE_NUMBER}",
             [
-                f"{VENDOR_NAME}, 12 Kallang Way #04-18, {VENDOR_COUNTRY} 349221. "
+                f"{VENDOR_NAME}, 1 Example Way, Demo City 000000, {VENDOR_COUNTRY}. "
                 "This invoice is fictional and for demonstration only.",
                 f"Invoice number: {INVOICE_NUMBER}",
                 f"Invoice date: {long_date(INVOICE_DATE)}",
@@ -115,7 +115,7 @@ def _pages() -> list[tuple[str, list[str]]]:
                 f"{long_date(INVOICE_DATE)}.",
                 *[assignment_line(i) for i in range(len(INVOICED_HARDWARE))],
                 *[allocation_line(i) for i in range(len(INVOICED_LICENSES))],
-                "Remit to Meridian Systems Supply (Demo). Questions: accounts@meridian.example.",
+                "Remit to Zorblax Systems Supply (Demo). Questions: accounts@zorblax.example.",
             ],
         ),
     ]

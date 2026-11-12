@@ -16,9 +16,9 @@ export const ITEM: ReviewItem = {
   created_at: "2026-11-01T10:00:00Z",
   run_id: "run-1",
   source_type: "pdf",
-  source_ref: "meridian_invoice_INV-2025-0418.pdf",
+  source_ref: "zorblax_invoice_INV-2025-0418.pdf",
   candidate: { kind: "entity", class_name: "Software", properties: { software_id: "SW-QDOC", name: "Quillstack Docs" } },
-  evidence: [{ source_type: "pdf", source_ref: "meridian_invoice_INV-2025-0418.pdf", locator: "page 1", quote: "Quillstack Docs" }],
+  evidence: [{ source_type: "pdf", source_ref: "zorblax_invoice_INV-2025-0418.pdf", locator: "page 1", quote: "Quillstack Docs" }],
   score: 0.7125,
   breakdown: {
     value: 0.7125,
@@ -183,8 +183,8 @@ test("switching items resets the edit form and reject note (review round 1)", as
   const other: ReviewItem = {
     ...ITEM,
     id: 8,
-    candidate: { kind: "entity", class_name: "Software", properties: { software_id: "SW-ORBT", name: "Orbit Endpoint Protection" } },
-    evidence: [{ source_type: "pdf", source_ref: "meridian_invoice_INV-2025-0418.pdf", locator: "page 2", quote: "Orbit Endpoint Protection" }],
+    candidate: { kind: "entity", class_name: "Software", properties: { software_id: "SW-ORBT", name: "Orbwyn Endpoint Guard" } },
+    evidence: [{ source_type: "pdf", source_ref: "zorblax_invoice_INV-2025-0418.pdf", locator: "page 2", quote: "Orbwyn Endpoint Guard" }],
   };
   const { calls } = renderWithApi(<ReviewPage />, {
     "GET /api/review": [ITEM, other],
@@ -197,7 +197,7 @@ test("switching items resets the edit form and reject note (review round 1)", as
   fireEvent.click(screen.getByTestId("review-row-8"));
   fireEvent.click(screen.getByRole("button", { name: "Edit then approve" }));
   const name = (await screen.findByLabelText("name")) as HTMLInputElement;
-  expect(name.value).toBe("Orbit Endpoint Protection");
+  expect(name.value).toBe("Orbwyn Endpoint Guard");
   fireEvent.click(screen.getByRole("button", { name: "Approve edited" }));
   await waitFor(() =>
     expect(calls.find((c) => c.path === "/api/review/8/approve")?.body).toEqual({

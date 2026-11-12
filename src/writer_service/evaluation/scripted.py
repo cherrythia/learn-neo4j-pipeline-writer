@@ -25,7 +25,7 @@ from writer_service.llm.structured import StructuredLLM
 from .runner import evaluate
 
 RECORDINGS = Path("evaluation/recordings")
-GOLDEN = Path("evaluation/golden/meridian_invoice_2025_0418.json")
+GOLDEN = Path("evaluation/golden/zorblax_invoice_2025_0418.json")
 LIVE_RECORDINGS = Path("evaluation/recordings-live")  # real answers from --mode live
 # Keyed under the default model, so a plain `writer-eval` replays them. (With WRITER_LLM_MODEL
 # set to something else, replay misses and fails loudly instead of scoring stale answers.)
@@ -60,33 +60,34 @@ def _rel(rel: str, sc: str, sk: str, tc: str, tk: str, *quotes: Quote) -> dict[s
 
 
 INVOICE = "INV-2025-0418"
-VENDOR = "Meridian Systems Supply (Demo)"
-_DELIVERED = (3, f"All items on invoice {INVOICE} were delivered and tagged")
+VENDOR = "Zorblax Systems Supply (Demo)"
+_INVOICE_LINE = (1, f"Invoice number: {INVOICE}")
 # (asset tag, type, manufacturer, model, serial, cost, department, invoice line, assignment line)
 _HARDWARE = [
     ("HW-25-0101", "laptop", "Corvane (Demo)", "Aero 14", "CVA14-8F2K91", "2150.00", "FIN",
-     "HW-25-0101 Laptop, Corvane (Demo) Aero 14, S/N CVA14-8F2K91",
+     "HW-25-0101 Laptop, Corvane (Demo) Aero 14, S/N CVA14-8F2K91, 1 x 2,150.00",
      "Laptop HW-25-0101 is assigned to Finance (FIN)"),
     ("HW-25-0102", "laptop", "Corvane (Demo)", "Aero 14", "CVA14-8F2K94", "2150.00", "ENG",
-     "HW-25-0102 Laptop, Corvane (Demo) Aero 14, S/N CVA14-8F2K94",
+     "HW-25-0102 Laptop, Corvane (Demo) Aero 14, S/N CVA14-8F2K94, 1 x 2,150.00",
      "Laptop HW-25-0102 is assigned to Engineering (ENG)"),
     ("HW-25-0103", "laptop", "Corvane (Demo)", "Aero 16", "CVA16-3M7Q05", "2890.00", "ENG",
-     "HW-25-0103 Laptop, Corvane (Demo) Aero 16, S/N CVA16-3M7Q05",
+     "HW-25-0103 Laptop, Corvane (Demo) Aero 16, S/N CVA16-3M7Q05, 1 x 2,890.00",
      "Laptop HW-25-0103 is assigned to Engineering (ENG)"),
-    ("HW-25-0110", "server", "Halden Compute (Demo)", "R640X", "HDR-77120-A", "14800.00", "ITS",
-     "HW-25-0110 Server, Halden Compute (Demo) R640X, S/N HDR-77120-A",
+    ("HW-25-0110", "server", "Haldrix Compute (Demo)", "R640X", "HDR-77120-A", "14800.00", "ITS",
+     "HW-25-0110 Server, Haldrix Compute (Demo) R640X, S/N HDR-77120-A, 1 x 14,800.00",
      "Server HW-25-0110 is assigned to IT Services (ITS)"),
-    ("HW-25-0120", "network", "Tessel Networks (Demo)", "SW-48", "TSW48-00931", "3420.00", "ITS",
-     "HW-25-0120 Network switch, Tessel Networks (Demo) SW-48, S/N TSW48-00931",
+    ("HW-25-0120", "network", "Tesselqo Networks (Demo)", "SW-48", "TSW48-00931", "3420.00", "ITS",
+     "HW-25-0120 Network switch, Tesselqo Networks (Demo) SW-48, S/N TSW48-00931, 1 x 3,420.00",
      "Network switch HW-25-0120 is assigned to IT Services (ITS)"),
 ]  # fmt: skip
-# (asset tag, software id, software name, seats, department, invoice line, allocation line)
+# (asset tag, software id, software name, seats, cost, department, invoice line, allocation line)
 _LICENSES = [
-    ("SL-25-0201", "SW-QDOC", "Quillstack Docs", "50", "ENG",
-     "SL-25-0201 Quillstack Docs (SW-QDOC), subscription licence, 50 seats",
+    ("SL-25-0201", "SW-QDOC", "Quillstack Docs", "50", "9000.00", "ENG",
+     "SL-25-0201 Quillstack Docs (SW-QDOC), subscription licence, 50 seats x 180.00 = 9,000.00",
      "Licence SL-25-0201 is allocated to Engineering (ENG) and expires on 31 October 2026"),
-    ("SL-25-0202", "SW-LEDG", "Ledgerline Accounting", "10", "FIN",
-     "SL-25-0202 Ledgerline Accounting (SW-LEDG), subscription licence, 10 seats",
+    ("SL-25-0202", "SW-LEDG", "Ledgerwisp Accounting", "10", "6400.00", "FIN",
+     "SL-25-0202 Ledgerwisp Accounting (SW-LEDG), subscription licence, "
+     "10 seats x 640.00 = 6,400.00",
      "Licence SL-25-0202 is allocated to Finance (FIN) and expires on 31 October 2026"),
 ]  # fmt: skip
 _DEPARTMENTS = [("FIN", "Finance"), ("ENG", "Engineering"), ("ITS", "IT Services")]
@@ -95,7 +96,7 @@ BASE_ENTITIES = [
     _ent(
         "Vendor",
         {"name": VENDOR, "country": "Singapore"},
-        (1, f"{VENDOR}, 12 Kallang Way #04-18, Singapore"),
+        (1, f"{VENDOR}, 1 Example Way, Demo City 000000, Singapore"),
     ),
     _ent(
         "Invoice",
@@ -133,26 +134,27 @@ BASE_ENTITIES = [
                 "license_type": "subscription",
                 "seats": seats,
                 "expiry_date": "2026-10-31",
+                "cost": cost,
             },
             (2, line),
             (3, alloc),
         )
-        for tag, _sw, _n, seats, _d, line, alloc in _LICENSES
+        for tag, _sw, _n, seats, cost, _d, line, alloc in _LICENSES
     ],
     *[
         _ent("Software", {"software_id": sw, "name": name}, (2, f"{name} ({sw})"))
-        for _t, sw, name, _s, _d, _l, _a in _LICENSES
+        for _t, sw, name, _s, _c, _d, _l, _a in _LICENSES
     ],
 ]
 BASE_RELATIONS = [
     _rel("ISSUED_BY", "Invoice", INVOICE, "Vendor", VENDOR, (1, f"Tax Invoice {INVOICE} {VENDOR}")),
     *[
-        _rel("BILLED_ON", "HardwareAsset", tag, "Invoice", INVOICE, _DELIVERED)
-        for tag, *_ in _HARDWARE
+        _rel("BILLED_ON", "HardwareAsset", tag, "Invoice", INVOICE, (1, line), _INVOICE_LINE)
+        for tag, _k, _m, _mo, _s, _c, _d, line, _a in _HARDWARE
     ],
     *[
-        _rel("BILLED_ON", "SoftwareLicense", tag, "Invoice", INVOICE, _DELIVERED)
-        for tag, *_ in _LICENSES
+        _rel("BILLED_ON", "SoftwareLicense", tag, "Invoice", INVOICE, (2, line), _INVOICE_LINE)
+        for tag, _sw, _n, _s, _c, _d, line, _a in _LICENSES
     ],
     *[
         _rel("ASSIGNED_TO", "HardwareAsset", tag, "Department", dept, (3, assigned))
@@ -160,11 +162,11 @@ BASE_RELATIONS = [
     ],
     *[
         _rel("LICENSES", "SoftwareLicense", tag, "Software", sw, (2, line))
-        for tag, sw, _n, _s, _d, line, _a in _LICENSES
+        for tag, sw, _n, _s, _c, _d, line, _a in _LICENSES
     ],
     *[
         _rel("ALLOCATED_TO", "SoftwareLicense", tag, "Department", dept, (3, alloc))
-        for tag, _sw, _n, _s, dept, _l, alloc in _LICENSES
+        for tag, _sw, _n, _s, _c, dept, _l, alloc in _LICENSES
     ],
 ]
 # Run 0 invents a fifth laptop; run 1 misses HW-25-0103 (the entity and both of its relations).

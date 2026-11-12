@@ -56,6 +56,22 @@ class SoftwareInstall:
     asset_tag: str
 
 
+@dataclass(frozen=True)
+class ApplicationHost:
+    """An application runs on a server (source of RUNS_ON)."""
+
+    app_code: str
+    asset_tag: str
+
+
+@dataclass(frozen=True)
+class ApplicationSoftware:
+    """An application uses a software product (source of USES)."""
+
+    app_code: str
+    software_id: str
+
+
 DEPARTMENTS: list[Department] = [
     Department("ITS", "IT Services"),
     Department("FIN", "Finance"),
@@ -73,8 +89,8 @@ _MODELS: dict[HardwareType, tuple[str, str, str]] = {
     # type: (manufacturer, model, serial prefix)
     "laptop": ("Corvane (Demo)", "Aero 14", "CVA14"),
     "desktop": ("Corvane (Demo)", "Tower 5", "CVT5"),
-    "server": ("Halden Compute (Demo)", "R640X", "HDR"),
-    "network": ("Tessel Networks (Demo)", "SW-48", "TSW48"),
+    "server": ("Haldrix Compute (Demo)", "R640X", "HDR"),
+    "network": ("Tesselqo Networks (Demo)", "SW-48", "TSW48"),
 }
 _PRICES: dict[HardwareType, float] = {
     "laptop": 2150.0,
@@ -145,11 +161,11 @@ def _fleet_asset(i: int) -> HardwareAsset:
 
 FLEET: list[HardwareAsset] = [_fleet_asset(i) for i in range(24)]
 
-# --- The vendor invoice (samples/meridian_invoice_INV-2025-0418.pdf) -------------------------
+# --- The vendor invoice (samples/zorblax_invoice_INV-2025-0418.pdf) -------------------------
 
-VENDOR_NAME = "Meridian Systems Supply (Demo)"
+VENDOR_NAME = "Zorblax Systems Supply (Demo)"
 VENDOR_COUNTRY = "Singapore"
-CUSTOMER_NAME = "Larkspur Analytics (Demo)"
+CUSTOMER_NAME = "Quintrel Analytics (Demo)"
 INVOICE_NUMBER = "INV-2025-0418"
 INVOICE_DATE = date(2025, 11, 3)
 CURRENCY = "SGD"
@@ -186,11 +202,11 @@ HARDWARE: list[HardwareAsset] = FLEET + INVOICED_HARDWARE
 
 SOFTWARE: list[Software] = [
     Software("SW-QDOC", "Quillstack Docs", "Quillstack (Demo)", "2025.2"),
-    Software("SW-LEDG", "Ledgerline Accounting", "Ledgerline (Demo)", "11.4"),
-    Software("SW-PGDB", "PolarGrid Database", "PolarGrid (Demo)", "16.3"),
-    Software("SW-ORBT", "Orbit Endpoint Protection", "Orbit Security (Demo)", "8.1"),
-    Software("SW-CNVS", "Canvasly Design", "Canvasly (Demo)", "4.0"),
-    Software("SW-TKTR", "Tickety Service Desk", "Tickety (Demo)", "3.7"),
+    Software("SW-LEDG", "Ledgerwisp Accounting", "Ledgerwisp (Demo)", "11.4"),
+    Software("SW-PGDB", "Pelloquin Database", "Pelloquin (Demo)", "16.3"),
+    Software("SW-ORBT", "Orbwyn Endpoint Guard", "Orbwyn Security (Demo)", "8.1"),
+    Software("SW-CNVS", "Canvazio Design", "Canvazio (Demo)", "4.0"),
+    Software("SW-TKTR", "Tickwhistle Service Desk", "Tickwhistle (Demo)", "3.7"),
 ]
 
 
@@ -259,12 +275,33 @@ def _installs() -> list[SoftwareInstall]:
             pairs.append(("SW-CNVS", hw.asset_tag))
         if hw.hardware_type == "server":
             pairs.append(("SW-PGDB", hw.asset_tag))
-    servers = [hw.asset_tag for hw in HARDWARE if hw.hardware_type == "server"]
-    pairs.append(("SW-TKTR", servers[0]))
+    pairs.append(("SW-TKTR", "HW-25-0110"))  # the service desk's server (APP-SDK)
     return [SoftwareInstall(i, sw, tag) for i, (sw, tag) in enumerate(pairs, start=1)]
 
 
 SOFTWARE_INSTALLS: list[SoftwareInstall] = _installs()
+
+APPLICATION_HOSTS: list[ApplicationHost] = [
+    ApplicationHost("APP-ERP", "HW-23-0005"),
+    ApplicationHost("APP-HRP", "HW-23-0011"),
+    ApplicationHost("APP-CRM", "HW-24-0017"),
+    ApplicationHost("APP-SDK", "HW-25-0110"),  # the new server from the sample invoice
+    ApplicationHost("APP-WEB", "HW-24-0023"),
+    ApplicationHost("APP-BIW", "HW-23-0011"),
+    ApplicationHost("APP-BIW", "HW-24-0023"),
+    ApplicationHost("APP-LGL", "HW-23-0005"),
+]
+APPLICATION_SOFTWARE: list[ApplicationSoftware] = [
+    ApplicationSoftware("APP-ERP", "SW-LEDG"),
+    ApplicationSoftware("APP-ERP", "SW-PGDB"),
+    ApplicationSoftware("APP-HRP", "SW-PGDB"),
+    ApplicationSoftware("APP-CRM", "SW-PGDB"),
+    ApplicationSoftware("APP-SDK", "SW-TKTR"),
+    ApplicationSoftware("APP-SDK", "SW-PGDB"),
+    ApplicationSoftware("APP-BIW", "SW-PGDB"),
+    ApplicationSoftware("APP-BIW", "SW-QDOC"),
+    ApplicationSoftware("APP-LGL", "SW-QDOC"),
+]
 
 # Dataset order = Superset dataset ids (1-based): dataset 1 is the departments table.
 TABLES: dict[str, type] = {
@@ -273,6 +310,8 @@ TABLES: dict[str, type] = {
     "software": Software,
     "applications": Application,
     "software_installs": SoftwareInstall,
+    "application_hosts": ApplicationHost,
+    "application_software": ApplicationSoftware,
 }
 ROWS: dict[str, list[object]] = {
     "departments": list(DEPARTMENTS),
@@ -280,6 +319,8 @@ ROWS: dict[str, list[object]] = {
     "software": list(SOFTWARE),
     "applications": list(APPLICATIONS),
     "software_installs": list(SOFTWARE_INSTALLS),
+    "application_hosts": list(APPLICATION_HOSTS),
+    "application_software": list(APPLICATION_SOFTWARE),
 }
 
 

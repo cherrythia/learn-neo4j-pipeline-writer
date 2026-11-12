@@ -29,13 +29,13 @@ EXTRACTED = {
         {
             "class_name": "Vendor",
             "properties": [
-                {"name": "name", "value": "Meridian Systems Supply (Demo)"},
+                {"name": "name", "value": "Zorblax Systems Supply (Demo)"},
                 {"name": "country", "value": "Singapore"},
             ],
             "evidence": [
                 {
                     "locator": "page 1",
-                    "quote": "Meridian Systems Supply (Demo), 12 Kallang Way #04-18, Singapore",
+                    "quote": "Zorblax Systems Supply (Demo), 1 Example Way, Demo City 000000",
                 }
             ],
             "confidence": 0.95,
@@ -92,7 +92,7 @@ def test_pdf_upload_runs_the_pipeline(client: TestClient) -> None:
     body = r.json()
     assert body["status"] == "completed" and body["counts"]["commit"] == 1
     graph = client.app.state.test_graph  # type: ignore[attr-defined]
-    assert graph.node_properties("Vendor", "name", "Meridian Systems Supply (Demo)") is not None
+    assert graph.node_properties("Vendor", "name", "Zorblax Systems Supply (Demo)") is not None
 
 
 def test_excel_upload_is_accepted(client: TestClient) -> None:
