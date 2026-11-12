@@ -5,9 +5,10 @@ key that missed the exact (uniqueness-indexed) match was looked up with
 ``toLower(n.key) = $v`` over every node. With the ontology's full-text indexes
 (``ontology.neo4j_schema.desired_indexes``) they ask the index instead:
 
-* **key lookup**: exact match first (served by the uniqueness constraint); otherwise a
-  field-scoped phrase query on the full-text index, then an exact case-insensitive check in
-  Python (``match_key``) on the few hits, so results are the same as the old scan.
+* **key lookup**: exact match first (served by the uniqueness constraint); otherwise, for
+  ASCII keys with a non-stop-word token, a field-scoped phrase query on the full-text index,
+  then an exact case-insensitive check in Python (``match_key``) on the few hits. Other keys
+  use the old scan (see ``key_query``).
 * **name candidates**: the ``TOP_K`` best full-text hits for the reference: the whole text
   through the index's analyzer (so apostrophes, CJK and accents tokenise exactly as the
   stored names did) OR fuzzy terms for its ASCII-folded words (typos); the matcher ranks the
@@ -45,6 +46,45 @@ MAX_TEXT_WORDS = 64  # words of the analysed clause
 _WORD = re.compile(r"\w+")
 _ASCII_WORD = re.compile(r"[a-z0-9]+")
 _FUZZY_MIN_LEN = 4
+# Lucene's English stop words, which the ``standard-folding`` analyzer drops: a key made only
+# of these has no tokens in the index, so it can only be found by the scan
+STOP_WORDS = frozenset(
+    [
+        "a",
+        "an",
+        "and",
+        "are",
+        "as",
+        "at",
+        "be",
+        "but",
+        "by",
+        "for",
+        "if",
+        "in",
+        "into",
+        "is",
+        "it",
+        "no",
+        "not",
+        "of",
+        "on",
+        "or",
+        "such",
+        "that",
+        "the",
+        "their",
+        "then",
+        "there",
+        "these",
+        "they",
+        "this",
+        "to",
+        "was",
+        "will",
+        "with",
+    ]
+)
 # Lucene query syntax characters, escaped with a backslash
 _LUCENE_SPECIAL = re.compile(r'([+\-&|!(){}\[\]^"~*?:\\/])')
 
@@ -52,9 +92,10 @@ _LUCENE_SPECIAL = re.compile(r'([+\-&|!(){}\[\]^"~*?:\\/])')
 def lower(text: str) -> str:
     """Lower-case for a query the analyzer will see. Only lower-cased (so ``AND``/``OR`` are
     never operators): the analyzer does its own folding, and decomposing here would break
-    what it keeps whole (Hangul syllables, kana voicing marks, "™"). Python lower-cases "İ"
-    to "i" + a combining dot, which the index never stores, so that becomes "i"."""
-    return unicodedata.normalize("NFC", text.lower().replace("i\u0307", "i"))
+    what it keeps whole (Hangul syllables, kana voicing marks, "™"), and so would
+    normalising (NFD text is stored decomposed). Python lower-cases "İ" to "i" + a combining
+    dot, which the index never stores, so that becomes "i"."""
+    return text.lower().replace("i\u0307", "i")
 
 
 def fold(text: str) -> str:
@@ -65,23 +106,33 @@ def fold(text: str) -> str:
 
 
 def key_query(field: str, value: str) -> str | None:
-    """Lucene phrase query for ``value`` in ``field`` (None if it has no word characters)."""
-    if not _WORD.search(value):
+    """Lucene phrase query for ``value`` in ``field``, or None when the index can't be
+    trusted to find it the way the old ``toLower`` scan would, and the caller scans: keys
+    with non-ASCII characters (the analyzer and Python/Cypher lower-case some scripts
+    differently, e.g. a final Greek sigma) and keys made only of stop words (``IT``, ``ON``,
+    ``A``: no tokens in the index). Identity keys are overwhelmingly ASCII codes, so the
+    scan stays rare."""
+    words = _ASCII_WORD.findall(value.lower())
+    if not value.isascii() or not words or all(w in STOP_WORDS for w in words):
         return None
     # the analyzer folds; the caller checks the hits exactly with match_key
-    escaped = lower(value).replace("\\", "\\\\").replace('"', '\\"')
+    escaped = value.lower().replace("\\", "\\\\").replace('"', '\\"')
     return f'{field}:"{escaped}"'
 
 
 def name_query(field: str, text: str) -> str | None:
     """Lucene query for names like ``text``: the whole text, analysed by the index's analyzer
-    (escaped), OR fuzzy terms for its first ``MAX_WORDS`` distinct ASCII-folded words of 4+
+    (escaped; with a final sigma also as "σ", as the index stores an upper-case "Σ"), OR
+    fuzzy terms for its first ``MAX_WORDS`` distinct ASCII-folded words of 4+
     characters (within one edit). Words are lower-case, so ``and``/``or`` are never
     operators."""
     if not _WORD.search(text):
         return None
     head = " ".join(lower(canonical_text(text)).split()[:MAX_TEXT_WORDS])
-    clauses = [f"{field}:({_LUCENE_SPECIAL.sub(r'\\\1', head)})"]
+    variants = [head]
+    if "ς" in head:  # the index lower-cases "Σ" to "σ"; Python gives a final "ς"
+        variants.append(head.replace("ς", "σ"))
+    clauses = [f"{field}:({_LUCENE_SPECIAL.sub(r'\\\1', v)})" for v in variants]
     words = list(
         dict.fromkeys(w for w in _ASCII_WORD.findall(fold(text)) if len(w) >= _FUZZY_MIN_LEN)
     )

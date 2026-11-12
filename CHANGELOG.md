@@ -14,7 +14,8 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
     reference instead of reading every name of the class, and finds keys case-insensitively
     through it instead of a label scan (`pipeline/neo4j_lookup.py`, shared by the graph view
     and the matcher). The old scans are used without an ONLINE index, when a full-text query
-    fails, and when a key lookup was capped without an exact hit.
+    fails, for keys the index can't match exactly like the scan (non-ASCII or only stop
+    words), and when a key lookup was capped without an exact hit.
   - `sync_schema(graph, spec)` syncs constraints and indexes together; `OntologyService.sync`
     holds the version lock like publish.
   - `MatchIndex.names(...)` became `candidates(..., text)`.

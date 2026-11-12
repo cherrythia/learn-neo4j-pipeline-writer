@@ -6,15 +6,18 @@ from writer_service.pipeline.neo4j_lookup import MAX_WORDS, fold, key_query, nam
 def test_key_query_is_a_lower_cased_field_scoped_phrase() -> None:
     assert key_query("ticker", "APH") == 'ticker:"aph"'
     assert key_query("filing_id", "AR-2025-APH") == 'filing_id:"ar-2025-aph"'
-    # both spellings of the dotted capital I become a plain "i"; "ş" is left to the analyzer
-    assert key_query("ticker", "İŞBANK") == key_query("ticker", "i̇şbank") == 'ticker:"işbank"'
-    # not decomposed: the analyzer keeps these whole (review #40 round 2)
-    assert key_query("ticker", "삼성") == 'ticker:"삼성"'
-    assert key_query("ticker", "Acme™") == 'ticker:"acme™"'
+    assert key_query("ticker", "IT-HOLD") == 'ticker:"it-hold"'
+
+
+def test_keys_the_index_cant_be_trusted_with_are_left_to_the_scan() -> None:
+    """Review #40 round 3: non-ASCII keys (lower-casing differs, e.g. a final sigma) and
+    keys made only of stop words (no tokens in the index)."""
+    for key in ("İŞBANK", "삼성", "Acme™", "ΟΔΟΣ", "IT", "on", "A", "a.it"):
+        assert key_query("ticker", key) is None, key
 
 
 def test_key_query_escapes_phrase_metacharacters() -> None:
-    assert key_query("id", 'a "b" \\c') == 'id:"a \\"b\\" \\\\c"'
+    assert key_query("id", 'x "b" \\c') == 'id:"x \\"b\\" \\\\c"'
 
 
 def test_key_query_without_word_characters_is_none() -> None:
@@ -33,6 +36,10 @@ def test_name_query_keeps_what_only_the_analyzer_tokenises() -> None:
     assert name_query("name", "中华银行") == "name:(中华银行)"  # no ASCII words: no fuzzy
     assert name_query("name", "ブリヂストン") == "name:(ブリヂストン)"  # voicing marks kept
     assert name_query("name", "Müller Bank") == "name:(müller bank) OR name:(muller~1 OR bank~1)"
+
+
+def test_name_query_adds_the_sigma_the_index_stores() -> None:
+    assert name_query("name", "ΟΜΙΛΟΣ") == "name:(ομιλος) OR name:(ομιλοσ)"
 
 
 def test_name_query_operators_and_specials_are_harmless() -> None:

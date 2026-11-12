@@ -7,6 +7,7 @@ by reading every name (``InMemoryMatchIndex`` over the same nodes is the old beh
 """
 
 import os
+import unicodedata
 from collections.abc import Iterator
 from typing import Any
 
@@ -47,6 +48,11 @@ ISSUERS = {
     f"{P}GAR": "ｶﾞﾙｰﾀﾞ",
     f"{P}삼성": "Zqx Samsung Key",
     f"{P}ACME™": "Zqx Acme Trademark",
+    # review #40 round 3: all-caps Greek (final sigma), NFD-decomposed data
+    f"{P}MYT": "ΜΥΤΙΛΗΝΑΙΟΣ",
+    f"{P}ΟΔΟΣ": "Zqx Odos Key",
+    f"{P}MU\u0308LLER": "Zqx Nfd Key",
+    f"{P}HYD": unicodedata.normalize("NFD", "현대자동차"),
     # the demo issuers, under throwaway keys
     **{f"{P}D{i.ticker}": i.name for i in DEMO_ISSUERS},
     # a key whose token many longer keys share (more than TOP_K phrase hits)
@@ -75,6 +81,11 @@ QUERIES = [
     "ｶﾞﾙｰﾀﾞ",
     f"{P.lower()}삼성",
     f"{P.lower()}acme™",
+    "Μυτιληναιος",
+    "ΜΥΤΙΛΗΝΑΙΟΣ",
+    f"{P.lower()}οδος",
+    f"{P.lower()}mu\u0308ller",
+    unicodedata.normalize("NFD", "현대자동차"),
     f"{P}topk",
     *[i.name for i in DEMO_ISSUERS],
     *[i.name.replace(" (Demo)", "") for i in DEMO_ISSUERS],
@@ -137,9 +148,9 @@ def results(index: Any, spec: OntologySpec) -> list[Any]:
     return out
 
 
-def _results(index: Any, spec: OntologySpec) -> list[Any]:
+def _results(index: Any, spec: OntologySpec, queries: list[str] = QUERIES) -> list[Any]:
     m = EntityMatcher(index, spec)
-    out: list[Any] = [m.resolve("Issuer", q) for q in QUERIES]
+    out: list[Any] = [m.resolve("Issuer", q) for q in queries]
     new_entities = [(f"{P}NEW", "Zqx Aurora Pacific Holdings"), (f"{P}X", "Zqx Brand New")]
     new_entities += [(f"{P}NEW2", "McQuillan's"), (f"{P}NEW3", "中华银行")]
     for key, name in new_entities:
@@ -160,10 +171,12 @@ def test_fulltext_matching_gives_the_same_results_as_the_full_scan(
     assert actual == expected
     statuses = {r[0] for r in expected}
     assert {"exact", "fuzzy", "ambiguous", "new", "possible_duplicate"} <= statuses  # golden spread
-    # the full-text path was used: no name scan, no toLower label scan
-    assert any("db.index.fulltext.queryNodes" in s for s in recording.statements)
-    assert not any("WHERE n.name IS NOT NULL" in s for s in recording.statements)
-    assert not any("toLower(" in s for s in recording.statements)
+    assert not any("WHERE n.name IS NOT NULL" in s for s in recording.statements)  # no name scan
+    # ASCII references never scan; non-ASCII *keys* are left to the scan on purpose
+    ascii_only = Recording(driver)
+    _results(Neo4jMatchIndex(ascii_only), spec, [q for q in QUERIES if q.isascii()])
+    assert any("db.index.fulltext.queryNodes" in s for s in ascii_only.statements)
+    assert not any("toLower(" in s for s in ascii_only.statements)
 
 
 def test_case_insensitive_key_lookup_uses_the_index(driver: Driver) -> None:

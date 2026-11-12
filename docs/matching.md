@@ -57,19 +57,24 @@ In Neo4j (`pipeline/neo4j_lookup.py`, #28) both lookups use the class's **full-t
 (`wsf_<label>_<fields>`, created with the ontology's constraints, see [ontology](ontology.md)):
 
 The indexes use the `standard-folding` analyzer (lower-case + ASCII folding, so "Müller" is
-stored as "muller"). Analysed query clauses are only lower-cased in Python (and "İ" mapped to
-"i") so the analyzer folds them exactly as it folded the stored names; decomposing in Python
-would break what the analyzer keeps whole (Hangul syllables, kana voicing marks, "™"). Only the
-fuzzy terms, which Lucene doesn't analyse, are ASCII-folded in Python.
+stored as "muller"; English stop words are dropped). Analysed name clauses are only
+lower-cased in Python ("İ" mapped to "i"; with a final "ς" also sent as "σ", which is how the
+index stores an upper-case "Σ"), never normalised or decomposed, so the analyzer sees the
+text as it saw the stored names (Hangul syllables, kana voicing marks, "™", NFD text). Only
+the fuzzy terms, which Lucene doesn't analyse, are ASCII-folded in Python.
 
 - **Name candidates**: for each distinct reference (cached per batch) the index returns the
   `TOP_K` = 50 best hits for the whole reference, analysed like the stored names (apostrophes,
   CJK, accents), **or** for its ASCII words of 4+ characters within one edit (typos; at most 16
   words). The matcher ranks the hits with `name_similarity` as before. Nothing reads every
   name.
-- **Keys**: the exact key is tried first (uniqueness index); on a miss, a folded phrase query
-  on the key field, then an exact case-insensitive check of the hits in Python (`match_key`).
-  If the result was capped at `TOP_K` without an exact hit, the label is scanned to be sure.
+- **Keys**: the exact key is tried first (uniqueness index); on a miss, a phrase query on the
+  key field, then an exact case-insensitive check of the hits in Python (`match_key`). The
+  index is only trusted for keys it handles exactly like the old scan: **ASCII keys with at
+  least one non-stop-word token**. Other keys (non-ASCII, where the analyzer and Python/Cypher
+  lower-case some scripts differently, or only stop words like `IT`, `ON`, `A`) are looked up
+  by the scan, as is a key whose result was capped at `TOP_K` without an exact hit. Identity
+  keys are overwhelmingly ASCII codes, so this stays rare.
 
 The old scans are used without an ONLINE full-text index for the field (not synced yet,
 still populating, or a non-string identity key, which full-text indexes can't hold) and when
@@ -77,10 +82,11 @@ a full-text query fails. **Limit:** name candidates are the index's best 50, so 
 full scan would have ranked highest can only be missed if more than 50 names share the
 reference's words and all outrank it in the index's own (BM25) scoring.
 `tests/test_pipeline/test_fulltext_neo4j.py` checks against a real Neo4j, over the demo
-issuers, near-twins, 120 near-identical names, apostrophe/CJK/Hangul/kana/accented names,
-dotted-İ, Hangul and "™" keys and a key with more than 50 phrase hits, that the full-text path gives the same decisions as the
+issuers, near-twins, 120 near-identical names, apostrophe/CJK/Hangul/kana/accented/all-caps
+Greek/NFD names, dotted-İ, Hangul, Greek, NFD and "™" keys and a key with more than 50 phrase
+hits, that the full-text path gives the same decisions as the
 full scan (status, key, confidence, best alternative and the alternatives' scores; among
-*equally* scored names the listed keys may differ) and that no scan runs.
+*equally* scored names the listed keys may differ), and that ASCII lookups never scan.
 
 If the analyzer or other index options ever change, change the index name too (sync creates
 missing names; it doesn't compare options).
