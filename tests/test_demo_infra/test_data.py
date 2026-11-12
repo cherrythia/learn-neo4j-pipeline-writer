@@ -90,3 +90,19 @@ def test_infrastructure_sits_with_it_services() -> None:
     for a in data.HARDWARE:
         if a.hardware_type in ("server", "network"):
             assert a.dept_code == "ITS", a.asset_tag
+
+
+def test_names_synced_from_the_cmdb_never_look_like_duplicates() -> None:
+    """Structured rows must commit with zero review: no two asset hostnames, departments,
+    software or applications may be close enough for the matcher to flag or doubt them."""
+    from writer_service.pipeline.matching import AMBIGUITY_FLOOR, name_similarity
+
+    for names in (
+        [a.name for a in data.HARDWARE],
+        [d.name for d in data.DEPARTMENTS],
+        [s.name for s in data.SOFTWARE],
+        [a.name for a in data.APPLICATIONS],
+    ):
+        for i, a in enumerate(names):
+            for b in names[i + 1 :]:
+                assert name_similarity(a, b) < AMBIGUITY_FLOOR, (a, b)

@@ -82,7 +82,40 @@ _PRICES: dict[HardwareType, float] = {
     "server": 14800.0,
     "network": 3420.0,
 }
-_HOST: dict[HardwareType, str] = {"laptop": "lt", "desktop": "dt", "server": "sv", "network": "nw"}
+# Hostnames (Asset.name) are distinct words, as many IT teams name machines: structured names
+# such as "fin-lt-0101" / "fin-lt-0110" look like the same entity to the fuzzy name matcher, so
+# syncing them would flag possible duplicates (tests keep every pair below the review floor).
+HOSTNAMES = [
+    "altair",
+    "bellatrix",
+    "capella",
+    "deneb",
+    "electra",
+    "fomalhaut",
+    "gacrux",
+    "hadar",
+    "izar",
+    "kochab",
+    "lesath",
+    "mirach",
+    "nunki",
+    "polaris",
+    "rigel",
+    "sirius",
+    "thuban",
+    "vega",
+    "wezen",
+    "zosma",
+    "merak",
+    "alnilam",
+    "castor",
+    "regulus",
+    "spica",
+    "tarazed",
+    "menkar",
+    "zubenelgenubi",
+    "achernar",
+]
 
 
 def _fleet_asset(i: int) -> HardwareAsset:
@@ -98,7 +131,7 @@ def _fleet_asset(i: int) -> HardwareAsset:
     status: AssetStatus = "retired" if i in (2, 9, 15) else "in_repair" if i == 7 else "in_use"
     return HardwareAsset(
         asset_tag=tag,
-        name=f"{dept.lower()}-{_HOST[kind]}-{year}{i + 1:02d}",
+        name=HOSTNAMES[i],
         hardware_type=kind,
         manufacturer=maker,
         model=model,
@@ -124,12 +157,12 @@ GST_RATE = 0.09
 
 
 def _bought(
-    tag: str, kind: HardwareType, model: str, serial: str, cost: float, dept: str
+    tag: str, kind: HardwareType, model: str, serial: str, cost: float, dept: str, host: str
 ) -> HardwareAsset:
     maker = _MODELS[kind][0]
     return HardwareAsset(
         asset_tag=tag,
-        name=f"{dept.lower()}-{_HOST[kind]}-25{tag[-2:]}",
+        name=host,
         hardware_type=kind,
         manufacturer=maker,
         model=model,
@@ -142,11 +175,11 @@ def _bought(
 
 
 INVOICED_HARDWARE: list[HardwareAsset] = [
-    _bought("HW-25-0101", "laptop", "Aero 14", "CVA14-8F2K91", 2150.0, "FIN"),
-    _bought("HW-25-0102", "laptop", "Aero 14", "CVA14-8F2K94", 2150.0, "ENG"),
-    _bought("HW-25-0103", "laptop", "Aero 16", "CVA16-3M7Q05", 2890.0, "ENG"),
-    _bought("HW-25-0110", "server", "R640X", "HDR-77120-A", 14800.0, "ITS"),
-    _bought("HW-25-0120", "network", "SW-48", "TSW48-00931", 3420.0, "ITS"),
+    _bought("HW-25-0101", "laptop", "Aero 14", "CVA14-8F2K91", 2150.0, "FIN", HOSTNAMES[24]),
+    _bought("HW-25-0102", "laptop", "Aero 14", "CVA14-8F2K94", 2150.0, "ENG", HOSTNAMES[25]),
+    _bought("HW-25-0103", "laptop", "Aero 16", "CVA16-3M7Q05", 2890.0, "ENG", HOSTNAMES[26]),
+    _bought("HW-25-0110", "server", "R640X", "HDR-77120-A", 14800.0, "ITS", HOSTNAMES[27]),
+    _bought("HW-25-0120", "network", "SW-48", "TSW48-00931", 3420.0, "ITS", HOSTNAMES[28]),
 ]
 
 HARDWARE: list[HardwareAsset] = FLEET + INVOICED_HARDWARE

@@ -68,7 +68,7 @@ def _is_negation(token: str) -> bool:
 def _missing_critical(quote: str, passage: str) -> list[str]:
     """Critical tokens of ``quote`` absent from ``passage`` (the matched source span).
 
-    Critical: anything with a digit (years, amounts, LR-705), capitalised words (names,
+    Critical: anything with a digit (years, amounts, HW-25-0101), capitalised words (names,
     months; an abbreviation like "Dec" for "December" is accepted) and negations. Numbers,
     identifiers and negations must match exactly.
     """

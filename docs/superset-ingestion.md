@@ -38,7 +38,7 @@ The admin UI and API for this workflow arrive in issues #14–#15.
 
 ## Evidence and grounding
 
-Each row is rendered as text (`asset_tag: HW-23-0002; name: fin-lt-2302; …`) with the
+Each row is rendered as text (`asset_tag: HW-23-0002; name: bellatrix; …`) with the
 locator `row <position> (<first column>=<value>)`, unique within a sync (the first column
 alone may repeat). Every mapped column becomes its own evidence item
 (`asset_tag: HW-23-0002`): a contiguous, verbatim fragment of the row text, so grounding is exactly 1.0
