@@ -13,9 +13,9 @@ P = PropertySpec
 _ASSET_PROPS: tuple[PropertySpec, ...] = (
     P("asset_tag", "string", True),
     P("name", "string"),
-    P("status", "string", description="e.g. in_stock, in_use, retired"),
+    P("status", "string", description="one of: in_stock, in_use, in_repair, retired"),
     P("purchase_date", "date"),
-    P("cost", "float"),
+    P("cost", "float", description="amount in the invoice currency"),
 )
 
 CORE_CLASSES: tuple[ClassSpec, ...] = (
@@ -30,7 +30,7 @@ CORE_CLASSES: tuple[ClassSpec, ...] = (
         "asset_tag",
         (
             *_ASSET_PROPS,
-            P("hardware_type", "string", description="laptop, desktop, server or network"),
+            P("hardware_type", "string", description="one of: laptop, desktop, server, network"),
             P("manufacturer", "string"),
             P("model", "string"),
             P("serial_number", "string"),
@@ -43,7 +43,7 @@ CORE_CLASSES: tuple[ClassSpec, ...] = (
         "asset_tag",
         (
             *_ASSET_PROPS,
-            P("license_type", "string", description="e.g. subscription or perpetual"),
+            P("license_type", "string", description="e.g. subscription, perpetual"),
             P("seats", "int"),
             P("expiry_date", "date"),
         ),
@@ -67,7 +67,7 @@ CORE_CLASSES: tuple[ClassSpec, ...] = (
         (
             P("app_code", "string", True),
             P("name", "string", True),
-            P("criticality", "string", description="e.g. low, medium, high"),
+            P("criticality", "string", description="one of: low, medium, high"),
             P("status", "string"),
         ),
         description="A business application the organisation runs.",
@@ -91,7 +91,7 @@ CORE_CLASSES: tuple[ClassSpec, ...] = (
             P("invoice_number", "string", True),
             P("invoice_date", "date"),
             P("total_amount", "float"),
-            P("currency", "string"),
+            P("currency", "string", description="ISO 4217 code, e.g. SGD"),
         ),
         description="A vendor invoice that bills assets.",
     ),

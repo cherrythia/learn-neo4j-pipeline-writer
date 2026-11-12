@@ -7,13 +7,13 @@
         "evidence": [
           {
             "locator": "page 1",
-            "quote": "Meridian Systems Supply (Demo), 12 Kallang Way #04-18, Singapore"
+            "quote": "Zorblax Systems Supply (Demo), 1 Example Way, Demo City 000000, Singapore"
           }
         ],
         "properties": [
           {
             "name": "name",
-            "value": "Meridian Systems Supply (Demo)"
+            "value": "Zorblax Systems Supply (Demo)"
           },
           {
             "name": "country",
@@ -123,7 +123,7 @@
         "evidence": [
           {
             "locator": "page 1",
-            "quote": "HW-25-0101 Laptop, Corvane (Demo) Aero 14, S/N CVA14-8F2K91"
+            "quote": "HW-25-0101 Laptop, Corvane (Demo) Aero 14, S/N CVA14-8F2K91, 1 x 2,150.00"
           }
         ],
         "properties": [
@@ -159,7 +159,7 @@
         "evidence": [
           {
             "locator": "page 1",
-            "quote": "HW-25-0102 Laptop, Corvane (Demo) Aero 14, S/N CVA14-8F2K94"
+            "quote": "HW-25-0102 Laptop, Corvane (Demo) Aero 14, S/N CVA14-8F2K94, 1 x 2,150.00"
           }
         ],
         "properties": [
@@ -195,7 +195,43 @@
         "evidence": [
           {
             "locator": "page 1",
-            "quote": "HW-25-0110 Server, Halden Compute (Demo) R640X, S/N HDR-77120-A"
+            "quote": "HW-25-0103 Laptop, Corvane (Demo) Aero 16, S/N CVA16-3M7Q05, 1 x 2,890.00"
+          }
+        ],
+        "properties": [
+          {
+            "name": "asset_tag",
+            "value": "HW-25-0103"
+          },
+          {
+            "name": "hardware_type",
+            "value": "laptop"
+          },
+          {
+            "name": "manufacturer",
+            "value": "Corvane (Demo)"
+          },
+          {
+            "name": "model",
+            "value": "Aero 16"
+          },
+          {
+            "name": "serial_number",
+            "value": "CVA16-3M7Q05"
+          },
+          {
+            "name": "cost",
+            "value": "2890.00"
+          }
+        ]
+      },
+      {
+        "class_name": "HardwareAsset",
+        "confidence": 0.9,
+        "evidence": [
+          {
+            "locator": "page 1",
+            "quote": "HW-25-0110 Server, Haldrix Compute (Demo) R640X, S/N HDR-77120-A, 1 x 14,800.00"
           }
         ],
         "properties": [
@@ -209,7 +245,7 @@
           },
           {
             "name": "manufacturer",
-            "value": "Halden Compute (Demo)"
+            "value": "Haldrix Compute (Demo)"
           },
           {
             "name": "model",
@@ -231,7 +267,7 @@
         "evidence": [
           {
             "locator": "page 1",
-            "quote": "HW-25-0120 Network switch, Tessel Networks (Demo) SW-48, S/N TSW48-00931"
+            "quote": "HW-25-0120 Network switch, Tesselqo Networks (Demo) SW-48, S/N TSW48-00931, 1 x 3,420.00"
           }
         ],
         "properties": [
@@ -245,7 +281,7 @@
           },
           {
             "name": "manufacturer",
-            "value": "Tessel Networks (Demo)"
+            "value": "Tesselqo Networks (Demo)"
           },
           {
             "name": "model",
@@ -267,7 +303,7 @@
         "evidence": [
           {
             "locator": "page 2",
-            "quote": "SL-25-0201 Quillstack Docs (SW-QDOC), subscription licence, 50 seats"
+            "quote": "SL-25-0201 Quillstack Docs (SW-QDOC), subscription licence, 50 seats x 180.00 = 9,000.00"
           },
           {
             "locator": "page 3",
@@ -290,6 +326,10 @@
           {
             "name": "expiry_date",
             "value": "2026-10-31"
+          },
+          {
+            "name": "cost",
+            "value": "9000.00"
           }
         ]
       },
@@ -299,7 +339,7 @@
         "evidence": [
           {
             "locator": "page 2",
-            "quote": "SL-25-0202 Ledgerline Accounting (SW-LEDG), subscription licence, 10 seats"
+            "quote": "SL-25-0202 Ledgerwisp Accounting (SW-LEDG), subscription licence, 10 seats x 640.00 = 6,400.00"
           },
           {
             "locator": "page 3",
@@ -322,6 +362,10 @@
           {
             "name": "expiry_date",
             "value": "2026-10-31"
+          },
+          {
+            "name": "cost",
+            "value": "6400.00"
           }
         ]
       },
@@ -351,7 +395,7 @@
         "evidence": [
           {
             "locator": "page 2",
-            "quote": "Ledgerline Accounting (SW-LEDG)"
+            "quote": "Ledgerwisp Accounting (SW-LEDG)"
           }
         ],
         "properties": [
@@ -361,7 +405,27 @@
           },
           {
             "name": "name",
-            "value": "Ledgerline Accounting"
+            "value": "Ledgerwisp Accounting"
+          }
+        ]
+      },
+      {
+        "class_name": "HardwareAsset",
+        "confidence": 0.9,
+        "evidence": [
+          {
+            "locator": "page 1",
+            "quote": "HW-25-0104 Laptop, Corvane (Demo) Aero 14"
+          }
+        ],
+        "properties": [
+          {
+            "name": "asset_tag",
+            "value": "HW-25-0104"
+          },
+          {
+            "name": "hardware_type",
+            "value": "laptop"
           }
         ]
       }
@@ -372,21 +436,25 @@
         "evidence": [
           {
             "locator": "page 1",
-            "quote": "Tax Invoice INV-2025-0418 Meridian Systems Supply (Demo)"
+            "quote": "Tax Invoice INV-2025-0418 Zorblax Systems Supply (Demo)"
           }
         ],
         "relation": "ISSUED_BY",
         "source_class": "Invoice",
         "source_key": "INV-2025-0418",
         "target_class": "Vendor",
-        "target_key": "Meridian Systems Supply (Demo)"
+        "target_key": "Zorblax Systems Supply (Demo)"
       },
       {
         "confidence": 0.85,
         "evidence": [
           {
-            "locator": "page 3",
-            "quote": "All items on invoice INV-2025-0418 were delivered and tagged"
+            "locator": "page 1",
+            "quote": "HW-25-0101 Laptop, Corvane (Demo) Aero 14, S/N CVA14-8F2K91, 1 x 2,150.00"
+          },
+          {
+            "locator": "page 1",
+            "quote": "Invoice number: INV-2025-0418"
           }
         ],
         "relation": "BILLED_ON",
@@ -399,8 +467,12 @@
         "confidence": 0.85,
         "evidence": [
           {
-            "locator": "page 3",
-            "quote": "All items on invoice INV-2025-0418 were delivered and tagged"
+            "locator": "page 1",
+            "quote": "HW-25-0102 Laptop, Corvane (Demo) Aero 14, S/N CVA14-8F2K94, 1 x 2,150.00"
+          },
+          {
+            "locator": "page 1",
+            "quote": "Invoice number: INV-2025-0418"
           }
         ],
         "relation": "BILLED_ON",
@@ -413,8 +485,30 @@
         "confidence": 0.85,
         "evidence": [
           {
-            "locator": "page 3",
-            "quote": "All items on invoice INV-2025-0418 were delivered and tagged"
+            "locator": "page 1",
+            "quote": "HW-25-0103 Laptop, Corvane (Demo) Aero 16, S/N CVA16-3M7Q05, 1 x 2,890.00"
+          },
+          {
+            "locator": "page 1",
+            "quote": "Invoice number: INV-2025-0418"
+          }
+        ],
+        "relation": "BILLED_ON",
+        "source_class": "HardwareAsset",
+        "source_key": "HW-25-0103",
+        "target_class": "Invoice",
+        "target_key": "INV-2025-0418"
+      },
+      {
+        "confidence": 0.85,
+        "evidence": [
+          {
+            "locator": "page 1",
+            "quote": "HW-25-0110 Server, Haldrix Compute (Demo) R640X, S/N HDR-77120-A, 1 x 14,800.00"
+          },
+          {
+            "locator": "page 1",
+            "quote": "Invoice number: INV-2025-0418"
           }
         ],
         "relation": "BILLED_ON",
@@ -427,8 +521,12 @@
         "confidence": 0.85,
         "evidence": [
           {
-            "locator": "page 3",
-            "quote": "All items on invoice INV-2025-0418 were delivered and tagged"
+            "locator": "page 1",
+            "quote": "HW-25-0120 Network switch, Tesselqo Networks (Demo) SW-48, S/N TSW48-00931, 1 x 3,420.00"
+          },
+          {
+            "locator": "page 1",
+            "quote": "Invoice number: INV-2025-0418"
           }
         ],
         "relation": "BILLED_ON",
@@ -441,8 +539,12 @@
         "confidence": 0.85,
         "evidence": [
           {
-            "locator": "page 3",
-            "quote": "All items on invoice INV-2025-0418 were delivered and tagged"
+            "locator": "page 2",
+            "quote": "SL-25-0201 Quillstack Docs (SW-QDOC), subscription licence, 50 seats x 180.00 = 9,000.00"
+          },
+          {
+            "locator": "page 1",
+            "quote": "Invoice number: INV-2025-0418"
           }
         ],
         "relation": "BILLED_ON",
@@ -455,8 +557,12 @@
         "confidence": 0.85,
         "evidence": [
           {
-            "locator": "page 3",
-            "quote": "All items on invoice INV-2025-0418 were delivered and tagged"
+            "locator": "page 2",
+            "quote": "SL-25-0202 Ledgerwisp Accounting (SW-LEDG), subscription licence, 10 seats x 640.00 = 6,400.00"
+          },
+          {
+            "locator": "page 1",
+            "quote": "Invoice number: INV-2025-0418"
           }
         ],
         "relation": "BILLED_ON",
@@ -498,6 +604,20 @@
         "evidence": [
           {
             "locator": "page 3",
+            "quote": "Laptop HW-25-0103 is assigned to Engineering (ENG)"
+          }
+        ],
+        "relation": "ASSIGNED_TO",
+        "source_class": "HardwareAsset",
+        "source_key": "HW-25-0103",
+        "target_class": "Department",
+        "target_key": "ENG"
+      },
+      {
+        "confidence": 0.85,
+        "evidence": [
+          {
+            "locator": "page 3",
             "quote": "Server HW-25-0110 is assigned to IT Services (ITS)"
           }
         ],
@@ -526,7 +646,7 @@
         "evidence": [
           {
             "locator": "page 2",
-            "quote": "SL-25-0201 Quillstack Docs (SW-QDOC), subscription licence, 50 seats"
+            "quote": "SL-25-0201 Quillstack Docs (SW-QDOC), subscription licence, 50 seats x 180.00 = 9,000.00"
           }
         ],
         "relation": "LICENSES",
@@ -540,7 +660,7 @@
         "evidence": [
           {
             "locator": "page 2",
-            "quote": "SL-25-0202 Ledgerline Accounting (SW-LEDG), subscription licence, 10 seats"
+            "quote": "SL-25-0202 Ledgerwisp Accounting (SW-LEDG), subscription licence, 10 seats x 640.00 = 6,400.00"
           }
         ],
         "relation": "LICENSES",

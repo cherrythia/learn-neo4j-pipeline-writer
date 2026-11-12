@@ -11,6 +11,7 @@ from writer_service.ingestion.documents import (
     SourceChunk,
     pdf_chunks,
     render_chunks,
+    render_ontology,
     windows,
     xlsx_chunks,
 )
@@ -160,6 +161,30 @@ def test_prompt_contains_ontology_and_page_markers() -> None:
     assert "HardwareAsset (key: asset_tag" in req.user
     assert "(HardwareAsset)-[:ASSIGNED_TO]->(Department)" in req.user
     assert "invoice.pdf" in req.user
+
+
+def test_rendered_ontology_shows_datatypes_and_allowed_values() -> None:
+    """Review round 1: the LLM must know a property's type and allowed values, or it copies
+    '2,150.00' / '3 November 2025' / 'Network switch' verbatim and the schema gate rejects it."""
+    text = render_ontology(OntologySpec(CORE_CLASSES, CORE_RELATIONS))
+    hw = next(line for line in text.splitlines() if line.startswith("- HardwareAsset "))
+    assert "asset_tag*: string" in hw
+    assert "cost: float" in hw and "purchase_date: date" in hw
+    assert "hardware_type: string (one of: laptop, desktop, server, network)" in hw
+    sl = next(line for line in text.splitlines() if line.startswith("- SoftwareLicense "))
+    assert "seats: int" in sl and "expiry_date: date" in sl
+    assert "total_amount: float" in text and "invoice_date: date" in text
+
+
+def test_extraction_prompt_asks_for_normalised_values() -> None:
+    fake = FakeLLM({EXTRACTION_PROMPT.name: [answer()]})
+    extractor(fake).extract(pdf_chunks(ROOT / PDF_PATH, source_ref="invoice.pdf"))
+    (req,) = fake.calls
+    assert "cost: float" in req.user and "invoice_date: date" in req.user
+    system = req.system.lower()
+    assert "yyyy-mm-dd" in system
+    assert "thousands separators" in system and "currency" in system
+    assert "one of" in system  # enumerated values must be used as listed
 
 
 def test_samples_are_distinct_calls() -> None:
