@@ -105,7 +105,8 @@ echo "run $(echo "$sync" | json 'd["run_id"]'): $(echo "$sync" | json 'd["counts
 step "6. roll back the document run (its open review items close; the approval stays)"
 undo=$(as "$WORK/alice" -X POST "$BASE/api/runs/$doc_run/rollback") || fail "rollback"
 echo "rolled back $doc_run: $undo"
-left=$(as "$WORK/rita" "$BASE/api/review" | json "len([i for i in d if i['run_id'] == '$doc_run'])")
+after=$(as "$WORK/rita" "$BASE/api/review") || fail "review queue after rollback"
+left=$(echo "$after" | json "len([i for i in d if i['run_id'] == '$doc_run'])")
 [ "$left" = "0" ] || fail "run $doc_run still has $left open review items"
 echo "no open review items left for $doc_run"
 approved "$item" || fail "the approval of #$item did not survive the rollback"
