@@ -10,10 +10,13 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   - One Neo4j full-text index per active class over its string identity key and its
     name/title (`wsf_<label>_<fields>`), created and dropped with the constraints
     (`desired_schema`; sync manages `wsc_*` and `wsf_*`).
-  - Matching asks the index for the 50 best name candidates per reference instead of reading
-    every name of the class, and finds keys case-insensitively through it instead of a label
-    scan (`pipeline/neo4j_lookup.py`, shared by the graph view and the matcher). Without an
-    ONLINE index the old scans are used.
+  - Matching asks the index (`standard-folding` analyzer) for the 50 best name candidates per
+    reference instead of reading every name of the class, and finds keys case-insensitively
+    through it instead of a label scan (`pipeline/neo4j_lookup.py`, shared by the graph view
+    and the matcher). The old scans are used without an ONLINE index, when a full-text query
+    fails, and when a key lookup was capped without an exact hit.
+  - `sync_schema(graph, spec)` syncs constraints and indexes together; `OntologyService.sync`
+    holds the version lock like publish.
   - `MatchIndex.names(...)` became `candidates(..., text)`.
   - `uv run writer-ontology sync`: re-apply the published schema to an existing graph
     (audited as `ontology.sync`). **Upgrading: run it once** to create the indexes.

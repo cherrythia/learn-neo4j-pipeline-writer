@@ -61,7 +61,8 @@ def test_fulltext_index_per_class_covers_string_key_and_name() -> None:
     idx = desired_indexes(CORE)
     assert idx["wsf_issuer_ticker_name"] == (
         "CREATE FULLTEXT INDEX wsf_issuer_ticker_name IF NOT EXISTS "
-        "FOR (n:Issuer) ON EACH [n.ticker, n.name]"
+        "FOR (n:Issuer) ON EACH [n.ticker, n.name] "
+        "OPTIONS {indexConfig: {`fulltext.analyzer`: 'standard-folding'}}"
     )
     # identity key *is* the name: one field
     assert "FOR (n:Organisation) ON EACH [n.name]" in idx["wsf_organisation_name"]
@@ -88,7 +89,8 @@ def test_fulltext_index_skips_non_string_keys_and_deprecated_classes() -> None:
     assert desired_indexes(spec) == {
         "wsf_ext_named_title": (
             "CREATE FULLTEXT INDEX wsf_ext_named_title IF NOT EXISTS "
-            "FOR (n:Ext_Named) ON EACH [n.title]"
+            "FOR (n:Ext_Named) ON EACH [n.title] "
+            "OPTIONS {indexConfig: {`fulltext.analyzer`: 'standard-folding'}}"
         )
     }
 

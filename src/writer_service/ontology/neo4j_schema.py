@@ -21,6 +21,8 @@ from writer_service.ontology.spec import ClassSpec, OntologySpec
 
 MANAGED_PREFIX = "wsc_"
 FULLTEXT_PREFIX = "wsf_"
+# lower-case + ASCII folding ("Müller" ~ "Muller"); matching folds fuzzy terms the same way
+FULLTEXT_ANALYZER = "standard-folding"
 # Properties that hold an entity's human-readable name, in order of preference.
 NAME_PROPERTIES = ("name", "title")
 # Provenance nodes written by the writer service for every fact (issue #10).
@@ -63,13 +65,23 @@ def desired_indexes(spec: OntologySpec) -> dict[str, str]:
         label = neo4j_label(cls)
         name = fulltext_index_name(label, fields)
         on = ", ".join(f"n.{f}" for f in fields)
-        out[name] = f"CREATE FULLTEXT INDEX {name} IF NOT EXISTS FOR (n:{label}) ON EACH [{on}]"
+        out[name] = (
+            f"CREATE FULLTEXT INDEX {name} IF NOT EXISTS FOR (n:{label}) ON EACH [{on}] "
+            f"OPTIONS {{indexConfig: {{`fulltext.analyzer`: '{FULLTEXT_ANALYZER}'}}}}"
+        )
     return dict(sorted(out.items()))
 
 
 def desired_schema(spec: OntologySpec) -> dict[str, str]:
     """Every managed schema object: uniqueness constraints and full-text indexes."""
     return {**desired_constraints(spec), **desired_indexes(spec)}
+
+
+def sync_schema(graph: GraphSchema, spec: OntologySpec) -> SyncResult:
+    """Make Neo4j's managed constraints and indexes match ``spec``. Use this rather than
+    passing a partial dict to ``sync_constraints``, which drops every managed object that
+    isn't in it."""
+    return sync_constraints(graph, desired_schema(spec))
 
 
 def _constraint(label: str, key: str) -> tuple[str, str]:

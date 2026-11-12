@@ -29,8 +29,7 @@ from writer_service.ontology.core import CORE_CLASSES, CORE_RELATIONS
 from writer_service.ontology.neo4j_schema import (
     GraphSchema,
     SyncResult,
-    desired_schema,
-    sync_constraints,
+    sync_schema,
 )
 from writer_service.ontology.spec import ClassSpec, OntologySpec, PropertySpec, RelationSpec
 from writer_service.ontology.validation import validate
@@ -135,7 +134,7 @@ class OntologyService:
     def _sync(self, target: OntologySpec, fallback: OntologySpec | None) -> SyncResult:
         """Sync Neo4j to ``target``; on failure restore ``fallback`` (best effort) and re-raise."""
         try:
-            return sync_constraints(self.graph, desired_schema(target))
+            return sync_schema(self.graph, target)
         except Exception as exc:
             self._restore(fallback, exc)
             raise
@@ -163,14 +162,15 @@ class OntologyService:
 
     def sync(self, actor: str) -> SyncResult:
         """Re-apply the published version's Neo4j schema (constraints and full-text indexes),
-        e.g. after an upgrade adds new managed indexes. Idempotent."""
+        e.g. after an upgrade adds new managed indexes. Idempotent. Holds the version lock
+        like ``publish``, so a concurrent publish can't be undone by a stale sync."""
         with UnitOfWork(self.engine) as uow:
+            uow.ontology_versions.lock_all()
             pub = uow.ontology_versions.published()
             if pub is None:
                 raise OntologyError("nothing is published (run: writer-ontology bootstrap)")
             spec, version = spec_of(pub), pub.version
-        result = self._sync(spec, None)
-        with UnitOfWork(self.engine) as uow:
+            result = self._sync(spec, None)
             uow.audit(
                 actor,
                 "ontology.sync",
@@ -178,7 +178,7 @@ class OntologyService:
                 str(version),
                 {"created": result.created, "dropped": result.dropped},
             )
-        return result
+            return result
 
     def new_draft(self, actor: str) -> int:
         """Start a new draft as a copy of the published version."""
@@ -233,7 +233,7 @@ class OntologyService:
         if spec is None:
             return
         try:
-            sync_constraints(self.graph, desired_schema(spec))
+            sync_schema(self.graph, spec)
         except Exception as restore_exc:
             exc.add_note(f"restoring previous constraints also failed: {restore_exc}")
 

@@ -56,15 +56,28 @@ are proposals, not accepted facts, so a later batch must not resolve to them.
 In Neo4j (`pipeline/neo4j_lookup.py`, #28) both lookups use the class's **full-text index**
 (`wsf_<label>_<fields>`, created with the ontology's constraints, see [ontology](ontology.md)):
 
-- **Name candidates**: for each distinct reference (cached per batch) the index returns the
-  `TOP_K` = 50 best hits for its words (words of 4+ characters within one edit, so typos still
-  hit); the matcher ranks those with `name_similarity` as before. Nothing reads every name.
-- **Keys**: the exact key is tried first (uniqueness index); on a miss, a phrase query on the
-  key field, then an exact case-insensitive check of the hits in Python. No label scan.
+The indexes use the `standard-folding` analyzer (lower-case + ASCII folding, so "Müller" is
+stored as "muller"); queries are folded the same way in Python.
 
-Without an ONLINE full-text index for the field (not synced yet, still populating, or a
-non-string identity key, which full-text indexes can't hold) the old scans are used, so results
-never depend on the index. `tests/test_pipeline/test_fulltext_neo4j.py` checks against a real
-Neo4j that the full-text path gives the same decisions as the full scan (status, key,
-confidence, best alternative and the alternatives' scores; among *equally* scored names the
-listed keys may differ) and that no scan runs.
+- **Name candidates**: for each distinct reference (cached per batch) the index returns the
+  `TOP_K` = 50 best hits for the whole reference, analysed like the stored names (apostrophes,
+  CJK, accents), **or** for its ASCII words of 4+ characters within one edit (typos; at most 16
+  words). The matcher ranks the hits with `name_similarity` as before. Nothing reads every
+  name.
+- **Keys**: the exact key is tried first (uniqueness index); on a miss, a folded phrase query
+  on the key field, then an exact case-insensitive check of the hits in Python (`match_key`).
+  If the result was capped at `TOP_K` without an exact hit, the label is scanned to be sure.
+
+The old scans are used without an ONLINE full-text index for the field (not synced yet,
+still populating, or a non-string identity key, which full-text indexes can't hold) and when
+a full-text query fails. **Limit:** name candidates are the index's best 50, so a name the
+full scan would have ranked highest can only be missed if more than 50 names share the
+reference's words and all outrank it in the index's own (BM25) scoring.
+`tests/test_pipeline/test_fulltext_neo4j.py` checks against a real Neo4j, over the demo
+issuers, near-twins, 120 near-identical names, apostrophe/CJK/accented names, a dotted-İ key and
+a key with more than 50 phrase hits, that the full-text path gives the same decisions as the
+full scan (status, key, confidence, best alternative and the alternatives' scores; among
+*equally* scored names the listed keys may differ) and that no scan runs.
+
+If the analyzer or other index options ever change, change the index name too (sync creates
+missing names; it doesn't compare options).

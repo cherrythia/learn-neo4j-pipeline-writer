@@ -13,7 +13,8 @@ from typing import Any
 import pytest
 from neo4j import Driver, GraphDatabase
 
-from writer_service.ontology.neo4j_schema import Neo4jGraphSchema, desired_schema, sync_constraints
+from demo_env.data import ISSUERS as DEMO_ISSUERS
+from writer_service.ontology.neo4j_schema import Neo4jGraphSchema, sync_schema
 from writer_service.ontology.spec import OntologySpec
 from writer_service.pipeline.candidates import CandidateEntity
 from writer_service.pipeline.graph_view import Neo4jGraphView
@@ -34,6 +35,16 @@ ISSUERS = {
     f"{P}PAC": "Zqx Pacific Shipping",
     f"{P}OAK": "Zqx Oakwood Retail Trust",
     **{f"{P}N{i:03d}": f"Zqx Noise Company {i:03d} Holdings" for i in range(120)},
+    # review #40: what only the analyzer tokenises (apostrophes, CJK, accents, dotted İ)
+    f"{P}MCQ": "McQuillan's",
+    f"{P}ZHB": "中华银行",
+    f"{P}MUL": "Müller",
+    f"{P}İŞBANK": "Zqx Isbank Turkiye",
+    # the demo issuers, under throwaway keys
+    **{f"{P}D{i.ticker}": i.name for i in DEMO_ISSUERS},
+    # a key whose token many longer keys share (more than TOP_K phrase hits)
+    f"{P}TOPK": "Zqx Top K Exact",
+    **{f"{P}TOPK-{i:02d}": f"Zqx Top K Variant {i:02d}" for i in range(60)},
 }
 QUERIES = [
     "Zqx Aurora Pacific Holdings",
@@ -46,6 +57,14 @@ QUERIES = [
     "Zqx Noise Company 042 Holdings",
     "Zqx Totally Unknown Name",
     f"{P}gRb",  # a key in another case
+    "McQuillan's",
+    "中华银行",
+    "Mueller",
+    "Muller",
+    f"{P}i̇şbank",
+    f"{P}topk",
+    *[i.name for i in DEMO_ISSUERS],
+    *[i.name.replace(" (Demo)", "") for i in DEMO_ISSUERS],
 ]
 
 
@@ -71,7 +90,7 @@ def driver(spec: OntologySpec) -> Iterator[Driver]:
         os.environ.get("WRITER_TEST_NEO4J_PASSWORD", ""),
     )
     with GraphDatabase.driver(uri, auth=auth) as d:
-        sync_constraints(Neo4jGraphSchema(d), desired_schema(spec))
+        sync_schema(Neo4jGraphSchema(d), spec)
         d.execute_query(
             "UNWIND $rows AS r MERGE (n:Issuer {ticker: r.k}) SET n.name = r.n, n.stub = false",
             rows=[{"k": k, "n": n} for k, n in ISSUERS.items()],
@@ -108,7 +127,9 @@ def results(index: Any, spec: OntologySpec) -> list[Any]:
 def _results(index: Any, spec: OntologySpec) -> list[Any]:
     m = EntityMatcher(index, spec)
     out: list[Any] = [m.resolve("Issuer", q) for q in QUERIES]
-    for key, name in ((f"{P}NEW", "Zqx Aurora Pacific Holdings"), (f"{P}X", "Zqx Brand New")):
+    new_entities = [(f"{P}NEW", "Zqx Aurora Pacific Holdings"), (f"{P}X", "Zqx Brand New")]
+    new_entities += [(f"{P}NEW2", "McQuillan's"), (f"{P}NEW3", "中华银行")]
+    for key, name in new_entities:
         out.append(
             m.match_entity(
                 CandidateEntity(class_name="Issuer", properties={"ticker": key, "name": name})
