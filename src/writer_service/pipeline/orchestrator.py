@@ -28,7 +28,7 @@ from dataclasses import dataclass, field
 from typing import Any, Protocol
 
 from pydantic import TypeAdapter
-from sqlalchemy import Engine
+from sqlalchemy import Engine, select
 
 from writer_service.governance.models import Candidate, IngestionRun, ReviewItem, utcnow
 from writer_service.governance.uow import UnitOfWork
@@ -192,12 +192,13 @@ class WriterPipeline:
         notes: list[list[str]] = []
         # (class, match key of the new entity) -> the existing entity it may duplicate
         duplicates: dict[tuple[str, str], dict[str, Any]] = {}
+        aliases = self._merge_aliases(uow)
         for v in voted:
-            c = v.candidate
+            c, alias_note = self._apply_aliases(v.candidate, aliases, spec)
             if isinstance(c, CandidateEntity):
                 m = matcher.match_entity(c) if c.class_name in matcher.classes else None
                 conf = m.confidence if m else None
-                note = []
+                note = list(alias_note)
                 if m is not None and m.status == "possible_duplicate" and m.key is not None:
                     note.append(f"possible duplicate of {c.class_name} {m.key!r}")
                     cls = matcher.classes[c.class_name]
@@ -221,6 +222,7 @@ class WriterPipeline:
                     c, conf, note = matcher.resolve_relation(c)
                 else:
                     conf, note = None, []
+                note = [*alias_note, *note]
                 resolved.append(c)
             match_conf.append(conf)
             notes.append(note)
@@ -375,7 +377,7 @@ class WriterPipeline:
                 if merge:
                     cand, kept = self._merged(cand, dup, spec)
                 elif dup:
-                    self._require_kept_entities(cand, dup, spec)
+                    cand = self._require_kept_entities(cand, dup, spec)
                 if merge or item.reason in ("score", "duplicate"):
                     (result,) = check_batch([cand], spec, self.graph)
                     if result.status == "reject":
@@ -419,11 +421,17 @@ class WriterPipeline:
                         replace_existing=item.reason == "conflict" and not merge,
                     )
                     changed = edited is not None or merge
+                    if merge:  # later ingests of the same key go straight to the merged entity
+                        item.conflict_with = {
+                            **(item.conflict_with or {}),
+                            "merged_into": dup["key"],
+                        }
                     item.status = "edited" if changed else "approved"
                     item.reviewer, item.decided_at = reviewer, utcnow()
                     row.decision = "commit"
-                    if changed:
-                        row.payload = cand.model_dump(mode="json")
+                    written = cand.model_dump(mode="json")
+                    if written != row.payload:  # edited, merged or key spelling normalised
+                        row.payload = written
                     entry = uow.audit(
                         reviewer,
                         "review.approve",
@@ -433,7 +441,18 @@ class WriterPipeline:
                             "edited": edited is not None,
                             "reason": item.reason,
                             "graph_run": approval_run,
-                            **({"merged_into": dup["key"], "kept_existing": kept} if merge else {}),
+                            **(
+                                {
+                                    "merged_into": dup["key"],
+                                    "merged": [
+                                        {"side": t.get("side"), "key": t["key"]}
+                                        for t in (_sides(dup) or [dup])
+                                    ],
+                                    "kept_existing": kept,
+                                }
+                                if merge
+                                else {}
+                            ),
                         },
                     )
                     uow.session.flush()
@@ -459,26 +478,37 @@ class WriterPipeline:
 
     def _accepted(self, spec: OntologySpec, class_name: str, key: str) -> bool:
         """Is this entity in the graph as an accepted (non-stub) node?"""
+        return self._stored_key(spec, class_name, key) is not None
+
+    def _stored_key(self, spec: OntologySpec, class_name: str, key: str) -> str | None:
+        """The stored spelling of an accepted (non-stub) entity's key, or None."""
         cls = next(c for c in spec.classes if c.name == class_name)
         props = self.graph.node_properties(neo4j_label(cls), cls.identity_key, key)
-        return props is not None and not props.get("stub", False)
+        if props is None or props.get("stub", False):
+            return None
+        return str(props[cls.identity_key])
 
     def _require_kept_entities(
         self, cand: AnyCandidate, dup: dict[str, Any], spec: OntologySpec
-    ) -> None:
+    ) -> AnyCandidate:
         """Keeping a relation to a possible duplicate as new needs that entity accepted
-        first; otherwise writing the relation would create it as a stub (review #39)."""
+        first; otherwise writing the relation would create it as a stub (review #39). The
+        endpoint is rewritten to the stored key: Neo4j keys are case-sensitive."""
         if not isinstance(cand, CandidateRelation):
-            return
+            return cand
+        update: dict[str, EntityRef] = {}
         for side in _sides(dup):
             ref: EntityRef = getattr(cand, side["side"])
             if match_key(ref.key) != match_key(side["candidate_key"]):
                 continue  # edited to point elsewhere
-            if not self._accepted(spec, ref.class_name, ref.key):
+            stored = self._stored_key(spec, ref.class_name, ref.key)
+            if stored is None:
                 raise PipelineError(
                     f"{ref.class_name} {ref.key!r} is not in the graph: approve its entity "
                     f"item first, or merge this relation into {side['key']!r}"
                 )
+            update[side["side"]] = EntityRef(class_name=ref.class_name, key=stored)
+        return cand.model_copy(update=update) if update else cand
 
     def _merged(
         self, cand: AnyCandidate, dup: dict[str, Any], spec: OntologySpec
@@ -496,6 +526,16 @@ class WriterPipeline:
             if not self._accepted(spec, t["class_name"], t["key"]):
                 raise PipelineError(
                     f"cannot merge into {t['class_name']} {t['key']!r}: it is not in the graph"
+                )
+            if (
+                isinstance(cand, CandidateRelation)
+                and "candidate_key" in t
+                and self._accepted(spec, t["class_name"], t["candidate_key"])
+            ):
+                # its entity item was kept as new: merging the relation would split it
+                raise PipelineError(
+                    f"{t['class_name']} {t['candidate_key']!r} was kept as a new entity: keep "
+                    "this relation as new too, or edit it"
                 )
         if isinstance(cand, CandidateRelation):
             update = {
@@ -516,6 +556,61 @@ class WriterPipeline:
             else:
                 props[name] = value
         return cand.model_copy(update={"properties": props}), kept
+
+    @staticmethod
+    def _merge_aliases(uow: UnitOfWork) -> dict[tuple[str, str], tuple[str, int]]:
+        """(class, match key of a merged-away key) -> (entity it was merged into, item id),
+        from approved merges, so re-ingesting a source doesn't re-open the same duplicate."""
+        out: dict[tuple[str, str], tuple[str, int]] = {}
+        q = select(ReviewItem).where(
+            ReviewItem.status == "edited", ReviewItem.reason.in_(("duplicate", "conflict"))
+        )
+        for item in uow.session.scalars(q.order_by(ReviewItem.id)):
+            info = item.conflict_with or {}
+            into, dup = info.get("merged_into"), info.get("duplicate_of") or {}
+            for side in _sides(dup) or [dup]:
+                if into and side.get("candidate_key"):
+                    slot = (side["class_name"], match_key(side["candidate_key"]))
+                    out[slot] = (side["key"], item.id)
+        return out
+
+    def _apply_aliases(
+        self,
+        cand: AnyCandidate,
+        aliases: dict[tuple[str, str], tuple[str, int]],
+        spec: OntologySpec,
+    ) -> tuple[AnyCandidate, list[str]]:
+        """Rewrite keys a reviewer already merged into another entity, the way the merge did
+        (an entity keeps the existing entity's differing values)."""
+        if not aliases:
+            return cand, []
+        notes: list[str] = []
+        classes = {c.name: c for c in spec.classes}
+        if isinstance(cand, CandidateEntity):
+            cls = classes.get(cand.class_name)
+            if cls is None:
+                return cand, []
+            key = str(cand.properties.get(cls.identity_key, ""))
+            hit = aliases.get((cand.class_name, match_key(key)))
+            if hit is None or not self._accepted(spec, cand.class_name, hit[0]):
+                return cand, []
+            dup = {"class_name": cand.class_name, "key_property": cls.identity_key, "key": hit[0]}
+            merged, _ = self._merged(cand, dup, spec)
+            return merged, [f"{key!r} was merged into {hit[0]!r} (review item {hit[1]})"]
+        update: dict[str, EntityRef] = {}
+        for side in ("source", "target"):
+            ref: EntityRef = getattr(cand, side)
+            hit = aliases.get((ref.class_name, match_key(ref.key)))
+            if (
+                hit is not None
+                and ref.class_name in classes
+                and self._accepted(spec, ref.class_name, hit[0])
+            ):
+                update[side] = EntityRef(class_name=ref.class_name, key=hit[0])
+                notes.append(
+                    f"{side} {ref.key!r} was merged into {hit[0]!r} (review item {hit[1]})"
+                )
+        return (cand.model_copy(update=update) if update else cand), notes
 
     def reject(self, item_id: int, reviewer: str, note: str | None = None) -> None:
         with UnitOfWork(self.engine) as uow:

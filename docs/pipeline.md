@@ -100,7 +100,17 @@ pipeline.rollback(run_id, actor)
     nothing is written and the item stays as it was, with `merge_conflict` (409).
   - Keeping a relation to a possible duplicate as new needs that entity accepted first
     (approve its entity item); otherwise the relation would create it as a stub (409).
-  - Merging an item without `duplicate_of` is an error (409).
+  - Merging an item without `duplicate_of` is an error (409), and so is merging a relation
+    whose new entity was kept as new (that would split the entity).
+  - Keeping a relation as new rewrites the endpoint to the entity's stored key (Neo4j keys are
+    case-sensitive).
+  - **Merges stick.** An approved merge records `merged_into` on its item; later ingests
+    rewrite that key to the merged entity before matching (an entity keeps the merged
+    entity's differing values, as in the merge), with a note "… was merged into …", so
+    re-syncing the same dataset doesn't re-open the duplicate. (The merged items are read
+    once per ingest.)
+  - The approval audit records `merged_into`, every rewritten side (`merged`) and
+    `kept_existing`.
 - `write_run` returns **change records** for everything it destroyed: `edge` records for
   edges removed by conflict replacement, and `properties` records with the previous values of
   properties it overwrote on an existing entity (`null` = the property didn't exist).

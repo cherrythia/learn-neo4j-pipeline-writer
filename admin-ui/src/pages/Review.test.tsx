@@ -132,6 +132,16 @@ test("a conflict that involves a possible duplicate shows both and can be merged
   await waitFor(() => expect(calls.find((c) => c.path === "/api/review/7/approve")?.body).toEqual({ merge: true }));
 });
 
+test("a refused merge is shown on the item", async () => {
+  renderWithApi(<ReviewPage />, {
+    "GET /api/review": [
+      { ...DUPLICATE, conflict_with: { ...DUPLICATE.conflict_with, merge_conflict: "already points to BYL" } },
+    ],
+  });
+  fireEvent.click(await screen.findByTestId("review-row-7"));
+  expect(screen.getByTestId("merge-conflict").textContent).toContain("already points to BYL");
+});
+
 test("the duplicate filter asks for duplicate items", async () => {
   const { calls } = renderWithApi(<ReviewPage />, { "GET /api/review": [] });
   await screen.findByText("Nothing to review.");

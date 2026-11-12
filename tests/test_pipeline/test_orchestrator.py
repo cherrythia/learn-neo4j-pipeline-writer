@@ -882,3 +882,98 @@ def test_both_flagged_endpoints_are_recorded() -> None:
     dup = _duplicate_of(rel, dups)
     assert dup is not None and dup["side"] == "source"
     assert [(s["side"], s["key"]) for s in dup["sides"]] == [("source", "APH"), ("target", "BYL")]
+
+
+# review #39 round 2
+
+
+def test_a_merge_sticks_when_the_source_is_ingested_again(
+    engine: Engine, graph: InMemoryGraph
+) -> None:
+    """Finding 1: re-syncing the same dataset must not re-open the duplicate."""
+    pipe = pipeline(engine, graph)
+    pipe.ingest(doc([APH, FILING]), actor="bot")
+    pipe.ingest(superset(AUR, AUR_FILED), actor="sync")
+    for item in dup_items(engine):
+        pipe.approve(item["id"], reviewer="rita", merge=True)
+    again = pipe.ingest(superset(AUR, AUR_FILED), actor="sync")
+    assert again.counts["commit"] == 2 and again.counts["review"] == 0, again.counts
+    assert again.counts["conflict"] == 0
+    assert graph.node_properties("Issuer", "ticker", "AUR") is None
+    aph = graph.node_properties("Issuer", "ticker", "APH")
+    assert aph is not None and aph["name"] == "Aurora Pacific Holdings (Demo)"
+    with UnitOfWork(engine) as uow:
+        latest = list(
+            uow.session.scalars(select(Candidate).where(Candidate.run_id == again.run_id))
+        )
+        assert any("was merged into 'APH'" in n for c in latest for n in c.breakdown["notes"])
+
+
+def test_keep_as_new_writes_the_stored_key(engine: Engine, graph: InMemoryGraph) -> None:
+    """Finding 2: Neo4j keys are case-sensitive; the relation must use the stored key."""
+    pipe = pipeline(engine, graph)
+    pipe.ingest(doc([APH, FILING]), actor="bot")
+    lower = AUR_FILED.model_copy(update={"target": EntityRef(class_name="Issuer", key="aur")})
+    pipe.ingest(superset(lower, AUR), actor="sync")
+    items = dup_items(engine)
+    for kind in ("entity", "relation"):
+        pipe.approve(next(i["id"] for i in items if i["kind"] == kind), reviewer="rita")
+    with UnitOfWork(engine) as uow:
+        rel = next(
+            i for i in uow.session.scalars(select(ReviewItem)) if i.candidate.kind == "relation"
+        )
+        assert rel.candidate.payload["target"]["key"] == "AUR"
+
+
+def test_merging_a_relation_after_keeping_its_entity_is_refused(
+    engine: Engine, graph: InMemoryGraph
+) -> None:
+    """Finding 3: that would split the entity (AUR accepted, its filing pointing at APH)."""
+    from writer_service.pipeline.orchestrator import PipelineError
+
+    pipe = pipeline(engine, graph)
+    pipe.ingest(doc([APH, FILING]), actor="bot")
+    pipe.ingest(superset(AUR, AUR_FILED), actor="sync")
+    items = dup_items(engine)
+    pipe.approve(next(i["id"] for i in items if i["kind"] == "entity"), reviewer="rita")
+    rel = next(i["id"] for i in items if i["kind"] == "relation")
+    with pytest.raises(PipelineError, match="was kept as a new entity"):
+        pipe.approve(rel, reviewer="rita", merge=True)
+    pipe.approve(rel, reviewer="rita")  # keeping it as new is fine
+    assert graph.targets(
+        "FILED_BY", ("Filing", "filing_id", "AR-2025-APH"), {"Issuer": "ticker"}
+    ) == [{"Issuer": "AUR"}]
+
+
+def test_merge_rewrites_both_flagged_endpoints(engine: Engine, graph: InMemoryGraph) -> None:
+    """Finding 5: every flagged side is rewritten, and each target must exist."""
+    from writer_service.ontology.service import spec_of
+    from writer_service.pipeline.orchestrator import PipelineError
+
+    pipe = pipeline(engine, graph)
+    with UnitOfWork(engine) as uow:
+        published = uow.ontology_versions.published()
+        assert published is not None
+        spec = spec_of(published)
+    rel = CandidateRelation(
+        relation="FILED_BY",
+        source=EntityRef(class_name="Filing", key="AR-NEW"),
+        target=EntityRef(class_name="Issuer", key="AUR"),
+    )
+    dup = {
+        "sides": [
+            {
+                "side": "source",
+                "class_name": "Filing",
+                "candidate_key": "AR-NEW",
+                "key": "AR-2025-APH",
+            },
+            {"side": "target", "class_name": "Issuer", "candidate_key": "AUR", "key": "APH"},
+        ]
+    }
+    with pytest.raises(PipelineError, match="not in the graph"):
+        pipe._merged(rel, dup, spec)
+    pipe.ingest(doc([APH, FILING]), actor="bot")
+    merged, _ = pipe._merged(rel, dup, spec)
+    assert isinstance(merged, CandidateRelation)
+    assert (merged.source.key, merged.target.key) == ("AR-2025-APH", "APH")

@@ -146,6 +146,7 @@ export function ReviewDetail({ item, onDone }: { item: ReviewItem; onDone: () =>
   });
   const evidence = item.evidence as EvidenceItem[];
   const duplicate = duplicateOf(item); // duplicate items, and conflicts that involve one
+  const mergeConflict = (item.conflict_with as { merge_conflict?: string } | null)?.merge_conflict;
 
   return (
     <Card withBorder>
@@ -171,6 +172,11 @@ export function ReviewDetail({ item, onDone }: { item: ReviewItem; onDone: () =>
               {duplicate.key} (which must already be in the graph), or keep it as a new one (a
               relation needs its new entity approved first).
             </Text>
+            {mergeConflict && (
+              <Text size="sm" c="red" mt="xs" data-testid="merge-conflict">
+                A merge was refused: {mergeConflict}
+              </Text>
+            )}
           </Alert>
         )}
         <Text fw={600}>Candidate</Text>
