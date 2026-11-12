@@ -109,4 +109,6 @@ curl -H "X-API-Key: $WRITER_INGEST_API_KEY" -F file=@samples/aurora_pacific_annu
 Errors: 401 (key), 413 (size), 415 (type), 422 (unreadable), 409 (no published ontology),
 503 (LLM not configured). A failed run returns `status: failed` with a generic message; the
 internal error is stored with the run (`ingestion_runs.error`), not sent to the client.
-The Neo4j driver is created once (thread-safe) and closed on shutdown.
+The Neo4j driver is created once (thread-safe) and closed on shutdown. Without LLM
+configuration the service still starts: review, rollback, ontology admin and Superset sync
+work; only LLM-backed routes (document upload, mapping suggestions) answer 503.

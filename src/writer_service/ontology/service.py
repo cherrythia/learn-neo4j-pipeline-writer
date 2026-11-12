@@ -107,6 +107,26 @@ def _fill(version: OntologyVersion, spec: OntologySpec) -> None:
         )
 
 
+def new_draft_in(uow: UnitOfWork, actor: str) -> int:
+    """``new_draft`` inside the caller's transaction (so it can be part of a larger change)."""
+    versions = uow.ontology_versions.lock_all()
+    draft = next((v for v in versions if v.status == "draft"), None)
+    if draft is not None:
+        raise OntologyError(f"draft v{draft.version} already exists")
+    pub = uow.ontology_versions.published()
+    if pub is None:
+        raise OntologyError("no published version; run bootstrap first")
+    number = (uow.session.scalar(select(func.max(OntologyVersion.version))) or 0) + 1
+    new = OntologyVersion(
+        version=number, status="draft", created_by=actor, notes=f"draft from v{pub.version}"
+    )
+    _fill(new, spec_of(pub))
+    uow.session.add(new)
+    uow.session.flush()
+    uow.audit(actor, "ontology.draft", "ontology_version", str(number), {"from": pub.version})
+    return number
+
+
 class OntologyService:
     def __init__(self, engine: Engine, graph: GraphSchema) -> None:
         self.engine = engine
@@ -144,23 +164,7 @@ class OntologyService:
     def new_draft(self, actor: str) -> int:
         """Start a new draft as a copy of the published version."""
         with UnitOfWork(self.engine) as uow:
-            versions = uow.ontology_versions.lock_all()
-            draft = next((v for v in versions if v.status == "draft"), None)
-            if draft is not None:
-                raise OntologyError(f"draft v{draft.version} already exists")
-            pub = uow.ontology_versions.published()
-            if pub is None:
-                raise OntologyError("no published version; run bootstrap first")
-            number = (uow.session.scalar(select(func.max(OntologyVersion.version))) or 0) + 1
-            new = OntologyVersion(
-                version=number, status="draft", created_by=actor, notes=f"draft from v{pub.version}"
-            )
-            _fill(new, spec_of(pub))
-            uow.session.add(new)
-            uow.audit(
-                actor, "ontology.draft", "ontology_version", str(number), {"from": pub.version}
-            )
-            return number
+            return new_draft_in(uow, actor)
 
     def publish(self, number: int, actor: str) -> None:
         synced_to: OntologySpec | None = None

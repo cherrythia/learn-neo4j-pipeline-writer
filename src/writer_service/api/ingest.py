@@ -7,7 +7,7 @@ from pathlib import PurePath
 from fastapi import APIRouter, Depends, HTTPException, UploadFile
 from pydantic import BaseModel
 
-from writer_service.api.deps import PipelineDep, ReaderDep, SupersetDep
+from writer_service.api.deps import LLM_HINT, PipelineDep, ReaderDep, SupersetDep
 from writer_service.auth.deps import SettingsDep, require_api_key
 from writer_service.governance.uow import UnitOfWork
 from writer_service.ingestion.documents import DocumentExtractor, pdf_chunks, xlsx_chunks
@@ -54,6 +54,8 @@ def ingest_document(file: UploadFile, pipeline: PipelineDep, settings: SettingsD
     data = file.file.read(limit + 1)
     if len(data) > limit:
         raise HTTPException(413, f"file larger than {settings.max_upload_mb} MB")
+    if pipeline.llm is None:
+        raise HTTPException(503, f"document ingestion needs an LLM; {LLM_HINT}")
     source_type, parse = PARSERS[suffix]
     try:
         chunks = parse(data, source_ref=name)
@@ -66,8 +68,6 @@ def ingest_document(file: UploadFile, pipeline: PipelineDep, settings: SettingsD
         if published is None:
             raise HTTPException(409, "no published ontology; run `writer-ontology bootstrap`")
         spec, version = spec_of(published), published.version
-    if pipeline.llm is None:
-        raise HTTPException(503, "document ingestion needs an LLM")
     extractor = DocumentExtractor(pipeline.llm, spec, version)
     batch = SourceBatch(
         source_type,  # type: ignore[arg-type]

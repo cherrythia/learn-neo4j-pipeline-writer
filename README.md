@@ -34,6 +34,8 @@ Currently in place:
 - the writer pipeline and Neo4j writer, `POST /ingest/documents` ([docs](docs/pipeline.md))
 - Superset/MySQL ingestion with approved column mappings, `POST /ingest/superset/{id}`
   ([docs](docs/superset-ingestion.md))
+- admin JSON API for ontology, review queue, mappings, scoring, runs, audit and users
+  ([docs](docs/admin-api.md))
 
 ## Quick start
 

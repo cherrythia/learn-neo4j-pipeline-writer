@@ -6,6 +6,13 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Added
+- **#14 Admin JSON API** (`writer_service.api.admin`)
+  - Ontology versions and drafts (classes, relations, publish, rollback), extension proposals,
+    review queue (approve/edit/reject), column mappings (manual, LLM-suggested, approve),
+    scoring policy, runs (detail, rollback), audit log, users.
+  - `reviewer`/`admin` roles on every route; CSRF on every write; everything audited.
+  - Permission matrix generated from the OpenAPI schema; workflow tests; `writer-openapi`
+    exports `admin-ui/src/api/openapi.json` (test keeps it current). Docs: `docs/admin-api.md`.
 - **#12 Superset/MySQL connector and column mappings** (`writer_service.ingestion.superset`)
   - `SupersetClient` (login, dataset metadata; identifiers validated), `DatasetReader`
     (paged, read-only; physical and virtual SQL datasets).
