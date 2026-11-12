@@ -37,7 +37,7 @@ def _version(s: Session) -> OntologyVersion:
 
 
 def _class(s: Session) -> OntologyClass:
-    c = OntologyClass(version=_version(s), name="Issuer", identity_key="ticker")
+    c = OntologyClass(version=_version(s), name="HardwareAsset", identity_key="asset_tag")
     s.add(c)
     return c
 
@@ -186,8 +186,8 @@ def test_proposal_source_run_must_exist(session: Session) -> None:
 
 def test_deleting_version_cascades_to_classes_properties_relations(session: Session) -> None:
     v = _version(session)
-    c = OntologyClass(version=v, name="Issuer", identity_key="ticker")
-    c.properties = [PropertyDef(name="ticker")]
+    c = OntologyClass(version=v, name="HardwareAsset", identity_key="asset_tag")
+    c.properties = [PropertyDef(name="asset_tag")]
     session.add_all([c, RelationType(version=v, name="R", domain_class="A", range_class="B")])
     session.commit()
     session.delete(v)
@@ -263,9 +263,9 @@ def test_raw_sql_version_delete_cascades_through_class_hierarchy(
 ) -> None:
     """The database-level cascade must work even when classes have parents (no ORM help)."""
     v = _version(session)
-    parent = OntologyClass(version=v, name="Organisation", identity_key="name")
-    child = OntologyClass(version=v, name="Issuer", identity_key="ticker", parent=parent)
-    child.properties = [PropertyDef(name="ticker")]
+    parent = OntologyClass(version=v, name="Asset", identity_key="asset_tag")
+    child = OntologyClass(version=v, name="HardwareAsset", identity_key="asset_tag", parent=parent)
+    child.properties = [PropertyDef(name="asset_tag")]
     session.add_all([parent, child])
     session.commit()
     with engine.begin() as conn:
@@ -277,12 +277,12 @@ def test_raw_sql_version_delete_cascades_through_class_hierarchy(
 
 def test_deleting_parent_class_keeps_child(session: Session) -> None:
     v = _version(session)
-    parent = OntologyClass(version=v, name="Organisation", identity_key="name")
-    child = OntologyClass(version=v, name="Issuer", identity_key="ticker", parent=parent)
+    parent = OntologyClass(version=v, name="Asset", identity_key="asset_tag")
+    child = OntologyClass(version=v, name="HardwareAsset", identity_key="asset_tag", parent=parent)
     session.add_all([parent, child])
     session.commit()
     session.delete(parent)
     session.commit()
     session.expire_all()
     remaining = session.scalars(select(OntologyClass)).one()
-    assert remaining.name == "Issuer" and remaining.parent_id is None
+    assert remaining.name == "HardwareAsset" and remaining.parent_id is None

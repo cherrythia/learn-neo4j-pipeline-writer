@@ -13,7 +13,7 @@ from writer_service.pipeline.gates import check_batch
 from writer_service.pipeline.graph_view import Neo4jGraphView
 
 pytestmark = pytest.mark.integration
-ISSUER, FILING = "__T_ISSUER__", "__T_FILING__"
+HW, DEPT, INVOICE = "__T_HW__", "__T_DEPT__", "__T_INVOICE__"
 
 
 @pytest.fixture
@@ -27,44 +27,50 @@ def driver() -> Iterator[Driver]:
     )
     with GraphDatabase.driver(uri, auth=auth) as d:
         d.execute_query(
-            "MERGE (i:Issuer {ticker: $i}) SET i.name = 'Test', i.board = 'mainboard' "
-            "MERGE (f:Filing {filing_id: $f}) MERGE (f)-[:FILED_BY]->(i)",
-            i=ISSUER,
-            f=FILING,
+            "MERGE (h:HardwareAsset:Asset {asset_tag: $h}) "
+            "SET h.name = 'Test', h.status = 'in_use' "
+            "MERGE (d:Department {dept_code: $d}) SET d.name = 'Test' "
+            "MERGE (v:Invoice {invoice_number: $v}) "
+            "MERGE (h)-[:ASSIGNED_TO]->(d) MERGE (h)-[:BILLED_ON]->(v)",
+            h=HW,
+            d=DEPT,
+            v=INVOICE,
         )
         try:
             yield d
         finally:
             d.execute_query(
-                "MATCH (n) WHERE n.ticker = $i OR n.filing_id = $f DETACH DELETE n",
-                i=ISSUER,
-                f=FILING,
+                "MATCH (n) WHERE n.asset_tag = $h OR n.dept_code = $d OR n.invoice_number = $v "
+                "DETACH DELETE n",
+                h=HW,
+                d=DEPT,
+                v=INVOICE,
             )
 
 
 def test_reads_nodes_and_edges_case_insensitively(driver: Driver) -> None:
     view = Neo4jGraphView(driver)
-    assert view.node_properties("Issuer", "ticker", ISSUER.lower())["board"] == "mainboard"  # type: ignore[index]
-    assert view.targets("FILED_BY", ("Filing", "filing_id", FILING), {"Issuer": "ticker"}) == [
-        {"Issuer": ISSUER}
-    ]
-    assert view.sources("FILED_BY", ("Issuer", "ticker", ISSUER), {"Filing": "filing_id"}) == [
-        {"Filing": FILING}
-    ]
-    assert view.node_properties("Issuer", "ticker", "__nope__") is None
+    assert view.node_properties("HardwareAsset", "asset_tag", HW.lower())["status"] == "in_use"  # type: ignore[index]
+    assert view.targets(
+        "ASSIGNED_TO", ("HardwareAsset", "asset_tag", HW), {"Department": "dept_code"}
+    ) == [{"Department": DEPT}]
+    assert view.sources(
+        "ASSIGNED_TO", ("Department", "dept_code", DEPT), {"HardwareAsset": "asset_tag"}
+    ) == [{"HardwareAsset": HW}]
+    assert view.node_properties("HardwareAsset", "asset_tag", "__nope__") is None
 
 
 def test_gates_detect_conflicts_against_real_graph(driver: Driver, spec: OntologySpec) -> None:
     results = check_batch(
         [
             CandidateEntity(
-                class_name="Issuer",
-                properties={"ticker": ISSUER, "name": "Test", "board": "catalist"},
+                class_name="HardwareAsset",
+                properties={"asset_tag": HW, "name": "Test", "status": "retired"},
             ),
             CandidateRelation(
-                relation="FILED_BY",
-                source=EntityRef(class_name="Filing", key=FILING),
-                target=EntityRef(class_name="Issuer", key="__OTHER__"),
+                relation="ASSIGNED_TO",
+                source=EntityRef(class_name="HardwareAsset", key=HW),
+                target=EntityRef(class_name="Department", key="__OTHER__"),
             ),
         ],
         spec,
@@ -73,13 +79,14 @@ def test_gates_detect_conflicts_against_real_graph(driver: Driver, spec: Ontolog
     assert [r.status for r in results] == ["conflict", "conflict"]
 
 
-def test_subclass_target_and_whitespace_variant_key(driver: Driver, spec: OntologySpec) -> None:
-    """The gate canonicalises '__T_FILING__' typed with doubled spaces etc.; the edge's far
-    node is reported per label so a parent-range relation sees it."""
+def test_subclass_source_and_whitespace_variant_key(driver: Driver, spec: OntologySpec) -> None:
+    """The gate canonicalises '__T_INVOICE__' typed with doubled spaces etc.; the edge's far
+    node is reported per label so a parent-domain relation (BILLED_ON from Asset) sees a
+    HardwareAsset source under both of its labels."""
     view = Neo4jGraphView(driver)
-    far = view.targets(
-        "FILED_BY",
-        ("Filing", "filing_id", f"  {FILING} "),
-        {"Issuer": "ticker", "Organisation": "name"},
+    far = view.sources(
+        "BILLED_ON",
+        ("Invoice", "invoice_number", f"  {INVOICE} "),
+        {"HardwareAsset": "asset_tag", "Asset": "asset_tag"},
     )
-    assert far == [{"Issuer": ISSUER}]
+    assert far == [{"HardwareAsset": HW, "Asset": HW}]

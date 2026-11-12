@@ -1,6 +1,6 @@
 """Full-text entity lookups against a real Neo4j (compose). Skipped unless WRITER_TEST_NEO4J_URI
 is set. Creates the core schema (constraints + full-text indexes, which the app wants anyway)
-and throwaway Issuer nodes, which it deletes.
+and throwaway Department nodes (dept_code prefixed ``__FT_``), which it deletes.
 
 Golden test (#28): the matcher gives the *same* results through the full-text index as it did
 by reading every name (``InMemoryMatchIndex`` over the same nodes is the old behaviour).
@@ -14,7 +14,7 @@ from typing import Any
 import pytest
 from neo4j import Driver, GraphDatabase
 
-from demo_env.data import ISSUERS as DEMO_ISSUERS
+from demo_env.data import DEPARTMENTS as DEMO_DEPARTMENTS
 from writer_service.ontology.neo4j_schema import Neo4jGraphSchema, sync_schema
 from writer_service.ontology.spec import OntologySpec
 from writer_service.pipeline.candidates import CandidateEntity
@@ -28,77 +28,77 @@ from writer_service.pipeline.matching import (
 
 pytestmark = pytest.mark.integration
 P = "__FT_"
-ISSUERS = {
-    f"{P}AUR": "Zqx Aurora Pacific Holdings",
-    f"{P}AURL": "Zqx Aurora Pacific Holdings Ltd",  # near-twin: ambiguity must survive
-    f"{P}BAN": "Zqx Banyan Logistics Group",
-    f"{P}GRB": "Zqx Granite Bay Bank",
-    f"{P}PAC": "Zqx Pacific Shipping",
-    f"{P}OAK": "Zqx Oakwood Retail Trust",
-    **{f"{P}N{i:03d}": f"Zqx Noise Company {i:03d} Holdings" for i in range(120)},
+DEPARTMENTS = {
+    f"{P}FSS": "Zqx Finance Shared Services",
+    f"{P}FSSL": "Zqx Finance Shared Services Ltd",  # near-twin: ambiguity must survive
+    f"{P}LOG": "Zqx Harbor Logistics Group",
+    f"{P}FAC": "Zqx Granite Bay Facilities",
+    f"{P}PRC": "Zqx Shared Procurement",
+    f"{P}OPS": "Zqx Oakwood Retail Operations",
+    **{f"{P}N{i:03d}": f"Zqx Noise Department {i:03d} Services" for i in range(120)},
     # review #40: what only the analyzer tokenises (apostrophes, CJK, accents, dotted İ)
     f"{P}MCQ": "McQuillan's",
-    f"{P}ZHB": "中华银行",
+    f"{P}CWB": "财务部",
     f"{P}MUL": "Müller",
-    f"{P}İŞBANK": "Zqx Isbank Turkiye",
+    f"{P}İŞLEM": "Zqx Islem Key",
     # review #40 round 2: what Python's NFKD would break (Hangul, kana voicing, ™)
-    f"{P}SAM": "삼성전자",
-    f"{P}HYU": "현대",
-    f"{P}BRI": "ブリヂストン",
-    f"{P}GAR": "ｶﾞﾙｰﾀﾞ",
-    f"{P}삼성": "Zqx Samsung Key",
+    f"{P}PSJ": "푸른숲정보",
+    f"{P}SBK": "새벽",
+    f"{P}GLP": "ガラパゴス",
+    f"{P}PGD": "ﾊﾟｺﾞﾀﾞ",
+    f"{P}새벽": "Zqx Hangul Key",
     f"{P}ACME™": "Zqx Acme Trademark",
     # review #40 round 3: all-caps Greek (final sigma), NFD-decomposed data
-    f"{P}MYT": "ΜΥΤΙΛΗΝΑΙΟΣ",
+    f"{P}KYK": "ΚΥΚΛΩΠΑΣ",
     f"{P}ΟΔΟΣ": "Zqx Odos Key",
-    f"{P}MU\u0308LLER": "Zqx Nfd Key",
-    f"{P}HYD": unicodedata.normalize("NFD", "현대자동차"),
+    f"{P}MÜLLER": "Zqx Nfd Key",
+    f"{P}SBJ": unicodedata.normalize("NFD", "새벽자동차"),
     # review #40 round 4: accents dropped in all-caps Greek, a Cyrillic typo, one word vs two
-    f"{P}MYTA": "Μυτιληναίος",
-    f"{P}AKT": "ΑΚΤΩΡ",
-    f"{P}GAZ": "Зквгазпром",
-    f"{P}SGT": "Aqsingtel",
-    f"{P}SHB": "Aqstar Hubz",
-    # the demo issuers, under throwaway keys
-    **{f"{P}D{i.ticker}": i.name for i in DEMO_ISSUERS},
+    f"{P}KYKA": "Κύκλωπας",
+    f"{P}THE": "ΘΕΑΤΡΟ",
+    f"{P}ZVZ": "Зквзвездапром",
+    f"{P}AQQ": "Aqquillstack",
+    f"{P}AQH": "Aqharbor Synkz",
+    # the demo departments, under throwaway keys
+    **{f"{P}D{d.dept_code}": d.name for d in DEMO_DEPARTMENTS},
     # a key whose token many longer keys share (more than TOP_K phrase hits)
     f"{P}TOPK": "Zqx Top K Exact",
     **{f"{P}TOPK-{i:02d}": f"Zqx Top K Variant {i:02d}" for i in range(60)},
 }
 QUERIES = [
-    "Zqx Aurora Pacific Holdings",
-    "zqx aurora pacific holdings ltd",
-    "Zqx Aurora Pacfic Holdings",  # typo
-    "Zqx Pacific",
-    "Zqx Banyan Logistics",
-    "ZQX GRANITE BAY BANK",
+    "Zqx Finance Shared Services",
+    "zqx finance shared services ltd",
+    "Zqx Finance Sharde Services",  # typo
+    "Zqx Shared",
+    "Zqx Harbor Logistics",
+    "ZQX GRANITE BAY FACILITIES",
     "Zqx Oakwood Retail",
-    "Zqx Noise Company 042 Holdings",
+    "Zqx Noise Department 042 Services",
     "Zqx Totally Unknown Name",
-    f"{P}gRb",  # a key in another case
+    f"{P}fAc",  # a key in another case
     "McQuillan's",
-    "中华银行",
+    "财务部",
     "Mueller",
     "Muller",
-    f"{P}i̇şbank",
-    "삼성전자",
-    "현대",
-    "ブリヂストン",
-    "ｶﾞﾙｰﾀﾞ",
-    f"{P.lower()}삼성",
+    f"{P}{'İŞLEM'.lower()}",  # dotted İ lower-cases to i + combining dot
+    "푸른숲정보",
+    "새벽",
+    "ガラパゴス",
+    "ﾊﾟｺﾞﾀﾞ",
+    f"{P.lower()}새벽",
     f"{P.lower()}acme™",
-    "Μυτιληναιος",
-    "ΜΥΤΙΛΗΝΑΙΟΣ",
+    "Κυκλωπας",
+    "ΚΥΚΛΩΠΑΣ",
     f"{P.lower()}οδος",
-    f"{P.lower()}mu\u0308ller",
-    unicodedata.normalize("NFD", "현대자동차"),
-    "Άκτωρ",
-    "Зквгазпрон",
-    "Aqsing Tel",
-    "Aqstarhubz",
+    f"{P.lower()}müller",
+    unicodedata.normalize("NFD", "새벽자동차"),
+    "Θέατρο",
+    "Зквзвездапрон",
+    "Aqquill Stack",
+    "Aqharborsynkz",
     f"{P}topk",
-    *[i.name for i in DEMO_ISSUERS],
-    *[i.name.replace(" (Demo)", "") for i in DEMO_ISSUERS],
+    *[d.name for d in DEMO_DEPARTMENTS],
+    *[f"{d.name} Department" for d in DEMO_DEPARTMENTS],
 ]
 
 
@@ -126,22 +126,27 @@ def driver(spec: OntologySpec) -> Iterator[Driver]:
     with GraphDatabase.driver(uri, auth=auth) as d:
         sync_schema(Neo4jGraphSchema(d), spec)
         d.execute_query(
-            "UNWIND $rows AS r MERGE (n:Issuer {ticker: r.k}) SET n.name = r.n, n.stub = false",
-            rows=[{"k": k, "n": n} for k, n in ISSUERS.items()],
+            "UNWIND $rows AS r MERGE (n:Department {dept_code: r.k}) "
+            "SET n.name = r.n, n.stub = false",
+            rows=[{"k": k, "n": n} for k, n in DEPARTMENTS.items()],
         )
         d.execute_query("CALL db.awaitIndexes(120)")
         try:
             yield d
         finally:
-            d.execute_query("MATCH (n:Issuer) WHERE n.ticker STARTS WITH $p DETACH DELETE n", p=P)
+            d.execute_query(
+                "MATCH (n:Department) WHERE n.dept_code STARTS WITH $p DETACH DELETE n", p=P
+            )
 
 
 def old_behaviour_index(driver: Driver) -> InMemoryMatchIndex:
-    """Every Issuer in the database, as the old full scan saw them."""
+    """Every Department in the database, as the old full scan saw them."""
     idx = InMemoryMatchIndex()
-    records, _, _ = driver.execute_query("MATCH (n:Issuer) RETURN n.ticker AS k, n.name AS name")
+    records, _, _ = driver.execute_query(
+        "MATCH (n:Department) RETURN n.dept_code AS k, n.name AS name"
+    )
     for r in records:
-        idx.add("Issuer", "ticker", str(r["k"]), r["name"])
+        idx.add("Department", "dept_code", str(r["k"]), r["name"])
     return idx
 
 
@@ -155,7 +160,7 @@ def indexed(lookup: Any) -> Any:
 def results(index: Any, spec: OntologySpec) -> list[Any]:
     """Per query: status, key, confidence, the best alternative, and the scores of the
     alternatives that matter (at or above the ambiguity floor). Which *keys* fill the listed
-    alternatives may differ only among equally scored names (e.g. 120 "Noise Company NNN"),
+    alternatives may differ only among equally scored names (e.g. 120 "Noise Department NNN"),
     where the full scan and the full-text top-k break the tie differently; weaker names
     never change a decision."""
     out = []
@@ -167,13 +172,15 @@ def results(index: Any, spec: OntologySpec) -> list[Any]:
 
 def _results(index: Any, spec: OntologySpec, queries: list[str] = QUERIES) -> list[Any]:
     m = EntityMatcher(index, spec)
-    out: list[Any] = [m.resolve("Issuer", q) for q in queries]
-    new_entities = [(f"{P}NEW", "Zqx Aurora Pacific Holdings"), (f"{P}X", "Zqx Brand New")]
-    new_entities += [(f"{P}NEW2", "McQuillan's"), (f"{P}NEW3", "中华银行")]
+    out: list[Any] = [m.resolve("Department", q) for q in queries]
+    new_entities = [(f"{P}NEW", "Zqx Finance Shared Services"), (f"{P}X", "Zqx Brand New")]
+    new_entities += [(f"{P}NEW2", "McQuillan's"), (f"{P}NEW3", "财务部")]
     for key, name in new_entities:
         out.append(
             m.match_entity(
-                CandidateEntity(class_name="Issuer", properties={"ticker": key, "name": name})
+                CandidateEntity(
+                    class_name="Department", properties={"dept_code": key, "name": name}
+                )
             )
         )
     return out
@@ -199,9 +206,9 @@ def test_fulltext_matching_gives_the_same_results_as_the_full_scan(
 def test_case_insensitive_key_lookup_uses_the_index(driver: Driver) -> None:
     recording = Recording(driver)
     view = indexed(Neo4jGraphView(recording))
-    props = view.node_properties("Issuer", "ticker", f"{P}aurl")
-    assert props is not None and props["ticker"] == f"{P}AURL"  # not the AUR prefix-match
-    assert view.node_properties("Issuer", "ticker", f"{P}nope") is None
+    props = view.node_properties("Department", "dept_code", f"{P}fssl")
+    assert props is not None and props["dept_code"] == f"{P}FSSL"  # not the FSS prefix-match
+    assert view.node_properties("Department", "dept_code", f"{P}nope") is None
     assert not any("toLower(" in s for s in recording.statements)
 
 
@@ -219,7 +226,7 @@ def test_without_the_index_it_falls_back_to_scanning(driver: Driver, spec: Ontol
 
 
 def test_small_classes_keep_the_old_scan(driver: Driver, spec: OntologySpec) -> None:
-    """With the default threshold this ~250-issuer graph is scanned: identical to before."""
+    """With the default threshold this ~250-department graph is scanned: identical to before."""
     recording = Recording(driver)
     assert results(Neo4jMatchIndex(recording), spec) == results(old_behaviour_index(driver), spec)
     assert not any("db.index.fulltext.queryNodes" in s for s in recording.statements)

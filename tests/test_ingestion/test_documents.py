@@ -30,24 +30,29 @@ SPEC = OntologySpec(CORE_CLASSES, CORE_RELATIONS)
 
 
 def test_pdf_chunks_one_per_page_with_anchors() -> None:
-    chunks = pdf_chunks(ROOT / PDF_PATH, source_ref="aurora.pdf")
-    assert [c.locator for c in chunks] == ["page 1", "page 2"]
-    assert all(c.source_type == "pdf" and c.source_ref == "aurora.pdf" for c in chunks)
-    assert "LR-705" in chunks[0].text and "ESG" in chunks[1].text
+    chunks = pdf_chunks(ROOT / PDF_PATH, source_ref="invoice.pdf")
+    assert [c.locator for c in chunks] == ["page 1", "page 2", "page 3"]
+    assert all(c.source_type == "pdf" and c.source_ref == "invoice.pdf" for c in chunks)
+    assert "HW-25-0101" in chunks[0].text and "SL-25-0201" in chunks[1].text
+    assert "is assigned to Finance (FIN)" in chunks[2].text
 
 
 def test_pdf_chunks_accept_bytes() -> None:
     data = (ROOT / PDF_PATH).read_bytes()
-    assert len(pdf_chunks(data, source_ref="upload.pdf")) == 2
+    assert len(pdf_chunks(data, source_ref="upload.pdf")) == 3
 
 
 def test_xlsx_chunks_one_per_row_with_header_names() -> None:
-    chunks = xlsx_chunks(ROOT / XLSX_PATH, source_ref="checklist.xlsx")
+    from demo_env.data import HARDWARE
+
+    chunks = xlsx_chunks(ROOT / XLSX_PATH, source_ref="register.xlsx")
     first = chunks[0]
     assert first.source_type == "excel"
-    assert first.locator == "sheet Checklist row 2"  # row 1 is the header
-    assert first.text.startswith("issuer: Aurora Pacific Holdings (Demo); rule_code: LR-705")
-    assert [c.locator for c in chunks] == [f"sheet Checklist row {n}" for n in range(2, 14)]
+    assert first.locator == "sheet Register row 2"  # row 1 is the header
+    assert first.text.startswith(f"asset_tag: {HARDWARE[0].asset_tag}; hardware_type: laptop")
+    assert [c.locator for c in chunks] == [
+        f"sheet Register row {n}" for n in range(2, len(HARDWARE) + 2)
+    ]
 
 
 def test_unsupported_bytes_raise_clear_error() -> None:
@@ -81,9 +86,9 @@ def test_render_marks_each_chunk() -> None:
 
 def test_output_schema_restricts_names_to_published_ontology() -> None:
     deprecated = OntologySpec(
-        tuple(replace(c, deprecated=True) if c.name == "Finding" else c for c in CORE_CLASSES),
+        tuple(replace(c, deprecated=True) if c.name == "Application" else c for c in CORE_CLASSES),
         tuple(
-            replace(r, deprecated=True) if "Finding" in (r.domain, r.range) else r
+            replace(r, deprecated=True) if "Application" in (r.domain, r.range) else r
             for r in CORE_RELATIONS
         ),
     )
@@ -92,23 +97,23 @@ def test_output_schema_restricts_names_to_published_ontology() -> None:
     )
     schema = ex.output_model().model_json_schema()
     text = str(schema)
-    assert "Issuer" in text and "FILED_BY" in text
-    assert "'Finding'" not in text and "CONCERNS" not in text  # deprecated: not offered
+    assert "HardwareAsset" in text and "ASSIGNED_TO" in text
+    assert "'Application'" not in text and "OWNED_BY" not in text  # deprecated: not offered
 
 
 # ------------------------------------------------------------------ extraction
 
-PAGE_EVIDENCE = {"locator": "page 1", "quote": "Aurora Pacific Holdings (Demo) (ticker APH)"}
+PAGE_EVIDENCE = {"locator": "page 1", "quote": "HW-25-0101 Laptop, Corvane (Demo) Aero 14"}
 
 
 def answer(**overrides: Any) -> dict[str, Any]:
     base: dict[str, Any] = {
         "entities": [
             {
-                "class_name": "Issuer",
+                "class_name": "HardwareAsset",
                 "properties": [
-                    {"name": "ticker", "value": "APH"},
-                    {"name": "name", "value": "Aurora Pacific Holdings (Demo)"},
+                    {"name": "asset_tag", "value": "HW-25-0101"},
+                    {"name": "hardware_type", "value": "laptop"},
                 ],
                 "evidence": [PAGE_EVIDENCE, {"locator": "page 99", "quote": "made up"}],
                 "confidence": 0.9,
@@ -116,12 +121,12 @@ def answer(**overrides: Any) -> dict[str, Any]:
         ],
         "relations": [
             {
-                "relation": "FILED_BY",
-                "source_class": "Filing",
-                "source_key": "AR-2025-APH",
-                "target_class": "Issuer",
-                "target_key": "APH",
-                "evidence": [{"locator": "page 1", "quote": "issued this annual report"}],
+                "relation": "ASSIGNED_TO",
+                "source_class": "HardwareAsset",
+                "source_key": "HW-25-0101",
+                "target_class": "Department",
+                "target_key": "FIN",
+                "evidence": [{"locator": "page 3", "quote": "is assigned to Finance (FIN)"}],
                 "confidence": 0.8,
             }
         ],
@@ -136,30 +141,31 @@ def extractor(fake: FakeLLM) -> DocumentExtractor:
 
 def test_extract_converts_to_candidates_with_full_evidence() -> None:
     fake = FakeLLM({EXTRACTION_PROMPT.name: [answer()]})
-    chunks = pdf_chunks(ROOT / PDF_PATH, source_ref="aurora.pdf")
+    chunks = pdf_chunks(ROOT / PDF_PATH, source_ref="invoice.pdf")
     cands = extractor(fake).extract(chunks)
     ent = next(c for c in cands if isinstance(c, CandidateEntity))
     rel = next(c for c in cands if isinstance(c, CandidateRelation))
-    assert ent.properties == {"ticker": "APH", "name": "Aurora Pacific Holdings (Demo)"}
+    assert ent.properties == {"asset_tag": "HW-25-0101", "hardware_type": "laptop"}
     assert [(e.source_type, e.source_ref, e.locator) for e in ent.evidence] == [
-        ("pdf", "aurora.pdf", "page 1")  # page 99 does not exist: dropped
+        ("pdf", "invoice.pdf", "page 1")  # page 99 does not exist: dropped
     ]
-    assert (rel.source.key, rel.target.key, rel.confidence) == ("AR-2025-APH", "APH", 0.8)
+    assert (rel.source.key, rel.target.key, rel.confidence) == ("HW-25-0101", "FIN", 0.8)
 
 
 def test_prompt_contains_ontology_and_page_markers() -> None:
     fake = FakeLLM({EXTRACTION_PROMPT.name: [answer()]})
-    extractor(fake).extract(pdf_chunks(ROOT / PDF_PATH, source_ref="aurora.pdf"))
-    (req,) = fake.calls  # both pages fit one window
-    assert "[page 1]" in req.user and "[page 2]" in req.user
-    assert "Issuer (key: ticker" in req.user and "(Filing)-[:FILED_BY]->(Issuer)" in req.user
-    assert "aurora.pdf" in req.user
+    extractor(fake).extract(pdf_chunks(ROOT / PDF_PATH, source_ref="invoice.pdf"))
+    (req,) = fake.calls  # all three pages fit one window
+    assert "[page 1]" in req.user and "[page 2]" in req.user and "[page 3]" in req.user
+    assert "HardwareAsset (key: asset_tag" in req.user
+    assert "(HardwareAsset)-[:ASSIGNED_TO]->(Department)" in req.user
+    assert "invoice.pdf" in req.user
 
 
 def test_samples_are_distinct_calls() -> None:
     fake = FakeLLM({EXTRACTION_PROMPT.name: [answer(), answer(relations=[])]})
     ex = extractor(fake)
-    chunks = pdf_chunks(ROOT / PDF_PATH, source_ref="aurora.pdf")
+    chunks = pdf_chunks(ROOT / PDF_PATH, source_ref="invoice.pdf")
     first, second = ex.extract(chunks, sample=0), ex.extract(chunks, sample=1)
     assert len(fake.calls) == 2 and len(first) == 2 and len(second) == 1
 
@@ -170,7 +176,7 @@ def test_off_vocabulary_answer_is_rejected_by_schema() -> None:
     )
     with pytest.raises(LLMOutputError):
         extractor(FakeLLM({EXTRACTION_PROMPT.name: [bad]})).extract(
-            pdf_chunks(ROOT / PDF_PATH, source_ref="aurora.pdf")
+            pdf_chunks(ROOT / PDF_PATH, source_ref="invoice.pdf")
         )
 
 
@@ -191,16 +197,19 @@ def test_evidence_matches_sheet_names_with_irregular_spacing(tmp_path: Path) -> 
     ws = wb.active
     assert ws is not None
     ws.title = "Two  Spaces"
-    ws.append(["issuer", "status"])
-    ws.append(["Aurora Pacific Holdings (Demo)", "late"])
+    ws.append(["asset_tag", "status"])
+    ws.append(["HW-23-0003", "retired"])
     path = tmp_path / "s.xlsx"
     wb.save(path)
     chunks = xlsx_chunks(path, source_ref="s.xlsx")
     assert chunks[0].locator == "sheet Two  Spaces row 2"
     ent = {
-        "class_name": "Issuer",
-        "properties": [{"name": "ticker", "value": "APH"}, {"name": "name", "value": "A"}],
-        "evidence": [{"locator": "sheet Two  Spaces row 2", "quote": "late"}],
+        "class_name": "HardwareAsset",
+        "properties": [
+            {"name": "asset_tag", "value": "HW-23-0003"},
+            {"name": "status", "value": "retired"},
+        ],
+        "evidence": [{"locator": "sheet Two  Spaces row 2", "quote": "retired"}],
         "confidence": 1.0,
     }
     fake = FakeLLM({EXTRACTION_PROMPT.name: [{"entities": [ent], "relations": []}]})

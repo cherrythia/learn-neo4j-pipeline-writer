@@ -6,6 +6,7 @@ import os
 import pytest
 from sqlalchemy import create_engine
 
+from demo_env import data
 from writer_service.ingestion.superset import DatasetReader, SupersetClient
 
 pytestmark = pytest.mark.integration
@@ -26,5 +27,7 @@ def test_reads_demo_dataset_from_mysql_via_superset_metadata() -> None:
         rows = list(DatasetReader(engine, page_size=15).rows(ds))
     finally:
         engine.dispose()
-    assert len(rows) == 40
-    assert sum(1 for r in rows if r["filed_on"] > r["due_on"]) == 3
+    assert ds.table_name == "assets"
+    assert len(rows) == len(data.HARDWARE)
+    retired = {a.asset_tag for a in data.HARDWARE if a.status == "retired"}
+    assert retired and {r["asset_tag"] for r in rows if r["status"] == "retired"} == retired

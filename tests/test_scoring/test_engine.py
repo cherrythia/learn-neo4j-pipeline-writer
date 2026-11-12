@@ -101,9 +101,9 @@ def test_gate_failures_reject_regardless_of_score() -> None:
 
 
 def test_conflict_goes_to_review_queue_regardless_of_score() -> None:
-    r = route(0.99, POLICY, conflict="FILED_BY already points to another Issuer")
+    r = route(0.99, POLICY, conflict="ASSIGNED_TO already points to another Department")
     assert r.decision == "conflict"
-    assert "FILED_BY" in r.reasons[0]
+    assert "ASSIGNED_TO" in r.reasons[0]
 
 
 def test_gate_failure_beats_conflict() -> None:

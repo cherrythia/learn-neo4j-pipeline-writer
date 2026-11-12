@@ -40,12 +40,12 @@ def source_engine() -> Engine:
 
     @event.listens_for(engine, "connect")
     def attach(dbapi_conn: Any, _: Any) -> None:
-        dbapi_conn.execute("ATTACH DATABASE ':memory:' AS demo_compliance")
+        dbapi_conn.execute("ATTACH DATABASE ':memory:' AS demo_itam")
 
     with engine.begin() as conn:
         raw = conn.connection.dbapi_connection
-        sql = render_demo_inserts().replace("CREATE TABLE ", "CREATE TABLE demo_compliance.")
-        raw.executescript(sql.replace("INSERT INTO ", "INSERT INTO demo_compliance."))  # type: ignore[union-attr]
+        sql = render_demo_inserts().replace("CREATE TABLE ", "CREATE TABLE demo_itam.")
+        raw.executescript(sql.replace("INSERT INTO ", "INSERT INTO demo_itam."))  # type: ignore[union-attr]
     return engine
 
 
@@ -67,9 +67,9 @@ class Env:
                     {
                         "entities": [
                             {
-                                "class_name": "Issuer",
+                                "class_name": "Department",
                                 "columns": [
-                                    {"property": "ticker", "column": "ticker"},
+                                    {"property": "dept_code", "column": "dept_code"},
                                     {"property": "name", "column": "name"},
                                 ],
                             }
@@ -105,14 +105,18 @@ class Env:
 
     def review_item(self) -> int:
         """Ingest a document fact that lands in review (judge score 0.5)."""
-        e = Evidence(source_type="pdf", source_ref="a.pdf", locator="page 1", quote="APH Co")
+        e = Evidence(
+            source_type="pdf", source_ref="a.pdf", locator="page 1", quote="Quillstack Docs"
+        )
         cand = CandidateEntity(
-            class_name="Issuer", properties={"ticker": "APH", "name": "APH Co"}, evidence=[e]
+            class_name="Software",
+            properties={"software_id": "SW-QDOC", "name": "Quillstack Docs"},
+            evidence=[e],
         )
         batch = SourceBatch(
             "pdf",
             "a.pdf",
-            [SourceText("a.pdf", "page 1", "APH Co is listed")],
+            [SourceText("a.pdf", "page 1", "Quillstack Docs is licensed")],
             extract=lambda s: [cand],
         )
         self.pipeline.ingest(batch, actor="bot")
@@ -155,7 +159,7 @@ def admin_routes(app: Any) -> list[tuple[str, str, str]]:
 def concrete(path: str) -> str:
     return (
         path.replace("{version}", "1")
-        .replace("{name}", "Issuer")
+        .replace("{name}", "Department")
         .replace("{item_id}", "1")
         .replace("{proposal_id}", "1")
         .replace("{mapping_id}", "1")
@@ -245,7 +249,7 @@ def test_duplicate_property_names_are_422_not_500(env: Env) -> None:
     )
     assert r.status_code == 422 and "duplicate property names: id" in r.text
     r = c.patch(
-        f"/api/ontology/versions/{v}/classes/Issuer",
+        f"/api/ontology/versions/{v}/classes/Department",
         json={"add_properties": [{"name": "zz"}, {"name": "zz"}]},
         headers=CSRF,
     )
@@ -306,9 +310,9 @@ def test_draft_edit_publish_and_rollback(env: Env) -> None:
         "/api/ontology/versions/2/classes",
         headers=CSRF,
         json={
-            "name": "ESGMetric",
-            "identity_key": "metric_id",
-            "properties": [{"name": "metric_id", "required": True}, {"name": "unit"}],
+            "name": "Warranty",
+            "identity_key": "warranty_id",
+            "properties": [{"name": "warranty_id", "required": True}, {"name": "provider"}],
         },
     )
     assert r.status_code == 201
@@ -316,30 +320,30 @@ def test_draft_edit_publish_and_rollback(env: Env) -> None:
         c.post(
             "/api/ontology/versions/2/relations",
             headers=CSRF,
-            json={"name": "REPORTS", "domain": "Filing", "range": "ESGMetric"},
+            json={"name": "COVERED_BY", "domain": "HardwareAsset", "range": "Warranty"},
         ).status_code
         == 201
     )
     assert (
         c.patch(
-            "/api/ontology/versions/2/classes/Finding",
+            "/api/ontology/versions/2/classes/Department",
             headers=CSRF,
-            json={"add_properties": [{"name": "status"}]},
+            json={"add_properties": [{"name": "cost_centre"}]},
         ).status_code
         == 200
     )
     assert c.post("/api/ontology/versions/2/publish", headers=CSRF).json() == {"published": 2}
-    assert "wsc_ext_esgmetric_metric_id" in env.schema.names
+    assert "wsc_ext_warranty_warranty_id" in env.schema.names
     detail = c.get("/api/ontology/versions/2").json()
     assert detail["status"] == "published"
-    assert any(cl["name"] == "ESGMetric" and cl["namespace"] == "ext" for cl in detail["classes"])
+    assert any(cl["name"] == "Warranty" and cl["namespace"] == "ext" for cl in detail["classes"])
     assert c.post("/api/ontology/rollback", headers=CSRF).json() == {"published": 1}
 
 
 def test_publish_gate_errors_are_422_and_published_versions_are_read_only(env: Env) -> None:
     c = env.client("alice")
     c.post("/api/ontology/drafts", headers=CSRF)
-    c.patch("/api/ontology/versions/2/classes/Issuer", headers=CSRF, json={"deprecated": True})
+    c.patch("/api/ontology/versions/2/classes/Department", headers=CSRF, json={"deprecated": True})
     r = c.post("/api/ontology/versions/2/publish", headers=CSRF)
     assert r.status_code == 422 and "deprecated" in r.json()["detail"]
     assert (
@@ -362,18 +366,18 @@ def test_proposal_flow_adds_to_a_draft(env: Env) -> None:
         headers=CSRF,
         json={
             "kind": "class",
-            "rationale": "ESG reports mention emissions",
+            "rationale": "invoices mention support contracts",
             "payload": {
-                "name": "Emission",
-                "identity_key": "emission_id",
-                "properties": [{"name": "emission_id", "required": True}],
+                "name": "SupportContract",
+                "identity_key": "contract_id",
+                "properties": [{"name": "contract_id", "required": True}],
             },
         },
     ).json()["id"]
     assert rita.get("/api/proposals?status=pending").json()[0]["id"] == pid
     assert alice.post(f"/api/proposals/{pid}/approve", headers=CSRF).json() == {"draft": 2}
     classes = alice.get("/api/ontology/versions/2").json()["classes"]
-    assert any(c["name"] == "Emission" and c["namespace"] == "ext" for c in classes)
+    assert any(c["name"] == "SupportContract" and c["namespace"] == "ext" for c in classes)
     assert alice.post(f"/api/proposals/{pid}/approve", headers=CSRF).status_code == 409
 
 
@@ -393,11 +397,11 @@ def test_review_queue_list_approve(env: Env) -> None:
     (row,) = c.get("/api/review").json()
     assert row["id"] == item and row["reason"] == "score"
     assert row["breakdown"]["components"]["back_translation"]["value"] == 0.5
-    assert row["evidence"][0]["quote"] == "APH Co"
+    assert row["evidence"][0]["quote"] == "Quillstack Docs"
     assert c.post(f"/api/review/{item}/approve", headers=CSRF, json={}).json() == {
         "status": "approved"
     }
-    assert env.graph.node_properties("Issuer", "ticker", "APH") is not None
+    assert env.graph.node_properties("Software", "software_id", "SW-QDOC") is not None
     assert c.post(f"/api/review/{item}/approve", headers=CSRF, json={}).status_code == 409
 
 
@@ -408,7 +412,7 @@ def test_edit_then_approve(env: Env) -> None:
     item = env.review_item()
     c = env.client("rita")
     url = f"/api/review/{item}/approve"
-    for bad in ({"kind": "entity", "class_name": "Issuer"}, {"foo": 1}):
+    for bad in ({"kind": "entity", "class_name": "Software"}, {"foo": 1}):
         r = c.post(url, json={"edited": bad}, headers=CSRF)
         assert r.status_code == 422, (bad, r.text)
     unknown = {"kind": "entity", "class_name": "NoSuchClass", "properties": {"x": "1"}}
@@ -417,16 +421,21 @@ def test_edit_then_approve(env: Env) -> None:
         assert uow.session.get(ReviewItem, item).status == "open"  # type: ignore[union-attr]
     fixed = {
         "kind": "entity",
-        "class_name": "Issuer",
-        "properties": {"ticker": "APH", "name": "APH Company"},
+        "class_name": "Software",
+        "properties": {"software_id": "SW-QDOC", "name": "Quillstack Docs Suite"},
         "evidence": [
-            {"source_type": "pdf", "source_ref": "a.pdf", "locator": "page 1", "quote": "APH Co"}
+            {
+                "source_type": "pdf",
+                "source_ref": "a.pdf",
+                "locator": "page 1",
+                "quote": "Quillstack Docs",
+            }
         ],
     }
     r = c.post(url, json={"edited": fixed}, headers=CSRF)
     assert r.status_code == 200, r.text
-    aph = env.graph.node_properties("Issuer", "ticker", "APH")
-    assert aph is not None and aph["name"] == "APH Company"
+    software = env.graph.node_properties("Software", "software_id", "SW-QDOC")
+    assert software is not None and software["name"] == "Quillstack Docs Suite"
     with UnitOfWork(env.engine) as uow:
         assert uow.session.get(ReviewItem, item).status == "edited"  # type: ignore[union-attr]
 
@@ -445,31 +454,32 @@ def test_possible_duplicate_review_and_merge(env: Env) -> None:
     """#38: a near-identical name under a new key is a ``duplicate`` item that shows the entity
     it may duplicate; merging writes into that entity instead."""
 
-    def sync(ticker: str) -> dict[str, int]:
-        e = Evidence(source_type="superset", source_ref="dataset:1", locator="row 1", quote=ticker)
+    def sync(software_id: str) -> dict[str, int]:
+        e = Evidence(
+            source_type="superset", source_ref="dataset:3", locator="row 1", quote=software_id
+        )
         cand = CandidateEntity(
-            class_name="Issuer",
-            properties={"ticker": ticker, "name": "Aurora Pacific Holdings"},
+            class_name="Software",
+            properties={"software_id": software_id, "name": "Quillstack Docs"},
             evidence=[e],
         )
-        text = SourceText("dataset:1", "row 1", f"{ticker} Aurora Pacific Holdings")
-        batch = SourceBatch("superset", "dataset:1", [text], candidates=[cand])
+        text = SourceText("dataset:3", "row 1", f"{software_id} Quillstack Docs")
+        batch = SourceBatch("superset", "dataset:3", [text], candidates=[cand])
         return env.pipeline.ingest(batch, actor="sync").counts
 
-    assert sync("APH")["commit"] == 1  # the existing entity
-    assert sync("AUR")["commit"] == 0  # same name, new key: a possible duplicate
+    assert sync("SW-QDOC")["commit"] == 1  # the existing entity
+    assert sync("SW-QSD")["commit"] == 0  # same name, new key: a possible duplicate
     c = env.client("rita")
     assert c.get("/api/review?reason=score").json() == []
     assert c.get("/api/review?reason=bogus").status_code == 422
     (row,) = c.get("/api/review?reason=duplicate").json()
-    assert row["conflict_with"]["duplicate_of"]["key"] == "APH"
-    assert row["candidate"]["properties"]["ticker"] == "AUR"
+    assert row["conflict_with"]["duplicate_of"]["key"] == "SW-QDOC"
+    assert row["candidate"]["properties"]["software_id"] == "SW-QSD"
     r = c.post(f"/api/review/{row['id']}/approve", headers=CSRF, json={"merge": True})
     assert r.status_code == 200, r.text
-    assert env.graph.node_properties("Issuer", "ticker", "AUR") is None
-    assert (
-        c.get("/api/review?status=edited").json()[0]["candidate"]["properties"]["ticker"] == "APH"
-    )
+    assert env.graph.node_properties("Software", "software_id", "SW-QSD") is None
+    edited = c.get("/api/review?status=edited").json()[0]
+    assert edited["candidate"]["properties"]["software_id"] == "SW-QDOC"
 
 
 def test_merge_on_a_score_item_is_409(env: Env) -> None:
@@ -487,7 +497,10 @@ def test_mapping_suggest_and_approve(env: Env) -> None:
     r = c.post("/api/mappings/suggest/1", headers=CSRF)
     assert r.status_code == 201, r.text
     mid = r.json()["id"]
-    assert r.json()["mapping"]["entities"][0]["columns"] == {"ticker": "ticker", "name": "name"}
+    assert r.json()["mapping"]["entities"][0]["columns"] == {
+        "dept_code": "dept_code",
+        "name": "name",
+    }
     assert c.post(f"/api/mappings/{mid}/approve", headers=CSRF).json() == {"status": "approved"}
     (m,) = c.get("/api/mappings").json()
     assert m["status"] == "approved" and m["approved_by"] == "alice"
@@ -532,11 +545,11 @@ def test_invalid_manual_mapping_cannot_be_approved(env: Env) -> None:
         headers=CSRF,
         json={
             "dataset_id": 1,
-            "mapping": {"entities": [{"class_name": "Issuer", "columns": {"name": "name"}}]},
+            "mapping": {"entities": [{"class_name": "Department", "columns": {"name": "name"}}]},
         },
     ).json()["id"]
     r = c.post(f"/api/mappings/{mid}/approve", headers=CSRF)
-    assert r.status_code == 422 and "identity key 'ticker'" in r.json()["detail"]
+    assert r.status_code == 422 and "identity key 'dept_code'" in r.json()["detail"]
 
 
 # --------------------------------------------------------------------------- scoring, runs, users

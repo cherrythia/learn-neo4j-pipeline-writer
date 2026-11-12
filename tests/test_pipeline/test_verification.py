@@ -23,25 +23,30 @@ from writer_service.pipeline.verification import (
 )
 
 PAGE1 = (
-    "Aurora Pacific Holdings (Demo) issued this annual report for the financial year ended "
-    "31 December 2025 on 28 April 2026, in accordance with Listing Rule LR-705."
+    "Meridian Systems Supply (Demo) issued this invoice for the support period ended "
+    "31 December 2025 on 28 January 2026, for laptop HW-25-0101 assigned to Finance (FIN)."
 )
 
 
 def ev(quote: str, locator: str = "page 1") -> Evidence:
-    return Evidence(source_type="pdf", source_ref="a.pdf", locator=locator, quote=quote)
-
-
-def issuer(ticker: str = "APH", **kw: Any) -> CandidateEntity:
-    return CandidateEntity(
-        class_name="Issuer", properties={"ticker": ticker, "name": "Aurora"}, **kw
+    return Evidence(
+        source_type="pdf",
+        source_ref="meridian_invoice_INV-2025-0418.pdf",
+        locator=locator,
+        quote=quote,
     )
 
 
-FILED = CandidateRelation(
-    relation="FILED_BY",
-    source=EntityRef(class_name="Filing", key="AR-2025-APH"),
-    target=EntityRef(class_name="Issuer", key="APH"),
+def department(dept_code: str = "FIN", **kw: Any) -> CandidateEntity:
+    return CandidateEntity(
+        class_name="Department", properties={"dept_code": dept_code, "name": "Finance"}, **kw
+    )
+
+
+ASSIGNED = CandidateRelation(
+    relation="ASSIGNED_TO",
+    source=EntityRef(class_name="HardwareAsset", key="HW-25-0101"),
+    target=EntityRef(class_name="Department", key="FIN"),
 )
 
 
@@ -49,41 +54,42 @@ FILED = CandidateRelation(
 
 
 def test_exact_quote_after_normalisation_scores_one() -> None:
-    assert grounding_score("issued  this annual REPORT", PAGE1) == 1.0
+    assert grounding_score("issued  this INVOICE for the support", PAGE1) == 1.0
 
 
 def test_near_quote_scores_high_but_below_one() -> None:
     # typo + abbreviated date, as OCR or a slightly paraphrasing extractor produces
-    s = grounding_score("issued this anual report for the financial year ended 31 Dec 2025", PAGE1)
+    s = grounding_score("issued this invoce for the support period ended 31 Dec 2025", PAGE1)
     assert 0.3 <= s <= 0.5  # near-quote: partial support, never enough to auto-commit
 
 
 def test_elided_quote_is_not_grounded() -> None:
-    # words cut from the middle ("...for the financial year ended 31 December 2025...") hide
+    # words cut from the middle ("...for the support period ended 31 December 2025...") hide
     # the context the date belongs to: quotes must be contiguous source text
-    assert grounding_score("issued the annual report on 28 April 2026", PAGE1) <= 0.1
+    assert grounding_score("issued the invoice on 28 January 2026", PAGE1) <= 0.1
 
 
 def test_contiguous_partial_quote_scores_in_between() -> None:
-    s = grounding_score("the annual reports for financial years ended", PAGE1)
+    s = grounding_score("the invoices for support periods ended", PAGE1)
     assert 0.15 <= s <= 0.5
 
 
 def test_hallucinated_quote_scores_about_zero() -> None:
-    assert grounding_score("The board approved a dividend of 5 cents per share", PAGE1) < 0.1
+    assert grounding_score("The vendor granted a discount of 5 percent per unit", PAGE1) < 0.1
 
 
 @pytest.mark.parametrize(
     "quote",
     [
-        "issued this annual report for the financial year ended 31 December 2024",  # year
-        "in accordance with Listing Rule LR-707",  # rule number
-        "Banyan Logistics (Demo) issued this annual report",  # other issuer
-        "Aurora Pacific Holdings (Demo) did not issue this annual report",  # negation
-        "Aurora Pacific Holdings (Demo) didn't issue this annual report",  # contraction
-        "for the financial year ended 31 December 2026",  # 2026 is elsewhere on the page
-        "issued this annual report on 28 April 2025",  # 2025 is elsewhere on the page
-        "in accordance with Listing Rule LR-70",  # prefix of the real identifier
+        "issued this invoice for the support period ended 31 December 2024",  # year
+        "for laptop HW-25-0102 assigned to Finance",  # asset tag
+        "Harbor Sync Supply (Demo) issued this invoice",  # other vendor
+        "Meridian Systems Supply (Demo) did not issue this invoice",  # negation
+        "Meridian Systems Supply (Demo) didn't issue this invoice",  # contraction
+        "for the support period ended 31 December 2026",  # 2026 is elsewhere on the page
+        "issued this invoice on 28 January 2025",  # 2025 is elsewhere on the page
+        "for laptop HW-25-010 assigned to Finance",  # prefix of the real asset tag
+        "for laptop HW-25-0101 assigned to Facilities",  # other department
     ],
 )
 def test_altered_critical_detail_is_capped(quote: str) -> None:
@@ -93,8 +99,8 @@ def test_altered_critical_detail_is_capped(quote: str) -> None:
 def test_abbreviated_names_are_not_treated_as_altered() -> None:
     from writer_service.pipeline.verification import ALTERED_CAP, _missing_critical
 
-    assert _missing_critical("financial year ended 31 Dec 2025", PAGE1) == []
-    assert grounding_score("financial year ended 31 Dec 2025", PAGE1) > ALTERED_CAP
+    assert _missing_critical("support period ended 31 Dec 2025", PAGE1) == []
+    assert grounding_score("support period ended 31 Dec 2025", PAGE1) > ALTERED_CAP
 
 
 def test_missing_source_text_scores_zero() -> None:
@@ -103,21 +109,21 @@ def test_missing_source_text_scores_zero() -> None:
 
 
 def test_candidate_grounding_takes_best_evidence() -> None:
-    texts = DictSourceText({("a.pdf", "page 1"): PAGE1})
-    cand = issuer(
-        evidence=[ev("made up words entirely"), ev("in accordance with Listing Rule LR-705")]
+    texts = DictSourceText({("meridian_invoice_INV-2025-0418.pdf", "page 1"): PAGE1})
+    cand = department(
+        evidence=[ev("made up words entirely"), ev("laptop HW-25-0101 assigned to Finance (FIN)")]
     )
     assert texts.grounding(cand) == 1.0
-    assert texts.grounding(issuer(evidence=[])) == 0.0
-    assert texts.grounding(issuer(evidence=[ev("LR-705", locator="page 9")])) == 0.0
+    assert texts.grounding(department(evidence=[])) == 0.0
+    assert texts.grounding(department(evidence=[ev("HW-25-0101", locator="page 9")])) == 0.0
 
 
 # ---------------------------------------------------------------- describe
 
 
 def test_describe_entity_and_relation() -> None:
-    assert describe(issuer()) == "Issuer with ticker 'APH' and name 'Aurora'"
-    assert describe(FILED) == "Filing 'AR-2025-APH' FILED_BY Issuer 'APH'"
+    assert describe(department()) == "Department with dept_code 'FIN' and name 'Finance'"
+    assert describe(ASSIGNED) == "HardwareAsset 'HW-25-0101' ASSIGNED_TO Department 'FIN'"
 
 
 # ---------------------------------------------------------------- back-translation
@@ -137,27 +143,28 @@ def judge_llm(score: float, agrees: bool = True) -> tuple[StructuredLLM, FakeLLM
 def test_back_translation_uses_judge_score_and_sends_fact_and_quotes() -> None:
     llm, fake = judge_llm(0.9)
     bt = BackTranslator(llm, ontology_version=1)
-    assert bt.score(FILED.model_copy(update={"evidence": [ev("issued this annual report")]})) == 0.9
+    quote = "laptop HW-25-0101 is assigned to Finance (FIN)"
+    assert bt.score(ASSIGNED.model_copy(update={"evidence": [ev(quote)]})) == 0.9
     (req,) = fake.calls
-    assert "Filing 'AR-2025-APH' FILED_BY Issuer 'APH'" in req.user
-    assert "issued this annual report" in req.user
+    assert "HardwareAsset 'HW-25-0101' ASSIGNED_TO Department 'FIN'" in req.user
+    assert quote in req.user
 
 
 def test_disagreement_caps_the_score() -> None:
     llm, _ = judge_llm(0.95, agrees=False)
-    assert BackTranslator(llm, ontology_version=1).score(issuer(evidence=[ev("x")])) <= 0.3
+    assert BackTranslator(llm, ontology_version=1).score(department(evidence=[ev("x")])) <= 0.3
 
 
 def test_no_evidence_means_nothing_to_judge() -> None:
     llm, fake = judge_llm(1.0)
-    assert BackTranslator(llm, ontology_version=1).score(issuer()) == 0.0
+    assert BackTranslator(llm, ontology_version=1).score(department()) == 0.0
     assert fake.calls == []
 
 
 def test_judge_answers_are_cached_per_fact() -> None:
     llm, fake = judge_llm(0.8)
     bt = BackTranslator(llm, ontology_version=1)
-    cand = issuer(evidence=[ev("Aurora")])
+    cand = department(evidence=[ev("Finance")])
     bt.score(cand)
     bt.score(cand)
     assert len(fake.calls) == 1
@@ -174,31 +181,31 @@ def runs(*batches: list[Any]) -> Any:
 
 
 def test_majority_vote_with_three_runs() -> None:
-    a1 = issuer(evidence=[ev("Aurora", "page 1")], confidence=0.9)
-    a2 = issuer(evidence=[ev("Aurora Pacific", "page 2")], confidence=0.7)  # same fact
-    b = issuer("BYL")
-    voted = self_consistency(runs([a1, FILED], [a2, b], [FILED]), n=3)
-    by_key = {v.candidate.properties.get("ticker", "rel"): v for v in voted}
-    assert set(by_key) == {"APH", "rel"}  # BYL appeared once: dropped
-    aph = by_key["APH"]
-    assert aph.votes == 2 and aph.stability == pytest.approx(2 / 3)
-    assert {e.locator for e in aph.candidate.evidence} == {"page 1", "page 2"}  # merged
-    assert aph.candidate.confidence == pytest.approx(0.8)  # mean
+    a1 = department(evidence=[ev("Finance", "page 1")], confidence=0.9)
+    a2 = department(evidence=[ev("Finance (FIN)", "page 2")], confidence=0.7)  # same fact
+    b = department("HRM")
+    voted = self_consistency(runs([a1, ASSIGNED], [a2, b], [ASSIGNED]), n=3)
+    by_key = {v.candidate.properties.get("dept_code", "rel"): v for v in voted}
+    assert set(by_key) == {"FIN", "rel"}  # HRM appeared once: dropped
+    fin = by_key["FIN"]
+    assert fin.votes == 2 and fin.stability == pytest.approx(2 / 3)
+    assert {e.locator for e in fin.candidate.evidence} == {"page 1", "page 2"}  # merged
+    assert fin.candidate.confidence == pytest.approx(0.8)  # mean
     assert by_key["rel"].votes == 2
 
 
 def test_duplicates_within_one_run_count_once() -> None:
-    voted = self_consistency(runs([FILED, FILED], [], []), n=3)
+    voted = self_consistency(runs([ASSIGNED, ASSIGNED], [], []), n=3)
     assert voted == []
 
 
 def test_single_run_keeps_everything_with_full_stability() -> None:
-    voted = self_consistency(runs([issuer(), FILED]), n=1)
+    voted = self_consistency(runs([department(), ASSIGNED]), n=1)
     assert [v.stability for v in voted] == [1.0, 1.0]
 
 
 def test_order_is_deterministic_by_first_appearance() -> None:
-    voted = self_consistency(runs([FILED, issuer()], [issuer(), FILED]), n=2)
+    voted = self_consistency(runs([ASSIGNED, department()], [department(), ASSIGNED]), n=2)
     assert [v.candidate.kind for v in voted] == ["relation", "entity"]
 
 
@@ -217,11 +224,11 @@ class Extraction(BaseModel):
 EXTRACT = PromptTemplate(name="extract", version=1, system="Extract.", user="Text: {text}")
 
 
-def entity_json(ticker: str) -> dict[str, Any]:
+def entity_json(dept_code: str) -> dict[str, Any]:
     return {
         "kind": "entity",
-        "class_name": "Issuer",
-        "properties": {"ticker": ticker, "name": f"{ticker} Co"},
+        "class_name": "Department",
+        "properties": {"dept_code": dept_code, "name": f"{dept_code} Department"},
         "confidence": 0.9,
     }
 
@@ -248,50 +255,46 @@ def test_self_consistency_through_structured_llm_3_2_1_agreement() -> None:
     cache = InMemoryCache()
     voted = self_consistency(llm_extractor(StructuredLLM(fake, cache)), n=3)
     assert len(fake.calls) == 3  # one real call per sample, not one cached answer reused
-    stability = {v.candidate.properties["ticker"]: v.stability for v in voted}
+    stability = {v.candidate.properties["dept_code"]: v.stability for v in voted}
     assert stability == {"AAA": 1.0, "BBB": pytest.approx(2 / 3)}  # CCC (1/3) dropped
 
     # Replaying from the cache makes no new calls and reproduces the same votes.
     replay = self_consistency(llm_extractor(StructuredLLM(fake, cache)), n=3)
     assert len(fake.calls) == 3
-    assert [(v.candidate.properties["ticker"], v.votes) for v in replay] == [
-        (v.candidate.properties["ticker"], v.votes) for v in voted
+    assert [(v.candidate.properties["dept_code"], v.votes) for v in replay] == [
+        (v.candidate.properties["dept_code"], v.votes) for v in voted
     ]
 
 
 def test_negation_dropped_from_the_source_is_caught() -> None:
-    source = "Banyan Logistics (Demo) did not issue a sustainability report for 2025."
-    assert (
-        grounding_score("Banyan Logistics (Demo) did issue a sustainability report", source) <= 0.1
-    )
-    assert (
-        grounding_score("Banyan Logistics (Demo) did not issue a sustainability report", source)
-        == 1.0
-    )
+    source = "Harbor Sync Supply (Demo) did not issue a credit note for 2025."
+    assert grounding_score("Harbor Sync Supply (Demo) did issue a credit note", source) <= 0.1
+    assert grounding_score("Harbor Sync Supply (Demo) did not issue a credit note", source) == 1.0
 
 
 def test_amount_prefix_is_not_verbatim() -> None:
-    source = "The fine was $1,200,000 under the rule."
-    assert grounding_score("The fine was $1,200", source) <= 0.1
-    assert grounding_score("The fine was $1,200,000", source) == 1.0
+    source = "The invoice total was SGD 44,482.90 including GST."
+    assert grounding_score("The invoice total was SGD 44,482", source) <= 0.1
+    assert grounding_score("The invoice total was SGD 44", source) <= 0.1
+    assert grounding_score("The invoice total was SGD 44,482.90", source) == 1.0
 
 
 @pytest.mark.parametrize(
     "quote,source",
     [
         (
-            "approved the final dividend",
-            "The board approved the final dividend and not the special dividend.",
+            "approved the replacement laptop",
+            "Finance approved the replacement laptop and not the spare monitor.",
         ),
         (
-            "The board approved the final dividend",
-            "Objections: none. The board approved the final dividend.",
+            "Finance approved the replacement laptop",
+            "Objections: none. Finance approved the replacement laptop.",
         ),
         (
-            "in accordance with Listing Rule 705",
-            "Filed in accordance with Listing Rule 705. No exceptions were noted.",
+            "in accordance with purchase order 705",
+            "Billed in accordance with purchase order 705. No exceptions were noted.",
         ),
-        ("issued on 28 April 2026", "The report was issued on 28 April 2026, not earlier."),
+        ("issued on 28 January 2026", "The invoice was issued on 28 January 2026, not earlier."),
     ],
 )
 def test_negation_just_outside_a_verbatim_quote_is_context(quote: str, source: str) -> None:
@@ -301,8 +304,8 @@ def test_negation_just_outside_a_verbatim_quote_is_context(quote: str, source: s
 @pytest.mark.parametrize(
     "quote,source",
     [
-        ("Aurora did issue the report", "Aurora didn\u2019t issue the report."),
-        ("Aurora didn\u2019t issue the report", "Aurora did issue the report."),
+        ("Meridian did issue the invoice", "Meridian didn\u2019t issue the invoice."),
+        ("Meridian didn\u2019t issue the invoice", "Meridian did issue the invoice."),
     ],
 )
 def test_curly_apostrophe_contractions_are_negations(quote: str, source: str) -> None:
@@ -316,16 +319,16 @@ def test_quote_and_source_fold_case_the_same_way() -> None:
 @pytest.mark.parametrize(
     "quote,source",
     [
-        ("Class A shares were issued", "Class B shares were issued in 2025."),
-        ("as required by Part I", "as required by Part II of the rules."),
-        ("signed by Mr Tan", "signed by Mr Tang on behalf of the board."),
-        ("under rule 705(1)(a)", "under rule 705(1)(b) of the listing rules."),
-        ("the issuer is in compliance", "the issuer is in non-compliance with LR-705."),
-        ("revenue increased in 2025", "revenue decreased in 2025."),
-        ("declared a special dividend", "declared a final dividend."),
-        ("published its interim report", "published its annual report."),
-        ("appointed three directors", "appointed five directors."),
-        ("the resolution was approved", "the resolution was rejected."),
+        ("Class A licences were renewed", "Class B licences were renewed in 2025."),
+        ("as listed in Schedule I", "as listed in Schedule II of the contract."),
+        ("signed by Mr Tan", "signed by Mr Tang on behalf of the vendor."),
+        ("under clause 705(1)(a)", "under clause 705(1)(b) of the contract."),
+        ("the laptop is standard", "the laptop is non-standard under HW-25-0101."),
+        ("spend increased in 2025", "spend decreased in 2025."),
+        ("ordered a replacement laptop", "ordered a loaner laptop."),
+        ("issued its interim invoice", "issued its final invoice."),
+        ("ordered three laptops", "ordered five laptops."),
+        ("the purchase was approved", "the purchase was rejected."),
     ],
 )
 def test_one_word_changes_never_reach_commit_level_grounding(quote: str, source: str) -> None:
@@ -335,8 +338,8 @@ def test_one_word_changes_never_reach_commit_level_grounding(quote: str, source:
 @pytest.mark.parametrize(
     "quote,source",
     [
-        ("comply with Listing Rule 705", "The issuer did not comply with Listing Rule 705."),
-        ("issue the annual report", "Aurora didn\u2019t issue the annual report."),
+        ("match purchase order 705", "The invoice did not match purchase order 705."),
+        ("issue the invoice", "Meridian didn\u2019t issue the invoice."),
     ],
 )
 def test_verbatim_quote_dropping_a_preceding_negation_is_capped(quote: str, source: str) -> None:
@@ -346,11 +349,11 @@ def test_verbatim_quote_dropping_a_preceding_negation_is_capped(quote: str, sour
 @pytest.mark.parametrize(
     "quote,source",
     [
-        ("for 2024-2025", "Results for 2024\u20132025 were audited."),  # en dash
-        ("under LR-705", "under LR\u2011705 the issuer"),  # non-breaking hyphen
-        ("the financial year", "the \ufb01nancial year"),  # 'fi' ligature in source
-        ('the "annual report"', "the \u201cannual report\u201d was issued"),  # curly quotes
-        ("financial statements", "finan\u00adcial statements"),  # soft hyphen
+        ("for 2024-2025", "Support for 2024\u20132025 was billed."),  # en dash
+        ("for HW-25-0101", "for HW\u201125\u20110101 the laptop"),  # non-breaking hyphens
+        ("the field engineer", "the \ufb01eld engineer"),  # 'fi' ligature in source
+        ('the "replacement laptop"', "the \u201creplacement laptop\u201d was billed"),  # quotes
+        ("software licences", "soft\u00adware licences"),  # soft hyphen
     ],
 )
 def test_pdf_typography_does_not_break_verbatim_quotes(quote: str, source: str) -> None:
@@ -358,27 +361,27 @@ def test_pdf_typography_does_not_break_verbatim_quotes(quote: str, source: str) 
 
 
 def test_year_is_not_verbatim_inside_a_fiscal_range() -> None:
-    assert grounding_score("for 2025", "the results for 2025/26 were") <= 0.5
+    assert grounding_score("for 2025", "the licences for 2025/26 were") <= 0.5
 
 
 @pytest.mark.parametrize("quote", ["\u00ad", "-", '"', "  ", "..."])
 def test_empty_or_punctuation_only_quotes_score_zero(quote: str) -> None:
-    assert grounding_score(quote, "Aurora issued the report .") == 0.0
+    assert grounding_score(quote, "Meridian issued the invoice .") == 0.0
 
 
 def test_any_unnegated_occurrence_counts() -> None:
-    a = "Aurora did not issue the annual report in March. It did issue the annual report in April."
-    b = "It did issue the annual report in April. Aurora did not issue the annual report in March."
-    assert grounding_score("issue the annual report", a) == 1.0
-    assert grounding_score("issue the annual report", b) == 1.0
+    a = "Meridian did not issue the invoice in March. It did issue the invoice in April."
+    b = "It did issue the invoice in April. Meridian did not issue the invoice in March."
+    assert grounding_score("issue the invoice", a) == 1.0
+    assert grounding_score("issue the invoice", b) == 1.0
 
 
 @pytest.mark.parametrize(
     "source",
     [
-        "The issuer did not, in all respects, comply with Listing Rule 705.",
-        "The issuer did not at any time comply with Listing Rule 705.",
+        "The invoice did not, in all respects, match purchase order 705.",
+        "The invoice did not at any time match purchase order 705.",
     ],
 )
 def test_negation_earlier_in_the_sentence_sends_to_review(source: str) -> None:
-    assert grounding_score("comply with Listing Rule 705", source) == 0.5
+    assert grounding_score("match purchase order 705", source) == 0.5

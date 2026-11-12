@@ -1,5 +1,5 @@
 """Neo4jMatchIndex against a real Neo4j (compose). Skipped unless WRITER_TEST_NEO4J_URI is set.
-Creates and deletes its own throwaway Issuer nodes."""
+Creates and deletes its own throwaway Department nodes."""
 
 import os
 from collections.abc import Iterator
@@ -11,7 +11,7 @@ from writer_service.ontology.spec import OntologySpec
 from writer_service.pipeline.matching import EntityMatcher, Neo4jMatchIndex
 
 pytestmark = pytest.mark.integration
-KEYS = ("__T_AUR__", "__T_BAN__")
+KEYS = ("__T_FIN__", "__T_OPS__")
 
 
 @pytest.fixture
@@ -25,19 +25,21 @@ def driver() -> Iterator[Driver]:
     )
     with GraphDatabase.driver(uri, auth=auth) as d:
         d.execute_query(
-            "MERGE (a:Issuer {ticker: $a}) SET a.name = 'Zzyzx Aurora Test Holdings' "
-            "MERGE (b:Issuer {ticker: $b}) SET b.name = 'Zzyzx Banyan Test Logistics'",
+            "MERGE (a:Department {dept_code: $a}) SET a.name = 'Zzyzx Finance Test Department' "
+            "MERGE (b:Department {dept_code: $b}) SET b.name = 'Zzyzx Harbor Test Operations'",
             a=KEYS[0],
             b=KEYS[1],
         )
         try:
             yield d
         finally:
-            d.execute_query("MATCH (n:Issuer) WHERE n.ticker IN $k DETACH DELETE n", k=list(KEYS))
+            d.execute_query(
+                "MATCH (n:Department) WHERE n.dept_code IN $k DETACH DELETE n", k=list(KEYS)
+            )
 
 
 def test_exact_and_fuzzy_resolution_on_real_graph(driver: Driver, spec: OntologySpec) -> None:
     matcher = EntityMatcher(Neo4jMatchIndex(driver), spec)
-    assert matcher.resolve("Issuer", KEYS[0].lower()).key == KEYS[0]
-    fuzzy = matcher.resolve("Issuer", "zzyzx aurora test holdings ltd")
+    assert matcher.resolve("Department", KEYS[0].lower()).key == KEYS[0]
+    fuzzy = matcher.resolve("Department", "zzyzx finance test department ltd")
     assert (fuzzy.status, fuzzy.key) == ("fuzzy", KEYS[0])

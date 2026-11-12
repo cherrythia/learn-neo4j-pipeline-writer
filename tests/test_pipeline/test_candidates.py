@@ -15,56 +15,61 @@ from writer_service.pipeline.candidates import (
     identity_hash,
 )
 
-EV = Evidence(source_type="pdf", source_ref="samples/a.pdf", locator="page 1", quote="APH ...")
+EV = Evidence(source_type="pdf", source_ref="samples/a.pdf", locator="page 1", quote="APP-ERP ...")
 
 
-def issuer(**props: object) -> CandidateEntity:
-    base: dict[str, object] = {"ticker": "APH", "name": "Aurora Pacific Holdings (Demo)"}
+def application(**props: object) -> CandidateEntity:
+    base: dict[str, object] = {"app_code": "APP-ERP", "name": "Finance ERP System (Demo)"}
     base.update(props)
-    return CandidateEntity(class_name="Issuer", properties=base, evidence=[EV])  # type: ignore[arg-type]
+    return CandidateEntity(class_name="Application", properties=base, evidence=[EV])  # type: ignore[arg-type]
 
 
 def test_canonical_text_collapses_whitespace() -> None:
-    assert canonical_text("  Aurora   Pacific\n Holdings ") == "Aurora Pacific Holdings"
+    assert canonical_text("  Finance   ERP\n System ") == "Finance ERP System"
 
 
 def test_fact_hash_ignores_whitespace_case_order_and_evidence() -> None:
-    a = issuer()
+    a = application()
     b = CandidateEntity(
-        class_name="Issuer",
-        properties={"name": " aurora pacific  HOLDINGS (demo)", "ticker": "aph "},
+        class_name="Application",
+        properties={"name": " finance erp  SYSTEM (demo)", "app_code": "app-erp "},
         evidence=[],
         confidence=0.2,
     )
     assert fact_hash(a) == fact_hash(b)
-    assert fact_hash(a) != fact_hash(issuer(board="catalist"))
+    assert fact_hash(a) != fact_hash(application(criticality="low"))
 
 
 def test_identity_hash_uses_only_class_and_key(spec: OntologySpec) -> None:
-    assert identity_hash(issuer(), spec) == identity_hash(issuer(board="x"), spec)
-    other = CandidateEntity(class_name="Issuer", properties={"ticker": "BYL", "name": "B"})
-    assert identity_hash(issuer(), spec) != identity_hash(other, spec)
+    assert identity_hash(application(), spec) == identity_hash(application(criticality="x"), spec)
+    other = CandidateEntity(
+        class_name="Application", properties={"app_code": "APP-CRM", "name": "B"}
+    )
+    assert identity_hash(application(), spec) != identity_hash(other, spec)
 
 
 def test_relation_hash_normalises_endpoints() -> None:
     r1 = CandidateRelation(
-        relation="FILED_BY",
-        source=EntityRef(class_name="Filing", key="AR-2025-APH"),
-        target=EntityRef(class_name="Issuer", key="APH"),
+        relation="ASSIGNED_TO",
+        source=EntityRef(class_name="HardwareAsset", key="HW-0001"),
+        target=EntityRef(class_name="Department", key="FIN"),
     )
     r2 = CandidateRelation(
-        relation="FILED_BY",
-        source=EntityRef(class_name="Filing", key=" ar-2025-aph"),
-        target=EntityRef(class_name="Issuer", key="aph"),
+        relation="ASSIGNED_TO",
+        source=EntityRef(class_name="HardwareAsset", key=" hw-0001"),
+        target=EntityRef(class_name="Department", key="fin"),
     )
     assert fact_hash(r1) == fact_hash(r2)
 
 
 def test_dates_hash_like_their_iso_string() -> None:
     a = CandidateEntity(
-        class_name="Filing", properties={"filing_id": "X", "due_on": date(2026, 4, 30)}
+        class_name="HardwareAsset",
+        properties={"asset_tag": "X", "purchase_date": date(2026, 4, 30)},
     )
-    b = CandidateEntity(class_name="Filing", properties={"filing_id": "X", "due_on": "2026-04-30"})
+    b = CandidateEntity(
+        class_name="HardwareAsset", properties={"asset_tag": "X", "purchase_date": "2026-04-30"}
+    )
     assert fact_hash(a) == fact_hash(b)
 
 
@@ -73,9 +78,9 @@ def test_discriminated_union_parses_llm_json() -> None:
     rel = adapter.validate_python(
         {
             "kind": "relation",
-            "relation": "FILED_BY",
-            "source": {"class_name": "Filing", "key": "AR-2025-APH"},
-            "target": {"class_name": "Issuer", "key": "APH"},
+            "relation": "ASSIGNED_TO",
+            "source": {"class_name": "HardwareAsset", "key": "HW-0001"},
+            "target": {"class_name": "Department", "key": "FIN"},
         }
     )
     assert isinstance(rel, CandidateRelation)
@@ -84,7 +89,7 @@ def test_discriminated_union_parses_llm_json() -> None:
 @pytest.mark.parametrize("confidence", [-0.1, 1.1])
 def test_confidence_is_a_probability(confidence: float) -> None:
     with pytest.raises(ValidationError):
-        CandidateEntity(class_name="Issuer", properties={}, confidence=confidence)
+        CandidateEntity(class_name="Application", properties={}, confidence=confidence)
 
 
 def test_evidence_requires_quote() -> None:

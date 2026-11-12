@@ -29,7 +29,7 @@ class Facts(BaseModel):
 
 
 PROMPT = PromptTemplate(name="extract", version=3, system="Extract.", user="Text: {text}")
-GOOD = {"facts": [{"subject": "Aurora", "confidence": 0.9}]}
+GOOD = {"facts": [{"subject": "Quillstack", "confidence": 0.9}]}
 
 
 def ask(llm: StructuredLLM, sample: int = 0, text: str = "t") -> Any:
@@ -40,7 +40,7 @@ def test_returns_validated_model() -> None:
     fake = FakeLLM({"extract": [GOOD]})
     result = ask(StructuredLLM(fake, InMemoryCache()))
     assert isinstance(result.value, Facts)
-    assert result.value.facts[0].subject == "Aurora"
+    assert result.value.facts[0].subject == "Quillstack"
     assert result.cached is False and result.model == "fake"
 
 
@@ -147,7 +147,7 @@ class Flaky:
 def test_non_json_output_is_retried_then_succeeds() -> None:
     client = Flaky([LLMOutputError("response is not JSON")])
     result = ask(StructuredLLM(client, InMemoryCache(), max_attempts=2))
-    assert client.calls == 2 and result.value.facts[0].subject == "Aurora"
+    assert client.calls == 2 and result.value.facts[0].subject == "Quillstack"
 
 
 def test_always_non_json_raises_and_caches_nothing() -> None:

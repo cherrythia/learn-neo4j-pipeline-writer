@@ -7,6 +7,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import Engine, create_engine, event, select
 from sqlalchemy.pool import StaticPool
 
+from demo_env import data
 from demo_env.mock_superset import create_mock_superset
 from demo_env.seed_sql import render_demo_inserts
 from writer_service.governance.db import create_engine_for
@@ -39,6 +40,7 @@ from writer_service.ontology.spec import OntologySpec
 from writer_service.pipeline.candidates import CandidateEntity, CandidateRelation
 
 SPEC = OntologySpec(CORE_CLASSES, CORE_RELATIONS)
+RETIRED = sum(1 for a in data.HARDWARE if a.status == "retired")
 
 
 def superset() -> SupersetClient:
@@ -48,18 +50,18 @@ def superset() -> SupersetClient:
 
 @pytest.fixture
 def source() -> Iterator[Engine]:
-    """The generated demo seed, loaded into an attached SQLite schema 'demo_compliance'."""
+    """The generated demo seed, loaded into an attached SQLite schema 'demo_itam'."""
     engine = create_engine("sqlite://", poolclass=StaticPool)
 
     @event.listens_for(engine, "connect")
     def attach(dbapi_conn: Any, _: Any) -> None:
-        dbapi_conn.execute("ATTACH DATABASE ':memory:' AS demo_compliance")
+        dbapi_conn.execute("ATTACH DATABASE ':memory:' AS demo_itam")
 
     with engine.begin() as conn:
         raw = conn.connection.dbapi_connection
         assert raw is not None
-        sql = render_demo_inserts().replace("CREATE TABLE ", "CREATE TABLE demo_compliance.")
-        sql = sql.replace("INSERT INTO ", "INSERT INTO demo_compliance.")
+        sql = render_demo_inserts().replace("CREATE TABLE ", "CREATE TABLE demo_itam.")
+        sql = sql.replace("INSERT INTO ", "INSERT INTO demo_itam.")
         raw.executescript(sql)  # type: ignore[union-attr]
     yield engine
     engine.dispose()
@@ -70,8 +72,8 @@ def source() -> Iterator[Engine]:
 
 def test_client_resolves_dataset_from_mock_superset() -> None:
     ds = superset().dataset(2)
-    assert (ds.table_name, ds.schema, ds.backend) == ("filings", "demo_compliance", "mysql")
-    assert ds.columns[:2] == ("filing_id", "issuer_id") and ds.ref == "superset:dataset:2"
+    assert (ds.table_name, ds.schema, ds.backend) == ("assets", "demo_itam", "mysql")
+    assert ds.columns[:2] == ("asset_tag", "name") and ds.ref == "superset:dataset:2"
 
 
 def test_client_errors() -> None:
@@ -93,97 +95,102 @@ def test_client_errors() -> None:
 def test_reader_pages_through_all_rows(source: Engine) -> None:
     ds = superset().dataset(2)
     rows = list(DatasetReader(source, page_size=7).rows(ds))
-    assert len(rows) == 40 and rows[0]["filing_id"] == "AR-2025-APH"
-    assert len({r["filing_id"] for r in rows}) == 40  # no duplicates across pages
+    total = len(data.HARDWARE)
+    assert len(rows) == total and rows[0]["asset_tag"] == data.HARDWARE[0].asset_tag
+    assert len({r["asset_tag"] for r in rows}) == total  # no duplicates across pages
     assert len(list(DatasetReader(source).rows(ds, limit=5))) == 5
-    assert DatasetReader(source).count(ds) == 40
+    assert DatasetReader(source).count(ds) == total
 
 
 def test_reader_supports_virtual_sql_datasets(source: Engine) -> None:
     ds = DatasetInfo(
         9,
-        "late_filings",
+        "retired_assets",
         None,
-        "SELECT filing_id, issuer_id FROM demo_compliance.filings WHERE filed_on > due_on",
+        "SELECT asset_tag, dept_code FROM demo_itam.assets WHERE status = 'retired'",
         "mysql",
-        ("filing_id", "issuer_id"),
+        ("asset_tag", "dept_code"),
     )
-    assert len(list(DatasetReader(source).rows(ds))) == 3
+    assert RETIRED > 0 and len(list(DatasetReader(source).rows(ds))) == RETIRED
 
 
 # ------------------------------------------------------------------ mapping
 
-ISSUERS = DatasetMapping(
+DEPARTMENTS = DatasetMapping(
+    entities=[
+        EntityMapping(class_name="Department", columns={"dept_code": "dept_code", "name": "name"})
+    ]
+)
+DEPARTMENTS_DS = DatasetInfo(1, "departments", "demo_itam", None, "mysql", ("dept_code", "name"))
+ASSETS = DatasetMapping(
     entities=[
         EntityMapping(
-            class_name="Issuer", columns={"ticker": "ticker", "name": "name", "board": "board"}
+            class_name="HardwareAsset",
+            columns={"asset_tag": "asset_tag", "name": "name", "status": "status"},
         )
     ]
 )
-ISSUERS_DS = DatasetInfo(
-    1,
-    "issuers",
-    "demo_compliance",
+ASSETS_DS = DatasetInfo(
+    2,
+    "assets",
+    "demo_itam",
     None,
     "mysql",
-    ("issuer_id", "name", "ticker", "sector", "board", "country"),
+    ("asset_tag", "name", "hardware_type", "manufacturer", "status", "dept_code"),
 )
 
 
 def test_validate_mapping_reports_every_problem() -> None:
     bad = DatasetMapping(
         entities=[
-            EntityMapping(class_name="Issuer", columns={"name": "name", "ceo": "nope"}),
+            EntityMapping(class_name="Department", columns={"name": "name", "head": "nope"}),
             EntityMapping(class_name="Company", columns={}),
         ],
         relations=[
             RelationMapping(
                 relation="OWNS",
-                source=EndMapping(class_name="Issuer", key_column="x"),
-                target=EndMapping(class_name="Issuer", key_column="ticker"),
+                source=EndMapping(class_name="Department", key_column="x"),
+                target=EndMapping(class_name="Department", key_column="dept_code"),
             )
         ],
     )
-    errors = validate_mapping(bad, SPEC, ISSUERS_DS)
+    errors = validate_mapping(bad, SPEC, DEPARTMENTS_DS)
     joined = " | ".join(errors)
     for expected in (
-        "no property 'ceo'",
+        "no property 'head'",
         "no column 'nope'",
-        "identity key 'ticker'",
+        "identity key 'dept_code'",
         "unknown or deprecated class 'Company'",
         "relation 'OWNS'",
         "column 'x'",
     ):
         assert expected in joined
-    assert validate_mapping(ISSUERS, SPEC, ISSUERS_DS) == []
-    assert validate_mapping(DatasetMapping(), SPEC, ISSUERS_DS) == ["mapping is empty"]
+    assert validate_mapping(DEPARTMENTS, SPEC, DEPARTMENTS_DS) == []
+    assert validate_mapping(ASSETS, SPEC, ASSETS_DS) == []
+    assert validate_mapping(DatasetMapping(), SPEC, DEPARTMENTS_DS) == ["mapping is empty"]
 
 
 def test_rows_become_grounded_candidates() -> None:
     rows = [
         {
-            "issuer_id": 1,
-            "name": "Aurora Pacific Holdings (Demo)",
-            "ticker": "APH",
-            "sector": "Energy",
-            "board": "mainboard",
-            "country": "SG",
+            "asset_tag": "HW-23-0001",
+            "name": "altair",
+            "hardware_type": "laptop",
+            "manufacturer": "Corvane (Demo)",
+            "status": "in_use",
+            "dept_code": "ITS",
         }
     ]
-    cands, texts = rows_to_candidates(ISSUERS, ISSUERS_DS, rows)
+    cands, texts = rows_to_candidates(ASSETS, ASSETS_DS, rows)
     (c,) = cands
     assert isinstance(c, CandidateEntity)
-    assert c.properties == {
-        "ticker": "APH",
-        "name": "Aurora Pacific Holdings (Demo)",
-        "board": "mainboard",
-    }
+    assert c.properties == {"asset_tag": "HW-23-0001", "name": "altair", "status": "in_use"}
     assert [e.quote for e in c.evidence] == [
-        "name: Aurora Pacific Holdings (Demo)",
-        "ticker: APH",
-        "board: mainboard",
+        "asset_tag: HW-23-0001",
+        "name: altair",
+        "status: in_use",
     ]
-    assert all(e.locator == "row 1 (issuer_id=1)" for e in c.evidence)
+    assert all(e.locator == "row 1 (asset_tag=HW-23-0001)" for e in c.evidence)
     from writer_service.pipeline.verification import grounding_score
 
     assert all(grounding_score(e.quote, texts[0][2]) == 1.0 for e in c.evidence)
@@ -193,20 +200,20 @@ def test_relation_rows_and_missing_values() -> None:
     m = DatasetMapping(
         relations=[
             RelationMapping(
-                relation="FILED_BY",
-                source=EndMapping(class_name="Filing", key_column="filing_id"),
-                target=EndMapping(class_name="Issuer", key_column="issuer_ticker"),
+                relation="ASSIGNED_TO",
+                source=EndMapping(class_name="HardwareAsset", key_column="asset_tag"),
+                target=EndMapping(class_name="Department", key_column="dept_code"),
             )
         ]
     )
-    ds = DatasetInfo(5, "v", None, "x", "mysql", ("filing_id", "issuer_ticker"))
+    ds = DatasetInfo(5, "v", None, "x", "mysql", ("asset_tag", "dept_code"))
     cands, _ = rows_to_candidates(
         m,
         ds,
-        [{"filing_id": "F1", "issuer_ticker": "APH"}, {"filing_id": "F2", "issuer_ticker": None}],
+        [{"asset_tag": "HW-1", "dept_code": "FIN"}, {"asset_tag": "HW-2", "dept_code": None}],
     )
     (r,) = cands
-    assert isinstance(r, CandidateRelation) and (r.source.key, r.target.key) == ("F1", "APH")
+    assert isinstance(r, CandidateRelation) and (r.source.key, r.target.key) == ("HW-1", "FIN")
 
 
 def test_llm_suggestion_is_constrained_and_stored_as_draft(tmp_path: Path) -> None:
@@ -216,9 +223,9 @@ def test_llm_suggestion_is_constrained_and_stored_as_draft(tmp_path: Path) -> No
                 {
                     "entities": [
                         {
-                            "class_name": "Issuer",
+                            "class_name": "Department",
                             "columns": [
-                                {"property": "ticker", "column": "ticker"},
+                                {"property": "dept_code", "column": "dept_code"},
                                 {"property": "name", "column": "name"},
                             ],
                         }
@@ -232,12 +239,12 @@ def test_llm_suggestion_is_constrained_and_stored_as_draft(tmp_path: Path) -> No
         StructuredLLM(fake, InMemoryCache()),
         SPEC,
         1,
-        ISSUERS_DS,
-        [{"ticker": "APH", "name": "Aurora"}],
+        DEPARTMENTS_DS,
+        [{"dept_code": "FIN", "name": "Finance"}],
     )
-    assert draft.entities[0].columns == {"ticker": "ticker", "name": "name"}
+    assert draft.entities[0].columns == {"dept_code": "dept_code", "name": "name"}
     schema = str(fake.calls[0].schema)
-    assert "'issuer_id'" in schema and "'Issuer'" in schema  # columns and classes are enums
+    assert "'dept_code'" in schema and "'Department'" in schema  # columns and classes are enums
 
 
 def test_save_approve_retire(tmp_path: Path) -> None:
@@ -245,26 +252,26 @@ def test_save_approve_retire(tmp_path: Path) -> None:
     upgrade(url)
     engine = create_engine_for(url)
     with UnitOfWork(engine) as uow:
-        first = save_draft(uow, ISSUERS_DS, ISSUERS, suggested_by="llm", actor="bot").id
+        first = save_draft(uow, DEPARTMENTS_DS, DEPARTMENTS, suggested_by="llm", actor="bot").id
         broken = save_draft(
-            uow, ISSUERS_DS, DatasetMapping(), suggested_by="user", actor="alice"
+            uow, DEPARTMENTS_DS, DatasetMapping(), suggested_by="user", actor="alice"
         ).id
     with pytest.raises(MappingError, match="mapping is empty"), UnitOfWork(engine) as uow:
-        approve_mapping(uow, broken, SPEC, ISSUERS_DS, actor="alice")
+        approve_mapping(uow, broken, SPEC, DEPARTMENTS_DS, actor="alice")
     with UnitOfWork(engine) as uow:
         assert approved_mapping(uow, 1) is None
-        approve_mapping(uow, first, SPEC, ISSUERS_DS, actor="alice")
+        approve_mapping(uow, first, SPEC, DEPARTMENTS_DS, actor="alice")
     with UnitOfWork(engine) as uow:
-        second = save_draft(uow, ISSUERS_DS, ISSUERS, suggested_by="user", actor="alice").id
-        approve_mapping(uow, second, SPEC, ISSUERS_DS, actor="alice")
+        second = save_draft(uow, DEPARTMENTS_DS, DEPARTMENTS, suggested_by="user", actor="alice").id
+        approve_mapping(uow, second, SPEC, DEPARTMENTS_DS, actor="alice")
     with UnitOfWork(engine) as uow:
         statuses = {r.id: r.status for r in uow.session.scalars(select(ColumnMapping))}
         assert statuses[first] == "retired" and statuses[second] == "approved"
-        assert approved_mapping(uow, 1) == ISSUERS
+        assert approved_mapping(uow, 1) == DEPARTMENTS
         actions = [a.action for a in uow.session.scalars(select(AuditLog))]
         assert actions.count("mapping.approve") == 2
     with pytest.raises(MappingError, match="not a draft"), UnitOfWork(engine) as uow:
-        approve_mapping(uow, second, SPEC, ISSUERS_DS, actor="alice")
+        approve_mapping(uow, second, SPEC, DEPARTMENTS_DS, actor="alice")
 
 
 # ------------------------------------------------------------------ review round 1 (#34)
@@ -274,98 +281,97 @@ def test_approve_rejects_a_dataset_that_is_not_the_mappings(tmp_path: Path) -> N
     url = f"sqlite:///{tmp_path / 'g.sqlite'}"
     upgrade(url)
     engine = create_engine_for(url)
-    other = DatasetInfo(7, "issuers_copy", None, None, "mysql", ISSUERS_DS.columns)
+    other = DatasetInfo(7, "departments_copy", None, None, "mysql", DEPARTMENTS_DS.columns)
     with UnitOfWork(engine) as uow:
         approve_mapping(
             uow,
-            save_draft(uow, other, ISSUERS, suggested_by="user", actor="a").id,
+            save_draft(uow, other, DEPARTMENTS, suggested_by="user", actor="a").id,
             SPEC,
             other,
             actor="a",
         )
-        draft = save_draft(uow, ISSUERS_DS, ISSUERS, suggested_by="user", actor="a").id
+        draft = save_draft(uow, DEPARTMENTS_DS, DEPARTMENTS, suggested_by="user", actor="a").id
     with pytest.raises(MappingError, match="belongs to dataset 1"), UnitOfWork(engine) as uow:
         approve_mapping(uow, draft, SPEC, other, actor="a")
     with UnitOfWork(engine) as uow:
-        assert approved_mapping(uow, 7) == ISSUERS  # dataset 7's mapping was not retired
+        assert approved_mapping(uow, 7) == DEPARTMENTS  # dataset 7's mapping was not retired
 
 
 def test_reader_pages_deterministically_when_the_first_column_repeats(source: Engine) -> None:
     ds = DatasetInfo(
         9,
-        "filings_by_issuer",
+        "assets_by_department",
         None,
-        "SELECT issuer_id, filing_id FROM demo_compliance.filings",  # issuer_id repeats
+        "SELECT dept_code, asset_tag FROM demo_itam.assets",  # dept_code repeats
         "mysql",
-        ("issuer_id", "filing_id"),
+        ("dept_code", "asset_tag"),
     )
     statements: list[str] = []
     event.listen(source, "before_cursor_execute", lambda *a: statements.append(a[2]))
     rows = list(DatasetReader(source, page_size=3).rows(ds))
-    assert len(rows) == 40 and len({r["filing_id"] for r in rows}) == 40
+    total = len(data.HARDWARE)
+    assert len(rows) == total and len({r["asset_tag"] for r in rows}) == total
     # SQLite happens to be stable; MySQL is not, so every page must order by every column
-    assert all("ORDER BY ds.issuer_id, ds.filing_id" in q for q in statements), statements[:1]
+    assert all("ORDER BY ds.dept_code, ds.asset_tag" in q for q in statements), statements[:1]
 
 
 def test_count_supports_virtual_sql_datasets(source: Engine) -> None:
     ds = DatasetInfo(
         9,
-        "late_filings",
+        "retired_assets",
         None,
-        "SELECT filing_id, issuer_id FROM demo_compliance.filings WHERE filed_on > due_on",
+        "SELECT asset_tag, dept_code FROM demo_itam.assets WHERE status = 'retired'",
         "mysql",
-        ("filing_id", "issuer_id"),
+        ("asset_tag", "dept_code"),
     )
-    assert DatasetReader(source).count(ds) == 3
+    assert RETIRED > 0 and DatasetReader(source).count(ds) == RETIRED
 
 
 def test_driver_values_are_normalised_to_candidate_scalars() -> None:
     from datetime import date, datetime
     from decimal import Decimal
 
-    ds = DatasetInfo(2, "filings", None, None, "mysql", ("filing_id", "filed_on", "fiscal_year"))
+    ds = DatasetInfo(6, "licenses", None, None, "mysql", ("asset_tag", "purchase_date", "seats"))
     m = DatasetMapping(
         entities=[
             EntityMapping(
-                class_name="Filing",
+                class_name="SoftwareLicense",
                 columns={
-                    "filing_id": "filing_id",
-                    "filed_on": "filed_on",
-                    "fiscal_year": "fiscal_year",
+                    "asset_tag": "asset_tag",
+                    "purchase_date": "purchase_date",
+                    "seats": "seats",
                 },
             )
         ]
     )
     rows = [
         {
-            "filing_id": "F1",
-            "filed_on": datetime(2026, 4, 28, 9, 30),
-            "fiscal_year": Decimal("2025"),
+            "asset_tag": "SL-1",
+            "purchase_date": datetime(2025, 11, 3, 9, 30),
+            "seats": Decimal("50"),
         },
-        {"filing_id": "F2", "filed_on": datetime(2026, 4, 28), "fiscal_year": Decimal("2025.5")},
+        {"asset_tag": "SL-2", "purchase_date": datetime(2025, 11, 3), "seats": Decimal("12.5")},
     ]
     (f1, f2), _ = rows_to_candidates(m, ds, rows)
     assert isinstance(f1, CandidateEntity) and isinstance(f2, CandidateEntity)
-    assert (
-        f1.properties["filed_on"] == "2026-04-28T09:30:00" and f1.properties["fiscal_year"] == 2025
-    )
-    assert f2.properties["filed_on"] == date(2026, 4, 28) and f2.properties["fiscal_year"] == 2025.5
+    assert f1.properties["purchase_date"] == "2025-11-03T09:30:00" and f1.properties["seats"] == 50
+    assert f2.properties["purchase_date"] == date(2025, 11, 3) and f2.properties["seats"] == 12.5
 
 
 def test_validate_mapping_checks_relation_domain_and_range() -> None:
-    ds = DatasetInfo(2, "filings", None, None, "mysql", ("filing_id", "issuer_id"))
+    ds = DatasetInfo(2, "assets", None, None, "mysql", ("asset_tag", "dept_code"))
     backwards = DatasetMapping(
         relations=[
             RelationMapping(
-                relation="FILED_BY",
-                source=EndMapping(class_name="Issuer", key_column="issuer_id"),
-                target=EndMapping(class_name="Filing", key_column="filing_id"),
+                relation="ASSIGNED_TO",
+                source=EndMapping(class_name="Department", key_column="dept_code"),
+                target=EndMapping(class_name="HardwareAsset", key_column="asset_tag"),
             )
         ]
     )
     errors = validate_mapping(backwards, SPEC, ds)
-    assert any("source must be a 'Filing'" in e for e in errors), errors
-    assert any("target must be a 'Issuer'" in e for e in errors), errors
+    assert any("source must be a 'HardwareAsset'" in e for e in errors), errors
+    assert any("target must be a 'Department'" in e for e in errors), errors
 
 
 def test_transport_errors_become_superset_errors() -> None:
@@ -395,18 +401,18 @@ def test_rows_sharing_a_first_column_all_ground_exactly() -> None:
     """Review round 2: locators must be unique, or row texts overwrite each other."""
     from writer_service.pipeline.verification import DictSourceText
 
-    ds = DatasetInfo(2, "filings", None, None, "mysql", ("issuer_id", "filing_id", "filing_type"))
+    ds = DatasetInfo(2, "assets", None, None, "mysql", ("dept_code", "asset_tag", "hardware_type"))
     m = DatasetMapping(
         entities=[
             EntityMapping(
-                class_name="Filing",
-                columns={"filing_id": "filing_id", "filing_type": "filing_type"},
+                class_name="HardwareAsset",
+                columns={"asset_tag": "asset_tag", "hardware_type": "hardware_type"},
             )
         ]
     )
     rows = [
-        {"issuer_id": 1, "filing_id": "F1", "filing_type": "annual_report"},
-        {"issuer_id": 1, "filing_id": "F2", "filing_type": "esg_report"},
+        {"dept_code": "ENG", "asset_tag": "HW-1", "hardware_type": "laptop"},
+        {"dept_code": "ENG", "asset_tag": "HW-2", "hardware_type": "desktop"},
     ]
     cands, texts = rows_to_candidates(m, ds, rows)
     assert len({t[1] for t in texts}) == 2
@@ -417,19 +423,19 @@ def test_rows_sharing_a_first_column_all_ground_exactly() -> None:
 def test_relation_keys_are_normalised_like_entity_keys() -> None:
     from decimal import Decimal
 
-    ds = DatasetInfo(2, "filings", None, None, "mysql", ("filing_id", "issuer_id"))
+    ds = DatasetInfo(2, "assets", None, None, "mysql", ("asset_tag", "dept_id"))
     m = DatasetMapping(
-        entities=[EntityMapping(class_name="Issuer", columns={"ticker": "issuer_id"})],
+        entities=[EntityMapping(class_name="Department", columns={"dept_code": "dept_id"})],
         relations=[
             RelationMapping(
-                relation="FILED_BY",
-                source=EndMapping(class_name="Filing", key_column="filing_id"),
-                target=EndMapping(class_name="Issuer", key_column="issuer_id"),
+                relation="ASSIGNED_TO",
+                source=EndMapping(class_name="HardwareAsset", key_column="asset_tag"),
+                target=EndMapping(class_name="Department", key_column="dept_id"),
             )
         ],
     )
-    (issuer, rel), _ = rows_to_candidates(
-        m, ds, [{"filing_id": "F1", "issuer_id": Decimal("5.00")}]
+    (department, rel), _ = rows_to_candidates(
+        m, ds, [{"asset_tag": "HW-1", "dept_id": Decimal("5.00")}]
     )
-    assert isinstance(issuer, CandidateEntity) and isinstance(rel, CandidateRelation)
-    assert str(issuer.properties["ticker"]) == rel.target.key == "5"
+    assert isinstance(department, CandidateEntity) and isinstance(rel, CandidateRelation)
+    assert str(department.properties["dept_code"]) == rel.target.key == "5"
