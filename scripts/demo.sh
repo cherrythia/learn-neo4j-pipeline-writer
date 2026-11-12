@@ -76,7 +76,15 @@ step "3. approve one fact (written to the graph under its own approval run)"
 item=$(echo "$queue" | json "next(i['id'] for i in d if i['run_id'] == '$doc_run')")
 as "$WORK/rita" -X POST "$BASE/api/review/$item/approve" -H 'content-type: application/json' \
   -d '{}' >/dev/null || fail "approve #$item"
-echo "approved #$item"
+approved() {  # is review item $1 approved, and was it written under its own graph run?
+  as "$WORK/rita" "$BASE/api/review?status=approved" \
+    | json "any(i['id'] == $1 for i in d)" | grep -qx True || return 1
+  as "$WORK/alice" "$BASE/api/audit" | json "any(a['action'] == 'review.approve' and \
+    a['entity_id'] == '$1' and a['detail'].get('graph_run') == 'approval-$1' for a in d)" \
+    | grep -qx True
+}
+approved "$item" || fail "#$item is not approved under graph run approval-$item"
+echo "approved #$item, written to the graph as run approval-$item"
 
 step "4. superset mapping for dataset 1 (LLM drafts it, the admin approves it)"
 draft=$(as "$WORK/alice" -X POST "$BASE/api/mappings/suggest/1") || fail "suggest mapping"
@@ -89,6 +97,9 @@ step "5. superset sync (deterministic rows to facts through the approved mapping
 sync=$(curl -sf -X POST "$BASE/ingest/superset/1" -H "X-API-Key: $WRITER_DEMO_INGEST_API_KEY") \
   || fail "superset sync"
 [ "$(echo "$sync" | json 'd["status"]')" = "completed" ] || fail "sync not completed: $sync"
+# structured rows are fully trusted signals: every candidate must commit, none go to review
+echo "$sync" | json 'd["counts"]["candidates"] > 0 and d["counts"]["commit"] == d["counts"]["candidates"] and d["counts"]["review"] == 0' \
+  | grep -qx True || fail "expected every synced row to commit: $sync"
 echo "run $(echo "$sync" | json 'd["run_id"]'): $(echo "$sync" | json 'd["counts"]')"
 
 step "6. roll back the document run (its open review items close; the approval stays)"
@@ -97,10 +108,12 @@ echo "rolled back $doc_run: $undo"
 left=$(as "$WORK/rita" "$BASE/api/review" | json "len([i for i in d if i['run_id'] == '$doc_run'])")
 [ "$left" = "0" ] || fail "run $doc_run still has $left open review items"
 echo "no open review items left for $doc_run"
+approved "$item" || fail "the approval of #$item did not survive the rollback"
+echo "approval #$item kept (its graph run is separate from $doc_run)"
 
 step "7. audit log"
 audit=$(as "$WORK/alice" "$BASE/api/audit") || fail "audit"
-for action in run.complete review.approve run.rollback; do
+for action in run.complete review.approve mapping.approve run.rollback; do
   echo "$audit" | json "any(a['action'] == '$action' for a in d)" | grep -qx True \
     || fail "no $action in the audit log"
 done

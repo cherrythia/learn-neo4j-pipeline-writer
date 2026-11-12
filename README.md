@@ -12,7 +12,7 @@ following a governed ontology and taxonomy managed from an admin page.
                      ▼                      └───────────────────────┬─────────────────────────┘
           ┌─────────────────────── writer service (FastAPI) ────────┴───────────────────────┐
           │ 1 Extract   LLM × N self-consistency runs (documents) │ approved column mapping │
-          │ 2 Match     entity resolution against the graph (keys, aliases, fuzzy names)  │
+          │ 2 Match     entity resolution against the graph (exact key, fuzzy name)       │
           │ 3 Gates     schema · constraints · conflicts  (fail → reject / conflict)       │
           │ 4 Signals   grounding · back-translation judge · stability · source · match   │
           │ 5 Score     weighted, explained breakdown → commit / review / reject           │
@@ -54,7 +54,7 @@ http://127.0.0.1:8000/admin/ (the passwords and ingestion key are printed on sta
 ## How a fact gets into Neo4j
 
 Take one sentence from the sample PDF: *"Aurora Pacific Holdings (Demo) issued this annual
-report AR-2025-APH"*.
+report (filing AR-2025-APH) for the financial year ended 31 December 2025 …"*.
 
 1. **Extract.** The LLM is asked for facts that fit the *published ontology* only (its classes,
    properties and relations are enums in the output schema), each with a verbatim quote and a
@@ -62,7 +62,11 @@ report AR-2025-APH"*.
    voted on, so a one-off hallucination is dropped. Superset rows skip the LLM: an
    admin-approved column mapping turns them into facts deterministically.
 2. **Match.** `AR-2025-APH` and `Aurora Pacific Holdings (Demo)` are resolved to existing nodes
-   (exact key, alias or fuzzy name), so the same issuer is never created twice.
+   (exact key, or a fuzzy match on name/title), so a fact that names the issuer instead of
+   its ticker still lands on the right node. A *new* key whose name closely matches an
+   existing entity is flagged as a possible duplicate: its match signal drops toward 0,
+   which lowers the score. (It isn't merged automatically, and the signal is only 10% of
+   the score, so a strong fact can still commit as a separate node.)
 3. **Gates.** Hard checks that no score can override: the class/relation must exist with the
    right domain and range; cardinality must hold; and a fact that **contradicts** an accepted
    one (a filing with a second issuer) becomes a *conflict* for a human, never an overwrite.
@@ -160,6 +164,7 @@ uv run writer-users create rita --role reviewer
 (cd admin-ui && bun install && bun run build)
 uv run uvicorn writer_service.app:create_app --factory   # http://localhost:8000/admin/
 
+set -a; . ./.env; set +a              # puts WRITER_INGEST_API_KEY in this shell
 curl -F file=@samples/aurora_pacific_annual_report_2025.pdf \
      -H "X-API-Key: $WRITER_INGEST_API_KEY" http://localhost:8000/ingest/documents
 ```
@@ -197,5 +202,10 @@ All settings use the `WRITER_` prefix. See [`.env.example`](.env.example).
 | `WRITER_MAX_UPLOAD_MB` | `20` | Upload size limit for `/ingest/documents` |
 | `WRITER_ADMIN_UI_DIR` | `admin-ui/dist` | Built admin UI served at `/admin/` (not mounted if missing) |
 | `WRITER_GOVERNANCE_DB_URL` | `sqlite:///./governance.sqlite` | Governance store |
+| `WRITER_SUPERSET_URL` | `http://127.0.0.1:8088` | Superset REST API (the mock locally) |
+| `WRITER_SUPERSET_USERNAME` | `admin` | Superset user |
+| `WRITER_SUPERSET_PASSWORD` | `change-me` | **Secret.** Superset password |
+| `WRITER_SOURCE_DB_URL` | `mysql+pymysql://reader:change-me@127.0.0.1:3306/demo_compliance` | **Read-only** MySQL user for Superset dataset rows |
+| `WRITER_MAX_ROWS_PER_SYNC` | `10000` | Row cap per Superset sync |
 
 Empty values in `.env` are treated as unset. Invalid values stop the service at startup.
