@@ -9,7 +9,7 @@ pass before it is scored. Code: `src/writer_service/pipeline/`. See also
 ```json
 {"kind": "entity", "class_name": "HardwareAsset",
  "properties": {"asset_tag": "HW-25-0101", "hardware_type": "laptop", "model": "Aero 14"},
- "evidence": [{"source_type": "pdf", "source_ref": "samples/meridian_invoice….pdf",
+ "evidence": [{"source_type": "pdf", "source_ref": "samples/zorblax_invoice….pdf",
                "locator": "page 1", "quote": "HW-25-0101 Laptop, Corvane (Demo) Aero 14…"}],
  "confidence": 0.9}
 

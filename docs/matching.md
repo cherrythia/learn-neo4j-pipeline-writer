@@ -38,7 +38,7 @@ lower-casing and removing punctuation.
 |---|---|
 | "quillstack docs" vs "Quillstack Docs (Demo)" | ≈ 0.93 |
 | "Docs" vs "Quillstack Docs (Demo)" | ≈ 0.67: one shared word isn't a match |
-| "Ledgerline Accounting" vs "Quillstack Docs" | < 0.5 |
+| "Ledgerwisp Accounting" vs "Quillstack Docs" | < 0.5 |
 
 Token-set alone would score "Docs" as a perfect match; averaging with token-sort prevents that.
 

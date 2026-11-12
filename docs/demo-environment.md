@@ -33,17 +33,20 @@ follow this order:
 | 2 | `assets` | 29 | Hardware: asset tag, hostname, type (laptop/desktop/server/network), fictional manufacturer and model, serial, status, purchase date, cost, department; **3 are retired**, 1 in repair. The 5 assets bought on the sample invoice are included |
 | 3 | `software` | 6 | Software products with fictional publishers |
 | 4 | `applications` | 7 | Business applications with criticality, status and owning department |
-| 5 | `software_installs` | 32 | Which software is installed on which (non-retired) asset |
+| 5 | `software_installs` | 32 | Which software is installed on which (non-retired) asset (source of `INSTALLED_ON`) |
+| 6 | `application_hosts` | 8 | Which application runs on which server (source of `RUNS_ON`) |
+| 7 | `application_software` | 9 | Which software an application uses (source of `USES`) |
 
-Every company-like name (vendor, customer, manufacturer, publisher) ends in `(Demo)`. The demo
+Every company-like name (vendor, customer, manufacturer, publisher) is invented and ends in
+`(Demo)`; the vendor's address is "1 Example Way, Demo City 000000". The demo
 walkthrough (`scripts/demo.sh`) syncs dataset 1 through an approved `Department` mapping; every
 row commits with no review.
 
 **MySQL `governance`**: empty; owned by the `writer` user. Tables arrive with issue #3.
 
 **Sample documents** in `samples/`:
-- `meridian_invoice_INV-2025-0418.pdf`: a 3-page tax invoice from the fictional vendor
-  Meridian Systems Supply (Demo): hardware lines (3 laptops, a server, a network switch) with
+- `zorblax_invoice_INV-2025-0418.pdf`: a 3-page tax invoice from the fictional vendor
+  Zorblax Systems Supply (Demo): hardware lines (3 laptops, a server, a network switch) with
   asset tags, serials and prices; two software licences with seats and software ids; totals;
   and delivery notes assigning each item to a department (for the PDF path). The golden
   evaluation set is labelled from it ([evaluation](evaluation.md)).
@@ -72,6 +75,16 @@ uv run python -m demo_env.samples    # samples/*.pdf, samples/*.xlsx
 ```
 
 A test fails if the committed seed file is out of date. MySQL runs the init scripts only on
-first start; after changing data run `docker compose down -v` to reset the volumes. (After
-the switch to ITAM in #41 an existing stack still has the old `demo_compliance` schema and
-ontology: reset the volumes once.)
+first start; after changing data run `docker compose down -v` to reset the volumes. 
+
+**Upgrading from the compliance demo (before #41).** An existing stack still has the old
+`demo_compliance` schema, and the governance store still has the compliance ontology
+published; `writer-ontology bootstrap` is a no-op once any version is published. Reset once:
+
+```sh
+rm -f governance.sqlite              # default WRITER_GOVERNANCE_DB_URL; if .env points at the
+                                     # MySQL governance DB, drop and recreate that database instead
+docker compose down -v && docker compose up -d --wait   # new MySQL seed, empty Neo4j
+# in .env: WRITER_SOURCE_DB_URL=...:3306/demo_itam
+uv run writer-db upgrade && uv run writer-ontology bootstrap
+```

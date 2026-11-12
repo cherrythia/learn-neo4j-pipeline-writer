@@ -151,7 +151,7 @@ Every action is in the audit log (`run.start`, `run.complete`, `run.failed`, `ru
 default 20) and returns `{run_id, status, counts}` when the run finishes:
 
 ```sh
-curl -H "X-API-Key: $WRITER_INGEST_API_KEY" -F file=@samples/meridian_invoice_INV-2025-0418.pdf \
+curl -H "X-API-Key: $WRITER_INGEST_API_KEY" -F file=@samples/zorblax_invoice_INV-2025-0418.pdf \
      http://localhost:8000/ingest/documents
 ```
 

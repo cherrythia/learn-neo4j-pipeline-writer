@@ -15,7 +15,7 @@ uv run writer-eval --json report.json
 `evaluation/golden/*.json`: hand-labelled expected facts for a document:
 
 ```json
-{"document": "samples/meridian_invoice_INV-2025-0418.pdf",
+{"document": "samples/zorblax_invoice_INV-2025-0418.pdf",
  "entities":  [{"class_name": "Department", "key": "FIN", "properties": {"name": "Finance"}}],
  "relations": [{"relation": "ASSIGNED_TO", "source": "HW-25-0101", "target": "FIN"},
                {"relation": "BILLED_ON", "source_class": "HardwareAsset",
@@ -23,7 +23,7 @@ uv run writer-eval --json report.json
 ```
 
 Only facts the text actually states are labelled. The golden set
-`evaluation/golden/meridian_invoice_2025_0418.json` (issue #41) labels the sample vendor
+`evaluation/golden/zorblax_invoice_2025_0418.json` (issue #41) labels the sample vendor
 invoice: 14 entities (the vendor, the invoice, 3 departments, 5 hardware assets, 2 software
 licences, 2 software products) and 17 relations (`ISSUED_BY`, 7 × `BILLED_ON`,
 5 × `ASSIGNED_TO`, 2 × `LICENSES`, 2 × `ALLOCATED_TO`). Hostnames, purchase dates and
@@ -50,7 +50,7 @@ The report shows every run and the **voted** result (self-consistency, the same 
 the pipeline uses):
 
 ```
-meridian_invoice_2025_0418.json  (runs: 3, run-to-run agreement: 0.92)
+zorblax_invoice_2025_0418.json  (runs: 3, run-to-run agreement: 0.92)
              precision  recall     f1   attr  tp fp fn
   run 0           0.97    1.00   0.98   1.00  31  1  0
   run 1           1.00    0.90   0.95   1.00  28  0  3

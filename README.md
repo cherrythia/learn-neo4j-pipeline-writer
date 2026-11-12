@@ -172,7 +172,7 @@ uv run writer-users create rita --role reviewer
 uv run uvicorn writer_service.app:create_app --factory   # http://localhost:8000/admin/
 
 set -a; . ./.env; set +a              # puts WRITER_INGEST_API_KEY in this shell
-curl -F file=@samples/meridian_invoice_INV-2025-0418.pdf \
+curl -F file=@samples/zorblax_invoice_INV-2025-0418.pdf \
      -H "X-API-Key: $WRITER_INGEST_API_KEY" http://localhost:8000/ingest/documents
 ```
 

@@ -17,17 +17,25 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
     `demo_compliance`) with `departments`, `assets`, `software`, `applications` and
     `software_installs`; mock Superset serves them as datasets 1–5. The demo syncs dataset 1
     (departments) through an approved `Department` mapping.
-  - Samples: a 3-page vendor invoice `samples/meridian_invoice_INV-2025-0418.pdf` (laptops, a
+  - Samples: a 3-page vendor invoice `samples/zorblax_invoice_INV-2025-0418.pdf` (laptops, a
     server and a switch with asset tags and serials; two software licences with seats and
     expiry; department assignments) and an asset register `samples/asset_register_2025.xlsx`.
-  - New golden set `evaluation/golden/meridian_invoice_2025_0418.json` (31 facts) with
+  - New golden set `evaluation/golden/zorblax_invoice_2025_0418.json` (31 facts) with
     regenerated scripted recordings; no live recordings are committed (re-record with
     `uv run writer-eval --mode live`). Extraction and back-translation prompts are v2.
   - Demo server, `scripts/demo.sh`, `scripts/smoke_demo.sh`, tests, admin UI examples, README
-    and docs use the ITAM vocabulary. **Upgrading a local stack:** `docker compose down -v`
-    once (the MySQL seed and the published ontology are new), then `uv run writer-db
-    upgrade` and `uv run writer-ontology bootstrap`; point `WRITER_SOURCE_DB_URL` in `.env`
-    at `demo_itam`.
+    and docs use the ITAM vocabulary. **Upgrading a local stack:** `bootstrap` does nothing once
+    an ontology is published, so start from an empty governance store: delete
+    `./governance.sqlite` (the default `WRITER_GOVERNANCE_DB_URL`), or drop and recreate the
+    MySQL `governance` database if `.env` points there. Run `docker compose down -v` once
+    (new MySQL seed; the Neo4j volume holds the old constraints and facts), point
+    `WRITER_SOURCE_DB_URL` in `.env` at `demo_itam`, then `docker compose up -d --wait`,
+    `uv run writer-db upgrade` and `uv run writer-ontology bootstrap`.
+  - The extraction prompt shows each property's datatype and allowed values and asks for
+    ISO dates and plain numbers, so invoice values such as `2,150.00` or `3 November 2025`
+    come back as `2150.00` / `2025-11-03` instead of failing the schema gate.
+  - CMDB link tables `application_hosts` and `application_software` (datasets 6–7) are the
+    demo sources for `RUNS_ON` and `USES`.
 - **#28 Full-text index for entity matching at scale**
   - One Neo4j full-text index per active class over its string identity key and its
     name/title (`wsf_<label>_<fields>`), created and dropped with the constraints

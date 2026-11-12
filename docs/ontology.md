@@ -13,12 +13,14 @@ The demo/test domain is IT asset management (ITAM), agreed with the owner in iss
                                             ▲ is-a
                         ┌───────────────────┴───────────────────┐
  Software ─INSTALLED_ON─► HardwareAsset                    SoftwareLicense ─LICENSES─► Software
-                           │ ▲                                  │
-                ASSIGNED_TO│ │RUNS_ON                           │ALLOCATED_TO
-                           ▼ │                                  ▼
-                   Department, Application                 Department
+                           │                                    │
+                ASSIGNED_TO│                                    │ALLOCATED_TO
+                           ▼                                    ▼
+                       Department                           Department
 
- Application ─OWNED_BY─► Department      Application ─USES─► Software
+ Application ─RUNS_ON─► HardwareAsset
+ Application ─OWNED_BY─► Department
+ Application ─USES─► Software
 ```
 
 | Class | Identity key | Parent (taxonomy) | Properties (* = required) |
