@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import os
 import secrets
+import shutil
 import tempfile
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
@@ -97,6 +98,14 @@ class DemoState:
     admin_password: str
     reviewer_password: str
     ingest_api_key: str
+    owns_workdir: bool = False
+
+    def close(self) -> None:
+        """Dispose the store; delete the work dir if the demo created it (it holds the demo
+        users' password hashes and the audit log)."""
+        self.engine.dispose()
+        if self.owns_workdir:
+            shutil.rmtree(self.workdir, ignore_errors=True)
 
 
 def _source_engine() -> Engine:
@@ -168,6 +177,7 @@ def create_demo_app(
     ingest_api_key: str | None = None,
 ) -> tuple[FastAPI, DemoState]:
     """Build the demo app. ``workdir`` holds the SQLite file (a new temp dir by default)."""
+    owns_workdir = workdir is None
     workdir = workdir or Path(tempfile.mkdtemp(prefix="writer-demo-"))
     url = f"sqlite:///{workdir / 'governance.sqlite'}"
     upgrade(url)
@@ -205,7 +215,15 @@ def create_demo_app(
     app.dependency_overrides[get_superset] = lambda: superset
     app.dependency_overrides[get_reader] = lambda: reader
     state = DemoState(
-        workdir, engine, graph, schema, pipeline, admin_password, reviewer_password, ingest_api_key
+        workdir,
+        engine,
+        graph,
+        schema,
+        pipeline,
+        admin_password,
+        reviewer_password,
+        ingest_api_key,
+        owns_workdir=owns_workdir,
     )
     return app, state
 
@@ -229,7 +247,10 @@ def main() -> None:
         f"  governance store: {state.workdir / 'governance.sqlite'} (temporary)\n",
         flush=True,
     )
-    uvicorn.run(app, host=host, port=port)
+    try:
+        uvicorn.run(app, host=host, port=port)
+    finally:
+        state.close()
 
 
 if __name__ == "__main__":

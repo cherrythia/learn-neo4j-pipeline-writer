@@ -1,4 +1,4 @@
-import { Button, Card, Code, Grid, Group, Modal, Stack, Table, Text, Title } from "@mantine/core";
+import { Alert, Button, Card, Code, Grid, Group, Modal, Stack, Table, Text, Title } from "@mantine/core";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { unwrap } from "../api/client";
@@ -63,7 +63,7 @@ export function RunsPage({ role }: { role: string }) {
           </Table>
         </Grid.Col>
         <Grid.Col span={{ base: 12, md: 6 }}>
-          {selected ? <RunView id={selected} admin={role === "admin"} /> : <Text c="dimmed">Select a run.</Text>}
+          {selected ? <RunView key={selected} id={selected} admin={role === "admin"} /> : <Text c="dimmed">Select a run.</Text>}
         </Grid.Col>
       </Grid>
     </Stack>
@@ -105,6 +105,11 @@ function RunView({ id, admin }: { id: string; admin: boolean }) {
         <Counts counts={r.counts} />
         {r.error && <Text c="red">{r.error}</Text>}
         <ErrorAlert error={rollback.error} title="Rollback failed" />
+        {rollback.data && ( // shown on the page: the confirmation closes on success
+          <Alert color="green" title="Run rolled back" data-testid="rollback-result">
+            <Json value={rollback.data} />
+          </Alert>
+        )}
         <Table aria-label="Candidates">
           <Table.Thead>
             <Table.Tr>
@@ -144,7 +149,6 @@ function RunView({ id, admin }: { id: string; admin: boolean }) {
           <Button color="red" onClick={() => rollback.mutate()} loading={rollback.isPending}>
             Confirm rollback
           </Button>
-          {rollback.data && <Json value={rollback.data} />}
         </Stack>
       </Modal>
     </Card>

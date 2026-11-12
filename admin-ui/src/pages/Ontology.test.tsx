@@ -64,3 +64,18 @@ test("create draft posts and selects the new version", async () => {
   fireEvent.click(await screen.findByRole("button", { name: "Create draft" }));
   await waitFor(() => expect(calls.some((c) => c.path === "/api/ontology/versions/2")).toBe(true));
 });
+
+test("switching versions clears the previous version's publish error (review round 1)", async () => {
+  renderWithApi(<OntologyPage role="admin" />, {
+    "GET /api/ontology/versions": [version(1, "published"), version(2, "draft")],
+    "GET /api/ontology/versions/1": { ...DETAIL, ...version(1, "published") },
+    "GET /api/ontology/versions/2": DETAIL,
+    "POST /api/ontology/versions/2/publish": () => json({ detail: "v2 failed validation: bad" }, 422),
+  });
+  fireEvent.click(await screen.findByRole("button", { name: "Publish v2" }));
+  await screen.findByTestId("error-alert");
+  const versions = screen.getByRole("table", { name: "Ontology versions" });
+  fireEvent.click(within(versions).getByText("v1"));
+  await screen.findByText("v1", { selector: "h3" });
+  expect(screen.queryByTestId("error-alert")).toBeNull();
+});

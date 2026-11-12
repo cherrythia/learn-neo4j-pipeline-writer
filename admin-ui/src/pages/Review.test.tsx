@@ -102,3 +102,61 @@ test("edit then approve sends the edited candidate", async () => {
     }),
   );
 });
+
+test("switching items resets the edit form and reject note (review round 1)", async () => {
+  const other: ReviewItem = {
+    ...ITEM,
+    id: 8,
+    candidate: { kind: "entity", class_name: "Issuer", properties: { ticker: "KEP", name: "Keppel" } },
+    evidence: [{ source_type: "pdf", source_ref: "a.pdf", locator: "page 2", quote: "Keppel" }],
+  };
+  const { calls } = renderWithApi(<ReviewPage />, {
+    "GET /api/review": [ITEM, other],
+    "POST /api/review/8/approve": { status: "approved" },
+  });
+  fireEvent.click(await screen.findByTestId("review-row-7"));
+  fireEvent.click(screen.getByRole("button", { name: "Edit then approve" }));
+  fireEvent.change(await screen.findByLabelText("name"), { target: { value: "edited for 7" } });
+  fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
+  fireEvent.click(screen.getByTestId("review-row-8"));
+  fireEvent.click(screen.getByRole("button", { name: "Edit then approve" }));
+  const name = (await screen.findByLabelText("name")) as HTMLInputElement;
+  expect(name.value).toBe("Keppel");
+  fireEvent.click(screen.getByRole("button", { name: "Approve edited" }));
+  await waitFor(() =>
+    expect(calls.find((c) => c.path === "/api/review/8/approve")?.body).toEqual({
+      edited: other.candidate,
+    }),
+  );
+});
+
+test("edit keeps untouched values typed, and an emptied field becomes null (review round 2)", async () => {
+  const typed: ReviewItem = {
+    ...ITEM,
+    id: 9,
+    candidate: {
+      kind: "entity",
+      class_name: "Issuer",
+      properties: { ticker: "APH", name: null, shares: 5, listed: true },
+    },
+  };
+  const { calls } = renderWithApi(<ReviewPage />, {
+    "GET /api/review": [typed],
+    "POST /api/review/9/approve": { status: "approved" },
+  });
+  fireEvent.click(await screen.findByTestId("review-row-9"));
+  fireEvent.click(screen.getByRole("button", { name: "Edit then approve" }));
+  expect(((await screen.findByLabelText("name")) as HTMLInputElement).value).toBe("");
+  fireEvent.change(screen.getByLabelText("ticker"), { target: { value: "APHX" } });
+  fireEvent.change(screen.getByLabelText("shares"), { target: { value: "" } });
+  fireEvent.change(screen.getByLabelText("listed"), { target: { value: "False" } });
+  fireEvent.click(screen.getByRole("button", { name: "Approve edited" }));
+  await waitFor(() =>
+    expect(calls.find((c) => c.path === "/api/review/9/approve")?.body).toEqual({
+      edited: {
+        ...typed.candidate,
+        properties: { ticker: "APHX", name: null, shares: null, listed: false },
+      },
+    }),
+  );
+});

@@ -93,3 +93,14 @@ def test_document_upload_runs_offline_with_scripted_extraction(demo: TestClient)
 def test_ingest_requires_the_demo_key(demo: TestClient) -> None:
     r = demo.post("/ingest/superset/1", headers={"X-API-Key": "wrong"})
     assert r.status_code == 401
+
+
+def test_close_deletes_the_temp_dir_it_created(tmp_path: Path) -> None:
+    """Review round 1: the temp store holds password hashes; it must not outlive the demo."""
+    _, state = create_demo_app()
+    assert state.owns_workdir and (state.workdir / "governance.sqlite").exists()
+    state.close()
+    assert not state.workdir.exists()
+    _, given = create_demo_app(tmp_path)  # a caller's directory is never deleted
+    given.close()
+    assert tmp_path.exists()

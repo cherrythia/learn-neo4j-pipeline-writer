@@ -77,7 +77,10 @@ uv run writer-demo-server             # http://127.0.0.1:8000/admin/
 
 It prints the passwords for `alice` (admin) and `rita` (reviewer); set
 `WRITER_DEMO_ADMIN_PASSWORD` / `WRITER_DEMO_REVIEWER_PASSWORD` (12+ characters) to choose
-them, and `WRITER_DEMO_PORT` / `WRITER_DEMO_HOST` to move it. Everything is discarded on exit.
+them, `WRITER_DEMO_INGEST_API_KEY` to fix the `X-API-Key` for `/ingest/*` (uploading the sample
+PDF works offline: extraction replays scripted answers), and `WRITER_DEMO_PORT` /
+`WRITER_DEMO_HOST` to move it. `./scripts/demo.sh` drives all of it end to end. Everything is discarded on exit:
+the temporary directory (SQLite store with the demo password hashes) is deleted on shutdown.
 
 **Against the real service**: `bun run build`, then start the service as usual; it serves
 `admin-ui/dist` at `/admin/` (or `WRITER_ADMIN_UI_DIR`). Nothing is mounted if the UI hasn't
@@ -105,7 +108,14 @@ bunx playwright test                  # browser smoke test (builds the UI, start
 - `bun test` (root `src/`): client headers/credentials and 401/403/429 mapping, login error
   states, review breakdown and approve/edit/reject calls, scoring validation, ontology graph
   nodes/edges and publish 422 reasons, role-aware navigation, dev proxy paths, generated
-  types up to date. `fetch` is scripted (`src/testing.tsx`); no server is needed.
+  types up to date; one scripted-fetch test per screen (proposals, mappings, runs, users,
+  audit, ontology draft actions) asserting method, path and body of each action.
+  `fetch` is scripted (`src/testing.tsx`); no server is needed.
+- Conventions for new tests: render with `renderWithApi(<Page/>, routes)`; make a route a
+  function that changes its data on a write, so the refetch shows the result (the server's
+  behaviour, in miniature); assert on `calls` (method, path, body, headers); pick Mantine
+  Select options with `pick()` from `src/testing.tsx`. `test/setup.ts` registers happy-dom
+  and stubs what it lacks (`document.fonts`).
 - `e2e/smoke.spec.ts` (Playwright, Chromium): `rita` logs in, opens a review item, approves
   it; `alice` logs in, opens Ontology, creates a draft and publishes it.
 - Backend: `tests/test_api/test_admin_ui_static.py` (the `/admin/` mount) and

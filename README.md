@@ -139,6 +139,16 @@ each with its own docs page:
 
 Requirements: [uv](https://docs.astral.sh/uv/), [Bun](https://bun.sh), Docker.
 
+Try the admin UI with no Docker and no API key (in-memory stores, scripted LLM, seeded review
+queue; it prints the `alice`/`rita` passwords):
+
+```sh
+uv sync && (cd admin-ui && bun install && bun run build)
+uv run writer-demo-server                         # http://127.0.0.1:8000/admin/
+```
+
+The full service:
+
 ```sh
 cp .env.example .env                 # set WRITER_ANTHROPIC_API_KEY (and change the dev secrets)
 docker compose up -d --wait          # Neo4j :7474/:7687, MySQL :3306, mock Superset :8088
